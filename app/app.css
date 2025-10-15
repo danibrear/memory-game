@@ -61,3 +61,58 @@ body {
     opacity: 1;
   }
 }
+input[type="range"] {
+  -webkit-appearance: none; /* For Chrome, Safari, Opera */
+  appearance: none; /* For other browsers */
+  width: 100%; /* Example width */
+  height: 30px; /* Overall height of the range input */
+  background-color: transparent; /* Make the background transparent to see the track */
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 20px; /* Height of the track */
+  background: #ccc; /* Track color */
+  border-radius: 10px; /* Rounded corners for the track */
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 20px;
+  background: #ccc;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+input[type="range"]::-ms-track {
+  height: 20px;
+  background: transparent; /* IE/Edge need transparent background for the track */
+  border-color: transparent; /* Also transparent borders */
+  border-width: 16px 0; /* Adjust as needed to control overall height */
+  color: transparent; /* Transparent color for the track */
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 30px; /* Height of the thumb */
+  width: 30px; /* Width of the thumb */
+  background: #007bff; /* Thumb color */
+  border-radius: 50%; /* Make it a circle */
+  margin-top: -5px; /* Center the thumb on the track */
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  height: 30px;
+  width: 30px;
+  background: #007bff;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+input[type="range"]::-ms-thumb {
+  height: 30px;
+  width: 30px;
+  background: #007bff;
+  border-radius: 50%;
+  cursor: pointer;
+}

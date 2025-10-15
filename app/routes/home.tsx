@@ -168,32 +168,80 @@ export default function Home() {
         minHeight: "100vh",
         position: "relative",
       }}>
-      <div>
-        <p>Difficulty {difficulty}</p>
-        <input
-          type="range"
-          min={2}
-          max={20}
-          disabled={gameState !== "START" && gameState !== "ENDED"}
-          value={difficulty}
-          onChange={(e) => {
-            setGameState("START");
-            setDifficulty(parseInt(e.target.value));
-          }}
-        />
-      </div>
-      <div>
-        <button
-          disabled={gameState !== "START"}
-          onClick={handleStartGame}
-          className="btn">
-          Play
-        </button>
-      </div>
+      {gameState === "START" && (
+        <div
+          style={{
+            position: "fixed",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -100%)",
+            zIndex: 1000,
+            width: "90%",
+            maxWidth: "400px",
+            gap: "10px",
+            display: "flex",
+            flexDirection: "column",
+            backgroundColor: "white",
+            padding: "20px",
+            borderRadius: "10px",
+            boxShadow: "0 2px 10px rgba(0,0,0,.8)",
+          }}>
+          <div
+            style={{
+              paddingBottom: "10px",
+              marginBottom: "10px",
+              borderBottom: "1px solid rgba(0,0,0,.1)",
+            }}>
+            <p
+              style={{
+                marginBottom: "5px",
+                textAlign: "center",
+              }}>
+              Difficulty: <strong>{difficulty}</strong>
+            </p>
+            <input
+              type="range"
+              min={2}
+              max={20}
+              style={{
+                width: "100%",
+              }}
+              disabled={gameState !== "START" && gameState !== "ENDED"}
+              value={difficulty}
+              onChange={(e) => {
+                setGameState("START");
+                setDifficulty(parseInt(e.target.value));
+              }}
+            />
+          </div>
+          <button
+            disabled={gameState !== "START"}
+            onClick={handleStartGame}
+            className="btn">
+            Play
+          </button>
+        </div>
+      )}
       {renderGameStatus()}
 
       {renderGameBoard()}
-      {gameState === "ENDED" && (
+      {(gameState === "ACTIVE" || gameState === "SHOWING") && (
+        <div
+          className="alert alert-info"
+          style={{ marginTop: "10px", textAlign: "center" }}>
+          <p>
+            Found:{" "}
+            <strong>
+              {correctCells.size} / {difficulty}
+            </strong>
+          </p>
+          <p style={{ marginTop: "5px" }}>
+            <strong>{incorrectCells.size}</strong>{" "}
+            {incorrectCells.size === 1 ? "mistake" : "mistakes"}
+          </p>
+        </div>
+      )}
+      {(gameState === "ENDED" || gameState === "START") && (
         <div
           style={{
             height: "100vh",
