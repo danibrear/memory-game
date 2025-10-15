@@ -122,52 +122,41 @@ export default function Home() {
   };
 
   const renderGameStatus = () => {
-    if (gameState === "SHOWING" || gameState === "ACTIVE") {
+    if (gameState !== "ENDED") {
       return null;
     }
-    if (gameState === "START") {
-      return (
-        <div>
-          <button onClick={handleStartGame} className="btn">
-            Play
-          </button>
-        </div>
-      );
-    }
-    if (gameState === "ENDED") {
-      return (
-        <div
+    return (
+      <div
+        style={{
+          textAlign: "center",
+          marginTop: "10px",
+          marginBottom: "10px",
+          position: "fixed",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -100%)",
+          zIndex: 1000,
+        }}>
+        <p
+          className="alert alert-info mb-4"
           style={{
-            textAlign: "center",
-            marginTop: "10px",
-            marginBottom: "10px",
-            position: "fixed",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -100%)",
-            zIndex: 1000,
+            boxShadow: "0 2px 10px rgba(0,0,0,.8)",
+            animation: "slideUp 0.333s ease-out",
           }}>
-          <p
-            className="alert alert-info mb-4"
-            style={{
-              boxShadow: "0 2px 10px rgba(0,0,0,.8)",
-              animation: "slideUp 0.333s ease-out",
-            }}>
-            You got all the correct cells and made {incorrectCells.size}{" "}
-            {incorrectCells.size === 1 ? "mistake" : "mistakes"}.
-            <br />
-            <button
-              style={{ marginTop: "5px", width: "100%" }}
-              onClick={() => {
-                setGameState("START");
-              }}
-              className="btn">
-              Done
-            </button>
-          </p>
-        </div>
-      );
-    }
+          You got all the correct cells and made {incorrectCells.size}{" "}
+          {incorrectCells.size === 1 ? "mistake" : "mistakes"}.
+          <br />
+          <button
+            style={{ marginTop: "5px", width: "100%" }}
+            onClick={() => {
+              setGameState("START");
+            }}
+            className="btn">
+            Done
+          </button>
+        </p>
+      </div>
+    );
   };
   return (
     <div
@@ -191,6 +180,14 @@ export default function Home() {
             setDifficulty(parseInt(e.target.value));
           }}
         />
+      </div>
+      <div>
+        <button
+          disabled={gameState !== "START"}
+          onClick={handleStartGame}
+          className="btn">
+          Play
+        </button>
       </div>
       {renderGameStatus()}
 
