@@ -185,6 +185,7 @@ export default function Home() {
             padding: "20px",
             borderRadius: "10px",
             boxShadow: "0 2px 10px rgba(0,0,0,.8)",
+            animation: "fadeIn .333s ease forwards",
           }}>
           <div
             style={{
@@ -215,11 +216,44 @@ export default function Home() {
             />
           </div>
           <button
+            style={{
+              opacity: 0,
+              transform: "translateY(50px)",
+              animation: "slideUp .5s 0.1s ease forwards",
+            }}
             disabled={gameState !== "START"}
             onClick={handleStartGame}
             className="btn">
             Play
           </button>
+
+          <div
+            style={{
+              textAlign: "center",
+              marginTop: "10px",
+              opacity: 0,
+              animation: "slideUp .666s 0.5s ease forwards",
+            }}>
+            <small
+              style={{ cursor: "pointer" }}
+              onClick={() => {
+                window.open("https://db.rocks", "_blank");
+              }}>
+              Made with ❤️ by{" "}
+              <a
+                href="https://db.rocks"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  textDecoration: "underline",
+                  color: "blue",
+                  fontSize: ".9rem",
+                  fontWeight: "bold",
+                }}>
+                Dani
+              </a>
+            </small>
+          </div>
         </div>
       )}
       {renderGameStatus()}
