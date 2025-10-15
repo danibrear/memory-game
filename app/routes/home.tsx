@@ -70,9 +70,9 @@ export default function Home() {
           display: "grid",
           gridTemplateColumns: `repeat(${difficulty}, 1fr)`,
           gap: "10px",
-          maxWidth: "66vh",
+          maxWidth: "60vh",
           margin: "20px auto",
-          width: "100%",
+          width: "90%",
         }}>
         {cells.map((_, index) => {
           const isCorrect = correctCells.has(index);
@@ -132,6 +132,7 @@ export default function Home() {
           marginTop: "10px",
           marginBottom: "10px",
           position: "fixed",
+          width: "100%",
           top: "50%",
           left: "50%",
           transform: "translate(-50%, -100%)",

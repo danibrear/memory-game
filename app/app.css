@@ -34,6 +34,9 @@ body {
 
 .alert {
   @apply p-4 rounded;
+  width: 90%;
+  max-width: 400px;
+  margin: 0 auto;
 }
 .alert-info {
   @apply bg-blue-100 text-blue-800;
