@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "New React Router App" },
+    { title: "Memory Game by DaniB" },
     { name: "description", content: "Welcome to React Router!" },
   ];
 }
