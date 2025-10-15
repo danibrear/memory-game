@@ -153,7 +153,7 @@ export default function Home() {
               setGameState("START");
             }}
             className="btn">
-            Done
+            Play Again
           </button>
         </p>
       </div>
