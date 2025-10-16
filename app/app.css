@@ -14,6 +14,35 @@ body {
     color-scheme: dark;
   }
 }
+.modal {
+  @apply bg-white dark:bg-gray-900;
+}
+.link {
+  @apply text-blue-600 dark:text-blue-400 underline;
+}
+
+.cell {
+  @apply bg-sky-100 dark:bg-sky-300 flex items-center justify-center border border-gray-300 dark:border-gray-300 rounded cursor-default select-none;
+
+  font-size: 1.5rem;
+  font-weight: bold;
+  user-select: none;
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.1s ease;
+}
+.cell.correct {
+  @apply bg-green-500 text-white dark:bg-green-600;
+}
+.cell.incorrect {
+  @apply bg-red-500 text-white dark:bg-red-600;
+}
+.cell.showing {
+  @apply bg-green-500 text-white dark:bg-green-600;
+}
+.cell.clickable {
+  cursor: pointer;
+}
 
 .cell.clickable:hover {
   transform: scale(1.05);
@@ -39,7 +68,7 @@ body {
   margin: 0 auto;
 }
 .alert-info {
-  @apply bg-blue-100 text-blue-800;
+  @apply bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300;
 }
 
 @keyframes slideUp {

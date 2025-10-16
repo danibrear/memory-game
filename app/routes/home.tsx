@@ -79,24 +79,21 @@ export default function Home() {
           const isIncorrect = incorrectCells.has(index);
           const isSelected = selectedCells.has(index);
           const isShowing = gameState === "SHOWING" && isSelected;
+          const isActive = gameState !== "START";
+          const isCorrectClass = isCorrect && isActive ? "correct" : "";
+          const isIncorrectClass = isIncorrect && isActive ? "incorrect" : "";
+          const isShowingClass = isShowing ? "showing" : "";
           return (
             <div
               key={index}
-              className={`cell ${gameState === "ACTIVE" ? "clickable" : ""}`}
+              className={`cell ${gameState === "ACTIVE" ? "clickable" : ""} ${isCorrectClass} ${isIncorrectClass} ${isShowingClass}`}
               onClick={() => handleClickCell(index)}
               style={{
                 width: "100%",
                 paddingBottom: "100%",
-                backgroundColor: isCorrect
-                  ? "green"
-                  : isIncorrect
-                    ? "red"
-                    : isShowing
-                      ? "blue"
-                      : "lightgray",
-
                 transform:
-                  isCorrect || isIncorrect || isShowing
+                  (isCorrect || isIncorrect || isShowing) &&
+                  gameState !== "START"
                     ? "rotateY(180deg)"
                     : "rotateY(0deg)",
                 border: "1px solid rgba(0,0,0,.5)",
@@ -170,6 +167,7 @@ export default function Home() {
       }}>
       {gameState === "START" && (
         <div
+          className="modal"
           style={{
             position: "fixed",
             top: "50%",
@@ -181,7 +179,6 @@ export default function Home() {
             gap: "10px",
             display: "flex",
             flexDirection: "column",
-            backgroundColor: "white",
             padding: "20px",
             borderRadius: "10px",
             boxShadow: "0 2px 10px rgba(0,0,0,.8)",
@@ -193,6 +190,15 @@ export default function Home() {
               marginBottom: "10px",
               borderBottom: "1px solid rgba(0,0,0,.1)",
             }}>
+            <h6
+              style={{
+                fontSize: "1.25rem",
+                fontWeight: "bold",
+                textAlign: "center",
+                marginBottom: "10px",
+              }}>
+              Find all green cells
+            </h6>
             <p
               style={{
                 marginBottom: "5px",
@@ -244,9 +250,8 @@ export default function Home() {
                 href="https://db.rocks"
                 target="_blank"
                 rel="noopener noreferrer"
+                className="link"
                 style={{
-                  textDecoration: "underline",
-                  color: "blue",
                   fontSize: ".9rem",
                   fontWeight: "bold",
                 }}>
