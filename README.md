@@ -3,6 +3,8 @@
 This was a coding exercise done for time. The original implementation was not styled well so I wanted to write it again on my own so I could improve the styling and add some animations.
 It is a simple memory game where you have to remember which cells you have clicked on. The game has three states: START, PLAYING, and ENDED. You can adjust the difficulty of the game by changing the number of cells in the grid.
 
+Demo: https://3mw7qp-5173.csb.app/
+
 ## How to run
 
 2. Run `npm install` to install the dependencies
