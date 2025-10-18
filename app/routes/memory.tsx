@@ -2,6 +2,11 @@ import { clearStoredData, getStoredData, setStoredData } from "~/storage";
 import type { Route } from "./+types/memory";
 import { useEffect, useState } from "react";
 
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCircleInfo, faHeart } from "@fortawesome/free-solid-svg-icons";
+import { faAdd } from "@fortawesome/free-solid-svg-icons/faAdd";
+import { faSubtract } from "@fortawesome/free-solid-svg-icons/faSubtract";
+
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Memory Game by DaniB" },
@@ -11,7 +16,7 @@ export function meta({}: Route.MetaArgs) {
 
 export default function Memory() {
   const [gameState, setGameState] = useState<
-    "START" | "ACTIVE" | "SHOWING" | "ENDED"
+    "START" | "ACTIVE" | "INTRO" | "SHOWING" | "ENDED"
   >("START");
   const [correctCells, setCorrectCells] = useState<Set<number>>(new Set());
   const [incorrectCells, setIncorrectCells] = useState<Set<number>>(new Set());
@@ -93,11 +98,14 @@ export default function Memory() {
     setCorrectCells(new Set());
     setIncorrectCells(new Set());
     setSelectedCells(newCorrectCells);
-    setGameState("SHOWING");
+    setGameState("INTRO");
 
     setTimeout(() => {
-      setGameState("ACTIVE");
+      setGameState("SHOWING");
     }, 2000);
+    setTimeout(() => {
+      setGameState("ACTIVE");
+    }, 4000);
   };
 
   const renderGameBoard = () => {
@@ -106,53 +114,258 @@ export default function Memory() {
     return (
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(${difficulty}, 1fr)`,
-          gap: "10px",
-          maxWidth: "60vh",
-          margin: "20px auto",
-          width: "90%",
+          flexGrow: 1,
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "flex-start",
+          position: "relative",
+          flexDirection: "column",
+          width: "100%",
         }}>
-        {cells.map((_, index) => {
-          const isCorrect = correctCells.has(index);
-          const isIncorrect = incorrectCells.has(index);
-          const isSelected = selectedCells.has(index);
-          const isShowing = gameState === "SHOWING" && isSelected;
-          const isActive = gameState !== "START";
-          const isCorrectClass = isCorrect && isActive ? "correct" : "";
-          const isIncorrectClass = isIncorrect && isActive ? "incorrect" : "";
-          const isShowingClass = isShowing ? "showing" : "";
-          return (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(${difficulty}, 1fr)`,
+            gap: `${Math.max(5 - Math.floor(difficulty / 5), 2)}px`,
+            maxWidth: "60vh",
+            margin: "20px auto",
+            width: "90%",
+            position: "relative",
+          }}>
+          {cells.map((_, index) => {
+            const isCorrect = correctCells.has(index);
+            const isIncorrect = incorrectCells.has(index);
+            const isSelected = selectedCells.has(index);
+            const isShowing = gameState === "SHOWING" && isSelected;
+            const isActive = gameState !== "START";
+            const isCorrectClass = isCorrect && isActive ? "correct" : "";
+            const isIncorrectClass = isIncorrect && isActive ? "incorrect" : "";
+            const isShowingClass = isShowing ? "showing" : "";
+            return (
+              <div
+                key={index}
+                className={`cell ${gameState === "ACTIVE" ? "clickable" : ""} ${isCorrectClass} ${isIncorrectClass} ${isShowingClass}`}
+                onClick={() => handleClickCell(index)}
+                style={{
+                  width: "100%",
+                  paddingBottom: "100%",
+                  transform:
+                    (isCorrect || isIncorrect || isShowing) &&
+                    gameState !== "START"
+                      ? "rotateY(180deg)"
+                      : "rotateY(0deg)",
+                  border: "1px solid rgba(0,0,0,.5)",
+                  boxShadow: "0 2px 5px rgba(0,0,0,.333)",
+                  position: "relative",
+                  borderRadius: "10%",
+                  transition: "all 0.25s ease",
+                  cursor: gameState === "ACTIVE" ? "pointer" : "not-allowed",
+                }}>
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                  }}></div>
+              </div>
+            );
+          })}
+          {gameState === "INTRO" && (
             <div
-              key={index}
-              className={`cell ${gameState === "ACTIVE" ? "clickable" : ""} ${isCorrectClass} ${isIncorrectClass} ${isShowingClass}`}
-              onClick={() => handleClickCell(index)}
+              className="modal"
               style={{
-                width: "100%",
-                paddingBottom: "100%",
-                transform:
-                  (isCorrect || isIncorrect || isShowing) &&
-                  gameState !== "START"
-                    ? "rotateY(180deg)"
-                    : "rotateY(0deg)",
-                border: "1px solid rgba(0,0,0,.5)",
-                boxShadow: "0 2px 5px rgba(0,0,0,.333)",
-                position: "relative",
-                borderRadius: "10%",
-                transition: "all 0.25s ease",
-                cursor: gameState === "ACTIVE" ? "pointer" : "not-allowed",
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                zIndex: 1000,
+                width: "90%",
+                maxWidth: "400px",
+                gap: "10px",
+                display: "flex",
+                flexDirection: "column",
+                padding: "20px",
+                borderRadius: "10px",
+                boxShadow: "0 2px 10px rgba(0,0,0,.8)",
+                animation: "fadeIn .333s ease forwards",
               }}>
               <div
                 style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                }}></div>
+                  gap: "10px",
+                  display: "flex",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}>
+                <FontAwesomeIcon
+                  icon={faCircleInfo}
+                  style={{
+                    fontSize: "2rem",
+                  }}
+                />
+                <h6
+                  style={{
+                    fontSize: "1.25rem",
+                    fontWeight: "bold",
+                    textAlign: "center",
+                  }}>
+                  Remember these cells!
+                </h6>
+              </div>
             </div>
-          );
-        })}
+          )}
+          {gameState === "START" && (
+            <div
+              className="modal"
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                zIndex: 1000,
+                width: "90%",
+                maxWidth: "400px",
+                gap: "10px",
+                display: "flex",
+                flexDirection: "column",
+                padding: "20px",
+                borderRadius: "10px",
+                boxShadow: "0 2px 10px rgba(0,0,0,.8)",
+                animation: "fadeIn .333s ease forwards",
+              }}>
+              <div
+                style={{
+                  paddingBottom: "10px",
+                  marginBottom: "10px",
+                  borderBottom: "1px solid rgba(0,0,0,.1)",
+                }}>
+                <h6
+                  style={{
+                    fontSize: "1.25rem",
+                    fontWeight: "bold",
+                    textAlign: "center",
+                    marginBottom: "10px",
+                  }}>
+                  Find all green cells
+                </h6>
+                <p
+                  style={{
+                    marginBottom: "5px",
+                    textAlign: "center",
+                  }}>
+                  Difficulty: <strong>{difficulty}</strong>
+                </p>
+                <div>
+                  <input
+                    type="range"
+                    min={2}
+                    max={15}
+                    style={{
+                      width: "100%",
+                    }}
+                    disabled={gameState !== "START"}
+                    value={difficulty}
+                    onChange={(e) => {
+                      setGameState("START");
+                      setDifficulty(parseInt(e.target.value));
+                    }}
+                  />
+                  <div
+                    style={{
+                      display: "flex",
+
+                      gap: "5px",
+                    }}>
+                    <button
+                      className="icon-btn"
+                      onClick={() => {
+                        setDifficulty((d) => Math.max(2, d - 1));
+                      }}>
+                      <FontAwesomeIcon icon={faSubtract} />
+                    </button>
+                    <button
+                      className="icon-btn"
+                      onClick={() => {
+                        setDifficulty((d) => Math.min(15, d + 1));
+                      }}>
+                      <FontAwesomeIcon icon={faAdd} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <button
+                style={{
+                  opacity: 0,
+                  transform: "translateY(50px)",
+                  animation: "slideUp .5s 0.1s ease forwards",
+                }}
+                disabled={gameState !== "START"}
+                onClick={handleStartGame}
+                className="btn">
+                Play
+              </button>
+
+              <div
+                style={{
+                  textAlign: "center",
+                  marginTop: "10px",
+                  opacity: 0,
+                  animation: "slideUp .666s 0.5s ease forwards",
+                }}>
+                <small
+                  style={{ cursor: "pointer" }}
+                  onClick={() => {
+                    window.open("https://db.rocks", "_blank");
+                  }}>
+                  Made with{" "}
+                  <FontAwesomeIcon
+                    icon={faHeart}
+                    bounce
+                    style={{
+                      color: "red",
+                      fontSize: "1rem",
+                    }}
+                  />{" "}
+                  by{" "}
+                  <a
+                    href="https://db.rocks"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="link"
+                    style={{
+                      fontSize: ".9rem",
+                      fontWeight: "bold",
+                    }}>
+                    Dani
+                  </a>
+                </small>
+              </div>
+            </div>
+          )}
+        </div>
+        {(gameState === "ACTIVE" || gameState === "SHOWING") && (
+          <div
+            className="alert alert-info"
+            style={{ marginTop: "10px", textAlign: "center" }}>
+            <p>
+              Found:{" "}
+              <strong>
+                {correctCells.size} / {difficulty}
+              </strong>
+            </p>
+            <p style={{ marginTop: "5px" }}>
+              <strong>{incorrectCells.size}</strong>{" "}
+              {incorrectCells.size === 1 ? "mistake" : "mistakes"}
+            </p>
+            <button
+              onClick={() => setGameState("START")}
+              className="btn btn-sm mt-4">
+              Restart
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -204,127 +417,12 @@ export default function Memory() {
         minHeight: "100vh",
         position: "relative",
       }}>
-      {gameState === "START" && (
-        <div
-          className="modal"
-          style={{
-            position: "fixed",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -100%)",
-            zIndex: 1000,
-            width: "90%",
-            maxWidth: "400px",
-            gap: "10px",
-            display: "flex",
-            flexDirection: "column",
-            padding: "20px",
-            borderRadius: "10px",
-            boxShadow: "0 2px 10px rgba(0,0,0,.8)",
-            animation: "fadeIn .333s ease forwards",
-          }}>
-          <div
-            style={{
-              paddingBottom: "10px",
-              marginBottom: "10px",
-              borderBottom: "1px solid rgba(0,0,0,.1)",
-            }}>
-            <h6
-              style={{
-                fontSize: "1.25rem",
-                fontWeight: "bold",
-                textAlign: "center",
-                marginBottom: "10px",
-              }}>
-              Find all green cells
-            </h6>
-            <p
-              style={{
-                marginBottom: "5px",
-                textAlign: "center",
-              }}>
-              Difficulty: <strong>{difficulty}</strong>
-            </p>
-            <input
-              type="range"
-              min={2}
-              max={20}
-              style={{
-                width: "100%",
-              }}
-              disabled={gameState !== "START"}
-              value={difficulty}
-              onChange={(e) => {
-                setGameState("START");
-                setDifficulty(parseInt(e.target.value));
-              }}
-            />
-          </div>
-          <button
-            style={{
-              opacity: 0,
-              transform: "translateY(50px)",
-              animation: "slideUp .5s 0.1s ease forwards",
-            }}
-            disabled={gameState !== "START"}
-            onClick={handleStartGame}
-            className="btn">
-            Play
-          </button>
-
-          <div
-            style={{
-              textAlign: "center",
-              marginTop: "10px",
-              opacity: 0,
-              animation: "slideUp .666s 0.5s ease forwards",
-            }}>
-            <small
-              style={{ cursor: "pointer" }}
-              onClick={() => {
-                window.open("https://db.rocks", "_blank");
-              }}>
-              Made with ❤️ by{" "}
-              <a
-                href="https://db.rocks"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link"
-                style={{
-                  fontSize: ".9rem",
-                  fontWeight: "bold",
-                }}>
-                Dani
-              </a>
-            </small>
-          </div>
-        </div>
-      )}
       {renderGameStatus()}
 
       {renderGameBoard()}
-      {(gameState === "ACTIVE" || gameState === "SHOWING") && (
-        <div
-          className="alert alert-info"
-          style={{ marginTop: "10px", textAlign: "center" }}>
-          <p>
-            Found:{" "}
-            <strong>
-              {correctCells.size} / {difficulty}
-            </strong>
-          </p>
-          <p style={{ marginTop: "5px" }}>
-            <strong>{incorrectCells.size}</strong>{" "}
-            {incorrectCells.size === 1 ? "mistake" : "mistakes"}
-          </p>
-          <button
-            onClick={() => setGameState("START")}
-            className="btn btn-sm mt-4">
-            Restart
-          </button>
-        </div>
-      )}
-      {(gameState === "ENDED" || gameState === "START") && (
+      {(gameState === "ENDED" ||
+        gameState === "START" ||
+        gameState === "INTRO") && (
         <div
           style={{
             height: "100vh",
