@@ -1,4 +1,5 @@
-import type { Route } from "./+types/home";
+import { clearStoredData, getStoredData, setStoredData } from "~/storage";
+import type { Route } from "./+types/memory";
 import { useEffect, useState } from "react";
 
 export function meta({}: Route.MetaArgs) {
@@ -8,7 +9,7 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-export default function Home() {
+export default function Memory() {
   const [gameState, setGameState] = useState<
     "START" | "ACTIVE" | "SHOWING" | "ENDED"
   >("START");
@@ -17,18 +18,55 @@ export default function Home() {
   const [selectedCells, setSelectedCells] = useState<Set<number>>(new Set());
 
   const [difficulty, setDifficulty] = useState<number>(3);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const getGameStateJson = () => {
+    return {
+      gameState,
+      correctCells: Array.from(correctCells),
+      incorrectCells: Array.from(incorrectCells),
+      selectedCells: Array.from(selectedCells),
+      difficulty,
+    };
+  };
 
   useEffect(() => {
+    if (gameState !== "ACTIVE") return;
     if (correctCells.size === selectedCells.size && correctCells.size > 0) {
       setGameState("ENDED");
+      clearStoredData("memory-game-state");
+    } else {
+      setStoredData("memory-game-state", getGameStateJson());
     }
-  }, [correctCells, selectedCells]);
+  }, [correctCells, gameState, selectedCells, incorrectCells]);
 
   useEffect(() => {
+    setIsLoading(true);
+    const storedData = getStoredData("memory-game-state");
+    if (storedData) {
+      setGameState(storedData.gameState);
+      setCorrectCells(new Set(storedData.correctCells));
+      setIncorrectCells(new Set(storedData.incorrectCells));
+      setSelectedCells(new Set(storedData.selectedCells));
+      setDifficulty(storedData.difficulty);
+    }
+    setIsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (gameState === "ENDED") {
+      clearStoredData("memory-game-state");
+    } else if (!isLoading) {
+      setStoredData("memory-game-state", getGameStateJson());
+    }
+  }, [gameState, isLoading]);
+
+  useEffect(() => {
+    if (gameState !== "START" || isLoading) return;
     setCorrectCells(new Set());
     setIncorrectCells(new Set());
     setSelectedCells(new Set());
-  }, [difficulty]);
+  }, [difficulty, isLoading]);
 
   const handleClickCell = (index: number) => {
     if (gameState !== "ACTIVE") return;
@@ -56,6 +94,7 @@ export default function Home() {
     setIncorrectCells(new Set());
     setSelectedCells(newCorrectCells);
     setGameState("SHOWING");
+
     setTimeout(() => {
       setGameState("ACTIVE");
     }, 2000);
@@ -213,7 +252,7 @@ export default function Home() {
               style={{
                 width: "100%",
               }}
-              disabled={gameState !== "START" && gameState !== "ENDED"}
+              disabled={gameState !== "START"}
               value={difficulty}
               onChange={(e) => {
                 setGameState("START");
@@ -278,6 +317,11 @@ export default function Home() {
             <strong>{incorrectCells.size}</strong>{" "}
             {incorrectCells.size === 1 ? "mistake" : "mistakes"}
           </p>
+          <button
+            onClick={() => setGameState("START")}
+            className="btn btn-sm mt-4">
+            Restart
+          </button>
         </div>
       )}
       {(gameState === "ENDED" || gameState === "START") && (
