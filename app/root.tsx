@@ -5,8 +5,15 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useNavigate,
 } from "react-router";
 
+import "@fontsource/roboto/300.css";
+import "@fontsource/roboto/400.css";
+import "@fontsource/roboto/500.css";
+import "@fontsource/roboto/700.css";
+
+import { AppBar, Box, Button, Container, useTheme } from "@mui/material";
 import type { Route } from "./+types/root";
 import "./app.css";
 
@@ -23,7 +30,15 @@ export const links: Route.LinksFunction = () => [
   },
 ];
 
+const Offset = () => {
+  const theme = useTheme();
+  return (
+    <Box sx={{ height: `calc(${theme.mixins.toolbar.minHeight}px + 20px)` }} />
+  );
+};
+
 export function Layout({ children }: { children: React.ReactNode }) {
+  const navigate = useNavigate();
   return (
     <html lang="en">
       <head>
@@ -33,6 +48,38 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body>
+        <AppBar position="fixed" sx={{ padding: 2, mb: 4, zIndex: 1000 }}>
+          <Container
+            maxWidth="lg"
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 2,
+            }}>
+            <Box
+              component="span"
+              sx={{ fontWeight: "bold", fontSize: "1.5rem" }}>
+              DaniB's Games
+            </Box>
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={() => {
+                navigate("/memory");
+              }}>
+              Play Memory Game
+            </Button>
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={() => {
+                navigate("/color");
+              }}>
+              Play Color Game
+            </Button>
+          </Container>
+        </AppBar>
+        <Offset />
         {children}
         <ScrollRestoration />
         <Scripts />

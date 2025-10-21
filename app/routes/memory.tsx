@@ -1,11 +1,11 @@
+import { useEffect, useState } from "react";
 import { clearStoredData, getStoredData, setStoredData } from "~/storage";
 import type { Route } from "./+types/memory";
-import { useEffect, useState } from "react";
 
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleInfo, faHeart } from "@fortawesome/free-solid-svg-icons";
 import { faAdd } from "@fortawesome/free-solid-svg-icons/faAdd";
 import { faSubtract } from "@fortawesome/free-solid-svg-icons/faSubtract";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -414,7 +414,7 @@ export default function Memory() {
         display: "flex",
         alignItems: "center",
         flexDirection: "column",
-        minHeight: "100vh",
+        minHeight: "80vh",
         position: "relative",
       }}>
       {renderGameStatus()}
