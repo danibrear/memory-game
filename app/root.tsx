@@ -1,3 +1,16 @@
+import "@fontsource/roboto/300.css";
+import "@fontsource/roboto/400.css";
+import "@fontsource/roboto/500.css";
+import "@fontsource/roboto/700.css";
+import HomeIcon from "@mui/icons-material/Home";
+import {
+  AppBar,
+  Box,
+  Button,
+  Container,
+  IconButton,
+  useTheme,
+} from "@mui/material";
 import {
   isRouteErrorResponse,
   Links,
@@ -7,13 +20,6 @@ import {
   ScrollRestoration,
   useNavigate,
 } from "react-router";
-
-import "@fontsource/roboto/300.css";
-import "@fontsource/roboto/400.css";
-import "@fontsource/roboto/500.css";
-import "@fontsource/roboto/700.css";
-
-import { AppBar, Box, Button, Container, useTheme } from "@mui/material";
 import type { Route } from "./+types/root";
 import "./app.css";
 
@@ -52,7 +58,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <Container
             maxWidth="lg"
             sx={{
-              display: "flex",
+              display: { xs: "none", md: "flex" },
               alignItems: "center",
               gap: 2,
             }}>
@@ -77,6 +83,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
               }}>
               Play Color Game
             </Button>
+          </Container>
+          <Container
+            sx={{
+              display: { xs: "flex", md: "none" },
+              alignItems: "center",
+              gap: 2,
+            }}>
+            <IconButton onClick={() => navigate("/")}>
+              <HomeIcon />
+            </IconButton>
+            <Box component="span" sx={{ fontWeight: "bold" }}>
+              DaniB's Games
+            </Box>
           </Container>
         </AppBar>
         <Offset />

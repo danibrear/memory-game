@@ -1,48 +1,56 @@
-import { Box, Button, Container, Grid } from "@mui/material";
+import {
+  Box,
+  Card,
+  CardActionArea,
+  CardContent,
+  Container,
+  Grid,
+  Typography,
+} from "@mui/material";
+import { useNavigate } from "react-router";
 export default function Landing() {
+  const navigate = useNavigate();
   return (
     <Box>
       <Container maxWidth="md" sx={{ textAlign: "center" }}>
-        <Box
-          component="h1"
-          sx={{ fontSize: "2.5rem", fontWeight: "bold", mb: 2 }}>
-          Welcome to DaniB's games!
+        <Box>
+          <Typography>Welcome to DaniB's games!</Typography>
         </Box>
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, md: 6 }}>
-            <Box
-              component="h2"
-              sx={{ fontSize: "1.5rem", fontWeight: "bold", mb: 1 }}>
-              Memory Game
-            </Box>
-            <Box sx={{ mb: 2 }}>
-              Test your memory skills with this fun and challenging game!
-            </Box>
-            <Button
-              variant="contained"
-              color="primary"
-              href="/memory"
-              sx={{ fontWeight: "bold" }}>
-              Play Memory Game
-            </Button>
+            <Card>
+              <CardActionArea
+                onClick={() => {
+                  navigate("/memory");
+                }}>
+                <CardContent>
+                  <Typography variant="h5" component="div" gutterBottom>
+                    Memory Game
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Test your memory skills by matching pairs of colors in this
+                    exciting Memory Game!
+                  </Typography>
+                </CardContent>
+              </CardActionArea>
+            </Card>
           </Grid>
           <Grid size={{ xs: 12, md: 6 }}>
-            <Box
-              component="h2"
-              sx={{ fontSize: "1.5rem", fontWeight: "bold", mb: 1 }}>
-              Color Game
-            </Box>
-            <Box sx={{ mb: 2 }}>
-              Like memory game but the squares can be toggled to different
-              colors
-            </Box>
-            <Button
-              variant="contained"
-              color="primary"
-              href="/color"
-              sx={{ fontWeight: "bold" }}>
-              Play Color Game
-            </Button>
+            <Card>
+              <CardActionArea
+                onClick={() => {
+                  navigate("/color");
+                }}>
+                <CardContent>
+                  <Typography variant="h5" component="div" gutterBottom>
+                    Color Game
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Color in the grid by selecting cells
+                  </Typography>
+                </CardContent>
+              </CardActionArea>
+            </Card>
           </Grid>
         </Grid>
       </Container>
