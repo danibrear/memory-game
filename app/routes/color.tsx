@@ -44,6 +44,7 @@ export default function Memory() {
   const [difficulty, setDifficulty] = useState<number>(3);
 
   const [restoring, setRestoring] = useState<boolean>(true);
+  const [isConfirmingReset, setIsConfirmingReset] = useState<boolean>(false);
 
   const theme = useTheme();
 
@@ -53,6 +54,11 @@ export default function Memory() {
       cells: difficulty,
       cellColors,
     };
+  };
+
+  const handleResetConfirm = () => {
+    setCellColors(new Array(difficulty * difficulty).fill(0));
+    setIsConfirmingReset(false);
   };
 
   useEffect(() => {
@@ -182,7 +188,7 @@ export default function Memory() {
         <Button
           variant="contained"
           onClick={() => {
-            setCellColors(new Array(difficulty * difficulty).fill(0));
+            setIsConfirmingReset(true);
           }}>
           Reset
         </Button>
@@ -195,6 +201,29 @@ export default function Memory() {
           Change size
         </Button>
       </Stack>
+      <Dialog
+        open={isConfirmingReset}
+        onClose={() => setIsConfirmingReset(false)}>
+        <DialogContent>
+          <Typography variant="h6" gutterBottom>
+            Are you sure you want to reset the game? This will clear all your
+            progress.
+          </Typography>
+          <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={handleResetConfirm}>
+              Yes, Reset
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => setIsConfirmingReset(false)}>
+              Cancel
+            </Button>
+          </Stack>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

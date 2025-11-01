@@ -36,6 +36,13 @@ export const links: Route.LinksFunction = () => [
   },
 ];
 
+export function meta({}: Route.MetaArgs) {
+  return [
+    { title: "Games by DaniB" },
+    { name: "description", content: "Games I made for my family!" },
+  ];
+}
+
 const Offset = () => {
   const theme = useTheme();
   return (
