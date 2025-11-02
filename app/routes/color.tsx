@@ -7,7 +7,6 @@ import {
   TextField,
   Typography,
   useMediaQuery,
-  useTheme,
 } from "@mui/material";
 import { useEffect, useState } from "react";
 import { getStoredData, setStoredData } from "~/storage";
@@ -20,7 +19,7 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-const COLORS = [
+const OLD_COLORS = [
   "transparent",
   "red",
   "green",
@@ -32,6 +31,15 @@ const COLORS = [
   "cyan",
   "lime",
 ];
+
+const NUM_COLORS = 8;
+const COLORS = new Array(NUM_COLORS).fill("").map((_, i) => {
+  if (i === 0) return "transparent";
+  const section = 360 / (NUM_COLORS - 1);
+  const hue = Math.floor((i - 1) * section);
+
+  return `hsl(${hue}, 100%, 50%)`;
+});
 
 export default function Memory() {
   const [gameState, setGameState] = useState<"START" | "ACTIVE" | "RESTORED">(
@@ -45,8 +53,6 @@ export default function Memory() {
 
   const [restoring, setRestoring] = useState<boolean>(true);
   const [isConfirmingReset, setIsConfirmingReset] = useState<boolean>(false);
-
-  const theme = useTheme();
 
   const getGameStateJson = () => {
     return {
