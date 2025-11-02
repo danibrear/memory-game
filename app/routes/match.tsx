@@ -1,6 +1,7 @@
 import {
   Box,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -11,6 +12,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
+import { shuffle } from "lodash";
 import { useEffect, useState } from "react";
 import { getStoredData, setStoredData } from "~/storage";
 import type { Route } from "./+types/memory";
@@ -45,7 +47,7 @@ export default function Match() {
   const darkMode = useMediaQuery("(prefers-color-scheme: dark)");
   const [cellValues, setCellValues] = useState<number[]>([]);
 
-  const [difficulty, setDifficulty] = useState<number>(3);
+  const [difficulty, setDifficulty] = useState<number>(4);
 
   const [restoring, setRestoring] = useState<boolean>(true);
   const [isConfirmingReset, setIsConfirmingReset] = useState<boolean>(false);
@@ -88,10 +90,9 @@ export default function Match() {
   };
   const buildBoard = (size: number) => {
     const newSize = Math.ceil((size * size) / 2);
-    console.log("newSize", newSize);
     const pieces = new Array(newSize).fill(0).map((_, i) => i + 1);
     const doubledPieces = pieces.concat(pieces);
-    const shuffledPieces = doubledPieces.sort(() => Math.random() - 0.5);
+    const shuffledPieces = shuffle(doubledPieces);
     return shuffledPieces;
   };
 
@@ -157,6 +158,41 @@ export default function Match() {
     resetState();
   };
 
+  const renderPlayerScores = () => {
+    if (gameState !== "ACTIVE" && gameState !== "FINISHED") return null;
+    return (
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          flexDirection: "column",
+          justifyContent: "center",
+          width: "100%",
+          mb: 2,
+        }}>
+        <Stack direction="row" spacing={4}>
+          <Chip
+            color="info"
+            variant={turn === 1 ? "filled" : "outlined"}
+            sx={{ fontSize: "2rem" }}
+            label={`${player1Score}`}
+          />
+          <Chip
+            color="error"
+            variant={turn === 2 ? "filled" : "outlined"}
+            label={`${player2Score}`}
+            sx={{ fontSize: "2rem" }}
+          />
+        </Stack>
+        <Chip
+          color={turn === 1 ? "info" : "error"}
+          sx={{ mt: 1, fontSize: "2rem", p: 2, py: 3 }}
+          label={`Player ${turn} Turn`}
+        />
+      </Box>
+    );
+  };
+
   const renderGameBoard = () => {
     return (
       <div
@@ -169,30 +205,14 @@ export default function Match() {
           flexDirection: "column",
           width: "100%",
         }}>
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            flexDirection: "column",
-            justifyContent: "center",
-            width: "100%",
-            mb: 2,
-          }}>
-          <Stack direction="row" spacing={4}>
-            <Typography>Player 1: {player1Score}</Typography>
-            <Typography>Player 2: {player2Score}</Typography>
-          </Stack>
-          <Typography variant="h6" sx={{ mt: 1 }}>
-            Current Turn: {turn === 1 ? "Player 1" : "Player 2"}
-          </Typography>
-        </Box>
+        {renderPlayerScores()}
         <div
           style={{
             display: "grid",
             gridTemplateColumns: `repeat(${difficulty}, 1fr)`,
             gap: `${Math.max(5 - Math.floor(difficulty / 5), 2)}px`,
             maxWidth: "60vh",
-            margin: "20px auto",
+            margin: "5px auto",
             width: "90%",
             position: "relative",
           }}>
@@ -355,20 +375,80 @@ export default function Match() {
           </Stack>
         </DialogContent>
       </Dialog>
-      <Dialog open={gameState === "FINISHED"}>
+      <Dialog open={gameState === "FINISHED"} fullWidth maxWidth="sm">
         <DialogContent>
-          <Typography variant="h5" gutterBottom>
+          <Typography variant="h4" textAlign="center" gutterBottom>
             Game Over!
           </Typography>
-          <Typography variant="body1" gutterBottom>
-            Final Scores:
-          </Typography>
-          <Typography variant="body1">
-            Player 1: {player1Score} | Player 2: {player2Score}
-          </Typography>
+          <Stack direction="row" spacing={1}>
+            <Chip
+              sx={{
+                display: "flex",
+                flexGrow: 1,
+                fontWeight: "bold",
+                fontSize: "1.25rem",
+              }}
+              label={`${player1Score}`}
+              color="info"
+            />
+            <Chip
+              sx={{
+                display: "flex",
+                flexGrow: 1,
+                fontWeight: "bold",
+                fontSize: "1.25rem",
+              }}
+              label={`${player2Score}`}
+              color="error"
+            />
+          </Stack>
+          {player1Score > player2Score && (
+            <Chip
+              color="info"
+              sx={{
+                display: "flex",
+                flexGrow: 1,
+                mt: 2,
+                py: 3,
+                fontWeight: "bold",
+                fontSize: "1.5rem",
+              }}
+              label={`Player 1 Wins!`}
+            />
+          )}
+          {player2Score > player1Score && (
+            <Chip
+              color="error"
+              sx={{
+                display: "flex",
+                flexGrow: 1,
+                mt: 2,
+                py: 3,
+                fontWeight: "bold",
+                fontSize: "1.5rem",
+              }}
+              label={`Player 2 Wins!`}
+            />
+          )}
+          {player1Score === player2Score && (
+            <Chip
+              color="default"
+              sx={{
+                display: "flex",
+                flexGrow: 1,
+                mt: 2,
+                py: 3,
+                fontWeight: "bold",
+                fontSize: "1.5rem",
+              }}
+              label={`It's a Tie!`}
+            />
+          )}
           <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
             <Button
+              fullWidth
               variant="contained"
+              size="large"
               onClick={() => {
                 setGameState("ACTIVE");
                 setCellValues(buildBoard(difficulty));
@@ -377,7 +457,9 @@ export default function Match() {
               Play Again
             </Button>
             <Button
+              fullWidth
               variant="outlined"
+              size="large"
               onClick={() => {
                 setIsConfirmingReset(false);
                 setGameState("START");
