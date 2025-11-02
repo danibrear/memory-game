@@ -117,7 +117,11 @@ export default function Match() {
 
   const handleClickCell = (index: number) => {
     if (gameState !== "ACTIVE") return;
-    if (selectedCells.length < 2 && !selectedCells.includes(index)) {
+    if (
+      selectedCells.length < 2 &&
+      !selectedCells.includes(index) &&
+      !revealedCells.includes(index)
+    ) {
       const newSelected = [...selectedCells, index];
       setSelectedCells(newSelected);
       if (newSelected.length === 2) {
