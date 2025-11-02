@@ -2,15 +2,28 @@ import "@fontsource/roboto/300.css";
 import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
-import HomeIcon from "@mui/icons-material/Home";
+import {
+  faBrain,
+  faCopy,
+  faPaintBrush,
+} from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import MenuIcon from "@mui/icons-material/Menu";
 import {
   AppBar,
   Box,
   Button,
   Container,
+  Drawer,
   IconButton,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
   useTheme,
 } from "@mui/material";
+import { useState } from "react";
 import {
   isRouteErrorResponse,
   Links,
@@ -50,7 +63,30 @@ const Offset = () => {
   );
 };
 
+export const PAGES = [
+  {
+    name: "Memory Game",
+    path: "/memory",
+    description:
+      "Test your memory skills by matching pairs of colors in this exciting Memory Game!",
+    icon: <FontAwesomeIcon icon={faBrain} />,
+  },
+  {
+    name: "Color Game",
+    path: "/color",
+    description: "Color in the grid by selecting cells",
+    icon: <FontAwesomeIcon icon={faPaintBrush} />,
+  },
+  {
+    name: "Match Game",
+    path: "/match",
+    description: "Match pairs of colors in this exciting game!",
+    icon: <FontAwesomeIcon icon={faCopy} />,
+  },
+];
+
 export function Layout({ children }: { children: React.ReactNode }) {
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const navigate = useNavigate();
   return (
     <html lang="en">
@@ -74,30 +110,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
               sx={{ fontWeight: "bold", fontSize: "1.5rem" }}>
               DaniB's Games
             </Box>
-            <Button
-              variant="contained"
-              color="secondary"
-              onClick={() => {
-                navigate("/memory");
-              }}>
-              Play Memory Game
-            </Button>
-            <Button
-              variant="contained"
-              color="secondary"
-              onClick={() => {
-                navigate("/color");
-              }}>
-              Play Color Game
-            </Button>
-            <Button
-              variant="contained"
-              color="secondary"
-              onClick={() => {
-                navigate("/match");
-              }}>
-              Play Match Game
-            </Button>
+            {PAGES.map((page) => (
+              <Button
+                key={page.name}
+                variant="contained"
+                color="secondary"
+                onClick={() => {
+                  navigate(page.path);
+                }}
+                startIcon={page.icon}>
+                {page.name}
+              </Button>
+            ))}
           </Container>
           <Container
             sx={{
@@ -105,15 +129,44 @@ export function Layout({ children }: { children: React.ReactNode }) {
               alignItems: "center",
               gap: 2,
             }}>
-            <IconButton onClick={() => navigate("/")}>
-              <HomeIcon />
+            <IconButton
+              onClick={() => {
+                setMobileDrawerOpen(true);
+              }}>
+              <MenuIcon
+                sx={{
+                  color: "white",
+                }}
+              />
             </IconButton>
             <Box component="span" sx={{ fontWeight: "bold" }}>
               DaniB's Games
             </Box>
           </Container>
+          <Drawer
+            anchor="left"
+            variant="temporary"
+            onClose={() => setMobileDrawerOpen(false)}
+            open={mobileDrawerOpen}>
+            <Offset />
+            <List>
+              {PAGES.map((page) => (
+                <ListItem key={page.name} disablePadding>
+                  <ListItemButton
+                    onClick={() => {
+                      setMobileDrawerOpen(false);
+                      navigate(page.path);
+                    }}>
+                    <ListItemIcon>{page.icon}</ListItemIcon>
+                    <ListItemText primary={page.name} />
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          </Drawer>
         </AppBar>
         <Offset />
+
         {children}
         <ScrollRestoration />
         <Scripts />
