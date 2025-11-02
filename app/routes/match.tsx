@@ -2,6 +2,7 @@ import {
   Box,
   Button,
   Dialog,
+  DialogActions,
   DialogContent,
   MenuItem,
   Stack,
@@ -125,14 +126,15 @@ export default function Match() {
           } else {
             setPlayer2Score((score) => score + 1);
           }
+          setSelectedCells([]);
         } else {
           // Not a match, switch turns
           setTurn(turn === 1 ? 2 : 1);
+          setTimeout(() => {
+            setSelectedCells([]);
+          }, 1000);
         }
         // Clear selection after a short delay
-        setTimeout(() => {
-          setSelectedCells([]);
-        }, 1000);
       }
     }
   };
@@ -168,6 +170,15 @@ export default function Match() {
               })}
             </TextField>
           </DialogContent>
+          <DialogActions>
+            <Button
+              variant="contained"
+              onClick={() => {
+                handleSetDifficulty(difficulty);
+              }}>
+              Start Game
+            </Button>
+          </DialogActions>
         </Dialog>
       );
     }
@@ -324,7 +335,7 @@ export default function Match() {
             <Button
               variant="contained"
               onClick={() => {
-                setGameState("START");
+                setGameState("ACTIVE");
                 setCellValues(buildBoard(difficulty));
                 resetState();
               }}>
