@@ -64,6 +64,11 @@ export default function Match() {
       gameState,
       cells: difficulty,
       cellValues,
+      player1Score,
+      player2Score,
+      turn,
+      revealedCells,
+      selectedCells,
     };
   };
 
@@ -95,6 +100,12 @@ export default function Match() {
     if (state && state.gameState === "ACTIVE") {
       setGameState(state.gameState);
       setDifficulty(state.cells);
+      setCellValues(state.cellValues);
+      setPlayer1Score(state.player1Score);
+      setPlayer2Score(state.player2Score);
+      setTurn(state.turn);
+      setRevealedCells(state.revealedCells);
+      setSelectedCells(state.selectedCells);
     }
   }, []);
 
@@ -147,41 +158,6 @@ export default function Match() {
   };
 
   const renderGameBoard = () => {
-    if (gameState === "START") {
-      return (
-        <Dialog open={true}>
-          <DialogContent>
-            <Typography variant="h5" gutterBottom>
-              What size grid would you like to play?
-            </Typography>
-            <TextField
-              select
-              label="Size"
-              value={difficulty}
-              onChange={(e) => handleSetDifficulty(Number(e.target.value))}
-              fullWidth>
-              {new Array(5).fill(0).map((_, i) => {
-                const val = (i + 1) * 2;
-                return (
-                  <MenuItem key={i} value={val}>
-                    {val} x {val}
-                  </MenuItem>
-                );
-              })}
-            </TextField>
-          </DialogContent>
-          <DialogActions>
-            <Button
-              variant="contained"
-              onClick={() => {
-                handleSetDifficulty(difficulty);
-              }}>
-              Start Game
-            </Button>
-          </DialogActions>
-        </Dialog>
-      );
-    }
     return (
       <div
         style={{
@@ -222,12 +198,24 @@ export default function Match() {
           }}>
           {cellValues.map((value, index) => {
             const bgColor = darkMode ? "#333" : "#fff";
-            const backgroundColor =
-              selectedCells.includes(index) || revealedCells.includes(index)
-                ? `hsl(${(value * 137.5) % 360}, 70%, ${
-                    darkMode ? "40%" : "80%"
-                  })`
-                : bgColor;
+            const isRevealed =
+              selectedCells &&
+              revealedCells &&
+              (selectedCells.includes(index) || revealedCells.includes(index));
+            const backgroundColor = isRevealed
+              ? `hsl(${(value * 137.5) % 360}, 70%, ${
+                  darkMode ? "40%" : "80%"
+                })`
+              : bgColor;
+
+            let fontSize = "6rem";
+            if (difficulty >= 8) {
+              fontSize = "2rem";
+            } else if (difficulty >= 5) {
+              fontSize = "3rem";
+            } else if (difficulty >= 4) {
+              fontSize = "4rem";
+            }
             return (
               <div
                 key={index}
@@ -235,6 +223,10 @@ export default function Match() {
                 onClick={() => handleClickCell(index)}
                 style={{
                   width: "100%",
+                  transform:
+                    isRevealed && gameState !== "START"
+                      ? "rotateY(180deg)"
+                      : "rotateY(0deg)",
 
                   paddingBottom: "100%",
                   backgroundColor,
@@ -255,10 +247,14 @@ export default function Match() {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: "4rem",
+                    fontSize,
+                    transform:
+                      isRevealed && gameState !== "START"
+                        ? "rotateY(-180deg)"
+                        : "rotateY(0deg)",
                   }}>
-                  {selectedCells.includes(index) ||
-                  revealedCells.includes(index)
+                  {selectedCells?.includes(index) ||
+                  revealedCells?.includes(index)
                     ? value
                     : "?"}
                 </div>
@@ -270,6 +266,44 @@ export default function Match() {
     );
   };
 
+  const renderStartScreen = () => {
+    if (gameState === "START") {
+      return (
+        <Dialog open={true}>
+          <DialogContent>
+            <Typography variant="h5" gutterBottom>
+              What size grid would you like to play?
+            </Typography>
+            <TextField
+              select
+              label="Size"
+              value={difficulty}
+              onChange={(e) => handleSetDifficulty(Number(e.target.value))}
+              fullWidth>
+              {new Array(4).fill(0).map((_, i) => {
+                const val = (i + 1) * 2;
+                return (
+                  <MenuItem key={i} value={val}>
+                    {val} x {val}
+                  </MenuItem>
+                );
+              })}
+            </TextField>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              variant="contained"
+              onClick={() => {
+                handleSetDifficulty(difficulty);
+              }}>
+              Start Game
+            </Button>
+          </DialogActions>
+        </Dialog>
+      );
+    }
+  };
+
   return (
     <div
       style={{
@@ -279,6 +313,7 @@ export default function Match() {
         minHeight: "80vh",
         position: "relative",
       }}>
+      {renderStartScreen()}
       {renderGameBoard()}
 
       <Stack direction="row" spacing={2} sx={{ mb: 4 }}>
