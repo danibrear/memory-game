@@ -17,7 +17,7 @@ export default function Landing() {
           <Typography>Welcome to DaniB's games!</Typography>
         </Box>
         <Grid container spacing={2}>
-          <Grid size={{ xs: 12, md: 6 }}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <Card>
               <CardActionArea
                 onClick={() => {
@@ -35,7 +35,7 @@ export default function Landing() {
               </CardActionArea>
             </Card>
           </Grid>
-          <Grid size={{ xs: 12, md: 6 }}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <Card>
               <CardActionArea
                 onClick={() => {
@@ -47,6 +47,23 @@ export default function Landing() {
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Color in the grid by selecting cells
+                  </Typography>
+                </CardContent>
+              </CardActionArea>
+            </Card>
+          </Grid>
+          <Grid size={{ xs: 6, md: 3 }}>
+            <Card>
+              <CardActionArea
+                onClick={() => {
+                  navigate("/match");
+                }}>
+                <CardContent>
+                  <Typography variant="h5" component="div" gutterBottom>
+                    Match Game
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Match pairs of colors in this exciting game!
                   </Typography>
                 </CardContent>
               </CardActionArea>

@@ -90,6 +90,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
               }}>
               Play Color Game
             </Button>
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={() => {
+                navigate("/match");
+              }}>
+              Play Match Game
+            </Button>
           </Container>
           <Container
             sx={{

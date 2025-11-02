@@ -4,4 +4,5 @@ export default [
   index("routes/landing.tsx"),
   route("/memory", "routes/memory.tsx"),
   route("/color", "routes/color.tsx"),
+  route("/match", "routes/match.tsx"),
 ] satisfies RouteConfig;
