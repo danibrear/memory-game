@@ -14,6 +14,7 @@ import {
   Box,
   Button,
   Container,
+  CssBaseline,
   Drawer,
   IconButton,
   List,
@@ -21,6 +22,7 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  ThemeProvider,
   useTheme,
 } from "@mui/material";
 import { useState } from "react";
@@ -35,6 +37,7 @@ import {
 } from "react-router";
 import type { Route } from "./+types/root";
 import "./app.css";
+import { theme } from "./theme";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -96,81 +99,84 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Meta />
         <Links />
       </head>
-      <body>
-        <AppBar position="fixed" sx={{ padding: 2, mb: 4, zIndex: 1000 }}>
-          <Container
-            maxWidth="lg"
-            sx={{
-              display: { xs: "none", md: "flex" },
-              alignItems: "center",
-              gap: 2,
-            }}>
-            <Box
-              component="span"
-              sx={{ fontWeight: "bold", fontSize: "1.5rem" }}>
-              DaniB's Games
-            </Box>
-            {PAGES.map((page) => (
-              <Button
-                key={page.name}
-                variant="contained"
-                color="secondary"
-                onClick={() => {
-                  navigate(page.path);
-                }}
-                startIcon={page.icon}>
-                {page.name}
-              </Button>
-            ))}
-          </Container>
-          <Container
-            sx={{
-              display: { xs: "flex", md: "none" },
-              alignItems: "center",
-              gap: 2,
-            }}>
-            <IconButton
-              onClick={() => {
-                setMobileDrawerOpen(true);
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <body>
+          <AppBar position="fixed" sx={{ padding: 2, mb: 4, zIndex: 1000 }}>
+            <Container
+              maxWidth="lg"
+              sx={{
+                display: { xs: "none", md: "flex" },
+                alignItems: "center",
+                gap: 2,
               }}>
-              <MenuIcon
-                sx={{
-                  color: "white",
-                }}
-              />
-            </IconButton>
-            <Box component="span" sx={{ fontWeight: "bold" }}>
-              DaniB's Games
-            </Box>
-          </Container>
-          <Drawer
-            anchor="left"
-            variant="temporary"
-            onClose={() => setMobileDrawerOpen(false)}
-            open={mobileDrawerOpen}>
-            <Offset />
-            <List>
+              <Box
+                component="span"
+                sx={{ fontWeight: "bold", fontSize: "1.5rem" }}>
+                DaniB's Games
+              </Box>
               {PAGES.map((page) => (
-                <ListItem key={page.name} disablePadding>
-                  <ListItemButton
-                    onClick={() => {
-                      setMobileDrawerOpen(false);
-                      navigate(page.path);
-                    }}>
-                    <ListItemIcon>{page.icon}</ListItemIcon>
-                    <ListItemText primary={page.name} />
-                  </ListItemButton>
-                </ListItem>
+                <Button
+                  key={page.name}
+                  variant="contained"
+                  color="secondary"
+                  onClick={() => {
+                    navigate(page.path);
+                  }}
+                  startIcon={page.icon}>
+                  {page.name}
+                </Button>
               ))}
-            </List>
-          </Drawer>
-        </AppBar>
-        <Offset />
+            </Container>
+            <Container
+              sx={{
+                display: { xs: "flex", md: "none" },
+                alignItems: "center",
+                gap: 2,
+              }}>
+              <IconButton
+                onClick={() => {
+                  setMobileDrawerOpen(true);
+                }}>
+                <MenuIcon
+                  sx={{
+                    color: "white",
+                  }}
+                />
+              </IconButton>
+              <Box component="span" sx={{ fontWeight: "bold" }}>
+                DaniB's Games
+              </Box>
+            </Container>
+            <Drawer
+              anchor="left"
+              variant="temporary"
+              onClose={() => setMobileDrawerOpen(false)}
+              open={mobileDrawerOpen}>
+              <Offset />
+              <List>
+                {PAGES.map((page) => (
+                  <ListItem key={page.name} disablePadding>
+                    <ListItemButton
+                      onClick={() => {
+                        setMobileDrawerOpen(false);
+                        navigate(page.path);
+                      }}>
+                      <ListItemIcon>{page.icon}</ListItemIcon>
+                      <ListItemText primary={page.name} />
+                    </ListItemButton>
+                  </ListItem>
+                ))}
+              </List>
+            </Drawer>
+          </AppBar>
+          <Offset />
+          {children}
 
-        {children}
-        <ScrollRestoration />
-        <Scripts />
-      </body>
+          <ScrollRestoration />
+          <Scripts />
+        </body>
+      </ThemeProvider>
     </html>
   );
 }

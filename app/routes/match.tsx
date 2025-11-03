@@ -5,6 +5,7 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
+  Divider,
   MenuItem,
   Stack,
   TextField,
@@ -85,7 +86,6 @@ export default function Match() {
 
   useEffect(() => {
     const state = getStoredData(storageKey);
-    console.log("state", state);
     if (state && state.gameState === "ACTIVE") {
       setGameState(state.gameState);
       setDifficulty(state.cells);
@@ -294,7 +294,30 @@ export default function Match() {
       return (
         <Dialog open={true}>
           <DialogContent>
-            <Typography variant="h5" gutterBottom>
+            <Typography
+              variant="h4"
+              textAlign="center"
+              gutterBottom
+              sx={{ color: theme.palette.text.primary, fontWeight: "bold" }}>
+              Match Game!
+            </Typography>
+
+            <Typography
+              variant="body1"
+              gutterBottom
+              sx={{ color: theme.palette.text.primary, fontWeight: "bold" }}>
+              Take turns finding matching pairs of cells. The player with the
+              most matches at the end wins!
+            </Typography>
+            <Divider sx={{ my: 2 }} />
+            <Typography
+              sx={{
+                fontWeight: "bold",
+                mb: 2,
+                textAlign: "center",
+                color: theme.palette.text.primary,
+              }}
+              gutterBottom>
               What size grid would you like to play?
             </Typography>
             <TextField
@@ -316,6 +339,7 @@ export default function Match() {
           <DialogActions>
             <Button
               variant="contained"
+              size="large"
               onClick={() => {
                 handleSetDifficulty(difficulty);
               }}>
@@ -342,6 +366,7 @@ export default function Match() {
       <Stack direction="row" spacing={2} sx={{ mb: 4 }}>
         <Button
           variant="contained"
+          size="large"
           onClick={() => {
             setIsConfirmingReset(true);
           }}>
@@ -349,6 +374,7 @@ export default function Match() {
         </Button>
         <Button
           variant="contained"
+          size="large"
           onClick={() => {
             setGameState("START");
           }}>
@@ -366,12 +392,14 @@ export default function Match() {
           <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
             <Button
               variant="contained"
+              size="large"
               color="error"
               onClick={handleResetConfirm}>
               Yes, Reset
             </Button>
             <Button
               variant="outlined"
+              size="large"
               onClick={() => setIsConfirmingReset(false)}>
               Cancel
             </Button>
