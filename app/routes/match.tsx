@@ -24,19 +24,6 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-const COLORS = [
-  "transparent",
-  "red",
-  "green",
-  "blue",
-  "yellow",
-  "purple",
-  "orange",
-  "pink",
-  "cyan",
-  "lime",
-];
-
 const storageKey = "match-game-state";
 
 export default function Match() {
@@ -189,13 +176,13 @@ export default function Match() {
         <Stack direction="row" spacing={4}>
           <Chip
             color="info"
-            variant={turn === 1 ? "filled" : "outlined"}
+            variant="filled"
             sx={{ fontSize: "2rem", p: 3, px: 2 }}
             label={`${player1Score}`}
           />
           <Chip
             color="error"
-            variant={turn === 2 ? "filled" : "outlined"}
+            variant="filled"
             label={`${player2Score}`}
             sx={{ fontSize: "2rem", p: 3, px: 2 }}
           />
