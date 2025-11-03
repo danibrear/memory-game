@@ -178,14 +178,14 @@ export default function Match() {
           <Chip
             color="info"
             variant={turn === 1 ? "filled" : "outlined"}
-            sx={{ fontSize: "2rem" }}
+            sx={{ fontSize: "2rem", p: 3, px: 2 }}
             label={`${player1Score}`}
           />
           <Chip
             color="error"
             variant={turn === 2 ? "filled" : "outlined"}
             label={`${player2Score}`}
-            sx={{ fontSize: "2rem" }}
+            sx={{ fontSize: "2rem", p: 3, px: 2 }}
           />
         </Stack>
         <Chip
