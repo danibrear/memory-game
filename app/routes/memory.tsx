@@ -6,6 +6,7 @@ import { faCircleInfo, faHeart } from "@fortawesome/free-solid-svg-icons";
 import { faAdd } from "@fortawesome/free-solid-svg-icons/faAdd";
 import { faSubtract } from "@fortawesome/free-solid-svg-icons/faSubtract";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { Typography } from "@mui/material";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -248,7 +249,15 @@ export default function Memory() {
                     textAlign: "center",
                     marginBottom: "10px",
                   }}>
-                  Find all green cells
+                  Find all{" "}
+                  <Typography
+                    component="span"
+                    color="green"
+                    fontWeight="bold"
+                    sx={{ fontSize: "1.25rem", textTransform: "uppercase" }}>
+                    green
+                  </Typography>{" "}
+                  cells
                 </h6>
                 <p
                   style={{

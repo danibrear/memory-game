@@ -98,6 +98,7 @@ export default function Match() {
 
   useEffect(() => {
     const state = getStoredData(storageKey);
+    console.log("state", state);
     if (state && state.gameState === "ACTIVE") {
       setGameState(state.gameState);
       setDifficulty(state.cells);
@@ -107,13 +108,23 @@ export default function Match() {
       setTurn(state.turn);
       setRevealedCells(state.revealedCells);
       setSelectedCells(state.selectedCells);
+      setRestoring(false);
     }
   }, []);
 
   useEffect(() => {
     if (restoring) return;
     setStoredData(storageKey, getGameStateJson());
-  }, [cellValues, restoring]);
+  }, [
+    cellValues,
+    restoring,
+    revealedCells,
+    selectedCells,
+    player1Score,
+    player2Score,
+    turn,
+    gameState,
+  ]);
 
   const handleClickCell = (index: number) => {
     if (gameState !== "ACTIVE") return;
@@ -152,6 +163,7 @@ export default function Match() {
         }
         // Clear selection after a short delay
       }
+      setStoredData(storageKey, getGameStateJson());
     }
   };
 
