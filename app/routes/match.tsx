@@ -390,7 +390,8 @@ export default function Match() {
                 display: "flex",
                 flexGrow: 1,
                 fontWeight: "bold",
-                fontSize: "1.25rem",
+                py: 3,
+                fontSize: "2rem",
               }}
               label={`${player1Score}`}
               color="info"
@@ -400,7 +401,8 @@ export default function Match() {
                 display: "flex",
                 flexGrow: 1,
                 fontWeight: "bold",
-                fontSize: "1.25rem",
+                py: 3,
+                fontSize: "2rem",
               }}
               label={`${player2Score}`}
               color="error"
@@ -415,7 +417,7 @@ export default function Match() {
                 mt: 2,
                 py: 3,
                 fontWeight: "bold",
-                fontSize: "1.5rem",
+                fontSize: "2.25rem",
               }}
               label={`Player 1 Wins!`}
             />
@@ -429,7 +431,7 @@ export default function Match() {
                 mt: 2,
                 py: 3,
                 fontWeight: "bold",
-                fontSize: "1.5rem",
+                fontSize: "2.25rem",
               }}
               label={`Player 2 Wins!`}
             />
@@ -443,7 +445,7 @@ export default function Match() {
                 mt: 2,
                 py: 3,
                 fontWeight: "bold",
-                fontSize: "1.5rem",
+                fontSize: "2.25rem",
               }}
               label={`It's a Tie!`}
             />
