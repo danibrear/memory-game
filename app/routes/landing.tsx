@@ -1,3 +1,5 @@
+import { faHeart } from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   Box,
   Card,
@@ -23,7 +25,16 @@ export default function Landing() {
             company. Any game state is stored in your browser and nothing is
             ever tracked. Enjoy!
           </Typography>
-          <Typography sx={{ textAlign: "right" }}>❤️ DaniB</Typography>
+          <Typography sx={{ textAlign: "right" }}>
+            <FontAwesomeIcon
+              icon={faHeart}
+              style={{
+                color: "red",
+                fontSize: "1rem",
+              }}
+            />{" "}
+            DaniB
+          </Typography>
         </Paper>
         <Grid container spacing={1}>
           {PAGES.map((page) => (
@@ -56,7 +67,15 @@ export default function Landing() {
           href="https://db.rocks"
           target="_blank"
           sx={{ mt: 4, display: "block" }}>
-          Made with ❤️ by DaniB
+          Made with{" "}
+          <FontAwesomeIcon
+            icon={faHeart}
+            style={{
+              color: "red",
+              fontSize: "1rem",
+            }}
+          />{" "}
+          by DaniB
         </Typography>
       </Box>
     </Box>
