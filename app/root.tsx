@@ -37,6 +37,7 @@ import {
 } from "react-router";
 import type { Route } from "./+types/root";
 import "./app.css";
+import Welcome from "./components/Welcome";
 import { theme } from "./theme";
 
 export const links: Route.LinksFunction = () => [
@@ -91,6 +92,7 @@ export const PAGES = [
 export function Layout({ children }: { children: React.ReactNode }) {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const navigate = useNavigate();
+
   return (
     <html lang="en">
       <head>
@@ -172,6 +174,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </AppBar>
           <Offset />
           {children}
+          <Welcome />
 
           <ScrollRestoration />
           <Scripts />

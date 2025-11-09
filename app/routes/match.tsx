@@ -289,6 +289,100 @@ export default function Match() {
     );
   };
 
+  const renderGameOverScreen = () => {
+    const color = player1Score > player2Score ? "info" : "error";
+    const chipLabel =
+      player1Score > player2Score ? "Player 1 Wins!" : "Player 2 Wins!";
+    const isTie = player1Score === player2Score;
+    return (
+      <DialogContent sx={{ p: 1.5, overflow: "hidden" }}>
+        <Typography variant="h4" textAlign="center" gutterBottom>
+          Game Over!
+        </Typography>
+        <Stack direction="row" spacing={1}>
+          <Chip
+            sx={{
+              display: "flex",
+              flexGrow: 1,
+              fontWeight: "bold",
+              py: 3,
+              fontSize: "2rem",
+            }}
+            label={`${player1Score}`}
+            color="info"
+          />
+          <Chip
+            sx={{
+              display: "flex",
+              flexGrow: 1,
+              fontWeight: "bold",
+              py: 3,
+              fontSize: "2rem",
+            }}
+            label={`${player2Score}`}
+            color="error"
+          />
+        </Stack>
+        {!isTie && (
+          <Chip
+            color={color}
+            sx={{
+              display: "flex",
+              flexGrow: 1,
+              mt: 2,
+              mx: 3,
+              py: 3,
+              fontWeight: "bold",
+              fontSize: "2rem",
+              animationDuration: "3s",
+            }}
+            className="fa-beat"
+            label={chipLabel}
+          />
+        )}
+        {isTie && (
+          <Chip
+            color="default"
+            sx={{
+              display: "flex",
+              flexGrow: 1,
+              mt: 2,
+              py: 3,
+              fontWeight: "bold",
+              fontSize: "2.25rem",
+            }}
+            label={`It's a Tie!`}
+          />
+        )}
+        <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+          <Button
+            fullWidth
+            variant="contained"
+            size="large"
+            sx={{ whiteSpace: "nowrap" }}
+            onClick={() => {
+              setGameState("ACTIVE");
+              setCellValues(buildBoard(difficulty));
+              resetState();
+            }}>
+            Play Again
+          </Button>
+          <Button
+            fullWidth
+            variant="outlined"
+            size="large"
+            sx={{ whiteSpace: "nowrap" }}
+            onClick={() => {
+              setIsConfirmingReset(false);
+              setGameState("START");
+            }}>
+            Change Size
+          </Button>
+        </Stack>
+      </DialogContent>
+    );
+  };
+
   const renderStartScreen = () => {
     if (gameState === "START") {
       return (
@@ -407,100 +501,7 @@ export default function Match() {
         </DialogContent>
       </Dialog>
       <Dialog open={gameState === "FINISHED"} fullWidth maxWidth="sm">
-        <DialogContent>
-          <Typography variant="h4" textAlign="center" gutterBottom>
-            Game Over!
-          </Typography>
-          <Stack direction="row" spacing={1}>
-            <Chip
-              sx={{
-                display: "flex",
-                flexGrow: 1,
-                fontWeight: "bold",
-                py: 3,
-                fontSize: "2rem",
-              }}
-              label={`${player1Score}`}
-              color="info"
-            />
-            <Chip
-              sx={{
-                display: "flex",
-                flexGrow: 1,
-                fontWeight: "bold",
-                py: 3,
-                fontSize: "2rem",
-              }}
-              label={`${player2Score}`}
-              color="error"
-            />
-          </Stack>
-          {player1Score > player2Score && (
-            <Chip
-              color="info"
-              sx={{
-                display: "flex",
-                flexGrow: 1,
-                mt: 2,
-                py: 3,
-                fontWeight: "bold",
-                fontSize: "2.25rem",
-              }}
-              label={`Player 1 Wins!`}
-            />
-          )}
-          {player2Score > player1Score && (
-            <Chip
-              color="error"
-              sx={{
-                display: "flex",
-                flexGrow: 1,
-                mt: 2,
-                py: 3,
-                fontWeight: "bold",
-                fontSize: "2.25rem",
-              }}
-              label={`Player 2 Wins!`}
-            />
-          )}
-          {player1Score === player2Score && (
-            <Chip
-              color="default"
-              sx={{
-                display: "flex",
-                flexGrow: 1,
-                mt: 2,
-                py: 3,
-                fontWeight: "bold",
-                fontSize: "2.25rem",
-              }}
-              label={`It's a Tie!`}
-            />
-          )}
-          <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-            <Button
-              fullWidth
-              variant="contained"
-              size="large"
-              onClick={() => {
-                setGameState("ACTIVE");
-                setCellValues(buildBoard(difficulty));
-                resetState();
-              }}>
-              Play Again
-            </Button>
-            <Button
-              fullWidth
-              variant="outlined"
-              size="large"
-              onClick={() => {
-                setIsConfirmingReset(false);
-                setGameState("START");
-              }}>
-              Change Size
-            </Button>
-          </Stack>
-        </DialogContent>
+        {renderGameOverScreen()}
       </Dialog>
     </div>
   );
