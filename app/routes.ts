@@ -5,4 +5,5 @@ export default [
   route("/memory", "routes/memory.tsx"),
   route("/color", "routes/color.tsx"),
   route("/match", "routes/match.tsx"),
+  route("/e", "routes/el.tsx"),
 ] satisfies RouteConfig;
