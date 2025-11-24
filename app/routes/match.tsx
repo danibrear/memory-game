@@ -27,6 +27,8 @@ export function meta({}: Route.MetaArgs) {
 
 const storageKey = "match-game-state";
 
+const EMPTY_CELL_VALUE = -1;
+
 export default function Match() {
   const [gameState, setGameState] = useState<
     "START" | "ACTIVE" | "RESTORED" | "FINISHED"
@@ -77,10 +79,17 @@ export default function Match() {
     setPlayer2Score(0);
   };
   const buildBoard = (size: number) => {
-    const newSize = Math.ceil((size * size) / 2);
+    const newSize = Math.floor((size * size) / 2);
     const pieces = new Array(newSize).fill(0).map((_, i) => i + 1);
-    const doubledPieces = pieces.concat(pieces);
-    const shuffledPieces = shuffle(doubledPieces);
+    const doublePieces = pieces.concat(pieces);
+    const shuffled = shuffle(doublePieces);
+    const odd = size % 2 === 1 ? [EMPTY_CELL_VALUE] : [];
+
+    const half1 = shuffled.slice(0, Math.floor(shuffled.length / 2));
+    const half2 = shuffled.slice(Math.floor(shuffled.length / 2));
+    const half1Shuffled = shuffle(half1);
+    const half2Shuffled = shuffle(half2);
+    const shuffledPieces = [...half1Shuffled, ...odd, ...half2Shuffled];
     return shuffledPieces;
   };
 
@@ -131,7 +140,12 @@ export default function Match() {
             firstIndex,
             secondIndex,
           ]);
-          if (revealedCells.length + 2 === cellValues.length) {
+          if (
+            (difficulty % 2 === 1 &&
+              revealedCells.length + 3 === cellValues.length) ||
+            (difficulty % 2 === 0 &&
+              revealedCells.length + 2 === cellValues.length)
+          ) {
             // Game over
             setGameState("FINISHED");
           }
@@ -238,6 +252,20 @@ export default function Match() {
               fontSize = "3rem";
             } else if (difficulty >= 4) {
               fontSize = "4rem";
+            }
+            if (value === EMPTY_CELL_VALUE) {
+              return (
+                <div
+                  key={index}
+                  className="cell cell-empty"
+                  style={{
+                    width: "100%",
+                    paddingBottom: "100%",
+                    position: "relative",
+                    borderRadius: "10%",
+                  }}
+                />
+              );
             }
             return (
               <div
@@ -420,8 +448,8 @@ export default function Match() {
               value={difficulty}
               onChange={(e) => handleSetDifficulty(Number(e.target.value))}
               fullWidth>
-              {new Array(4).fill(0).map((_, i) => {
-                const val = (i + 1) * 2;
+              {new Array(6).fill(0).map((_, i) => {
+                const val = i + 2;
                 return (
                   <MenuItem key={i} value={val}>
                     {val} x {val}

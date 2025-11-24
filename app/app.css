@@ -30,6 +30,11 @@ body {
     transform 0.1s ease,
     box-shadow 0.1s ease;
 }
+.cell.cell-empty {
+  @apply bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700;
+  box-shadow: none;
+  border: none;
+}
 .cell.correct {
   @apply bg-green-500 text-white dark:bg-green-600;
 }
