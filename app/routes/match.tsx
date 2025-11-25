@@ -82,7 +82,10 @@ export default function Match() {
     const newSize = Math.floor((size * size) / 2);
     const pieces = new Array(newSize).fill(0).map((_, i) => i + 1);
     const doublePieces = pieces.concat(pieces);
-    const shuffled = shuffle(doublePieces);
+    let shuffled = shuffle(doublePieces);
+    for (let i = 0; i < 5; i++) {
+      shuffled = shuffle(shuffled);
+    }
     const odd = size % 2 === 1 ? [EMPTY_CELL_VALUE] : [];
 
     const half1 = shuffled.slice(0, Math.floor(shuffled.length / 2));

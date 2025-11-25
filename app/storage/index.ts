@@ -1,21 +1,39 @@
 const STORAGE_KEY_PREFIX = "memory-game-storage";
+import { storage } from "../utils/storage";
 
 export const getStoredData = (key: string) => {
-  const data = localStorage.getItem(`${STORAGE_KEY_PREFIX}-${key}`);
-  return data ? JSON.parse(data) : null;
+  try {
+    const data = storage.getItem(`${STORAGE_KEY_PREFIX}-${key}`);
+    return data ? JSON.parse(data) : null;
+  } catch (err) {
+    console.log("[ERROR] error getting stored data for key:", key, err);
+    return null;
+  }
 };
 
 export const setStoredData = (key: string, data: any) => {
-  localStorage.setItem(`${STORAGE_KEY_PREFIX}-${key}`, JSON.stringify(data));
+  try {
+    storage.setItem(`${STORAGE_KEY_PREFIX}-${key}`, JSON.stringify(data));
+  } catch (err) {
+    console.log("[ERROR] error setting stored data for key:", key, err);
+  }
 };
 
 export const clearStoredData = (key: string) => {
-  localStorage.removeItem(`${STORAGE_KEY_PREFIX}-${key}`);
+  try {
+    storage.removeItem(`${STORAGE_KEY_PREFIX}-${key}`);
+  } catch (err) {
+    console.log("[ERROR] error clearing stored data for key:", key, err);
+  }
 };
 export const clearAllStoredData = () => {
-  Object.keys(localStorage).forEach((key) => {
+  Object.keys(storage).forEach((key) => {
     if (key.startsWith(STORAGE_KEY_PREFIX)) {
-      localStorage.removeItem(key);
+      try {
+        storage.removeItem(key);
+      } catch (err) {
+        console.log("[ERROR] error clearing stored data for key:", key, err);
+      }
     }
   });
 };

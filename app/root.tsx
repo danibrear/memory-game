@@ -21,11 +21,11 @@ import {
   ListItem,
   ListItemButton,
   ListItemIcon,
-  ListItemText,
   ThemeProvider,
+  Typography,
   useTheme,
 } from "@mui/material";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   isRouteErrorResponse,
   Links,
@@ -33,6 +33,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useNavigate,
 } from "react-router";
 import type { Route } from "./+types/root";
@@ -93,6 +94,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const navigate = useNavigate();
 
+  const location = useLocation();
+
+  const [currentRoute, setCurrentRoute] = useState(location.pathname);
+
+  useEffect(() => {
+    setCurrentRoute(location.pathname);
+  }, [location.pathname]);
+
   return (
     <html lang="en">
       <head>
@@ -120,12 +129,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
               {PAGES.map((page) => (
                 <Button
                   key={page.name}
-                  variant="contained"
-                  color="secondary"
+                  variant="text"
+                  color="inherit"
                   onClick={() => {
                     navigate(page.path);
-                  }}
-                  startIcon={page.icon}>
+                  }}>
                   {page.name}
                 </Button>
               ))}
@@ -140,11 +148,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 onClick={() => {
                   setMobileDrawerOpen(true);
                 }}>
-                <MenuIcon
-                  sx={{
-                    color: "white",
-                  }}
-                />
+                <MenuIcon color="inherit" />
               </IconButton>
               <Box component="span" sx={{ fontWeight: "bold" }}>
                 DaniB's Games
@@ -155,8 +159,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
               variant="temporary"
               onClose={() => setMobileDrawerOpen(false)}
               open={mobileDrawerOpen}>
-              <Offset />
-              <List>
+              <List
+                style={{
+                  marginTop: 20,
+                }}>
                 {PAGES.map((page) => (
                   <ListItem key={page.name} disablePadding>
                     <ListItemButton
@@ -165,7 +171,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
                         navigate(page.path);
                       }}>
                       <ListItemIcon>{page.icon}</ListItemIcon>
-                      <ListItemText primary={page.name} />
+                      <Typography
+                        variant="button"
+                        style={{
+                          padding: 0,
+                          margin: 0,
+                          color: "inherit",
+                        }}>
+                        {page.name}
+                      </Typography>
                     </ListItemButton>
                   </ListItem>
                 ))}
