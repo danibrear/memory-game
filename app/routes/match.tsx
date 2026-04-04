@@ -8,7 +8,7 @@ import {
   faTrophy,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Box, Container, Typography } from "@mui/material";
+import { Box, Container, Typography, useMediaQuery } from "@mui/material";
 import { shuffle } from "lodash";
 import { useEffect, useState } from "react";
 import { getStoredData, setStoredData } from "~/storage";
@@ -44,6 +44,7 @@ export default function Match() {
   const [turn, setTurn] = useState<1 | 2>(1);
   const [selectedCells, setSelectedCells] = useState<number[]>([]);
   const [revealedCells, setRevealedCells] = useState<number[]>([]);
+  const isDark = useMediaQuery("(prefers-color-scheme: dark)");
 
   const getGameStateJson = () => ({
     gameState,
@@ -381,8 +382,12 @@ export default function Match() {
                 style={
                   isRevealed
                     ? {
-                        backgroundColor: `hsl(${(value * 137.5) % 360}, 65%, 72%)`,
-                        borderColor: `hsl(${(value * 137.5) % 360}, 55%, 55%)`,
+                        backgroundColor: isDark
+                          ? `hsl(${(value * 137.5) % 360}, 55%, 35%)`
+                          : `hsl(${(value * 137.5) % 360}, 65%, 75%)`,
+                        borderColor: isDark
+                          ? `hsl(${(value * 137.5) % 360}, 50%, 50%)`
+                          : `hsl(${(value * 137.5) % 360}, 55%, 55%)`,
                       }
                     : undefined
                 }>
