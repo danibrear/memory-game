@@ -19,7 +19,7 @@ const TICK_SPEEDUP = 40; // ms faster per level
 const LINES_PER_LEVEL = 5;
 const CASCADE_DELAY = 200; // ms between cascade steps
 
-type Cell = number | null; // null = empty, number = color index
+type Cell = { color: number; pieceId: number } | null;
 type Board = Cell[][];
 
 // 7 standard tetrominoes – each rotation is a list of [row, col] offsets
@@ -235,8 +235,10 @@ interface Piece {
   col: number;
 }
 
+let nextPieceId = 1;
+
 function emptyBoard(): Board {
-  return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+  return Array.from({ length: ROWS }, () => Array<Cell>(COLS).fill(null));
 }
 
 function randomPiece(): Piece {
@@ -264,9 +266,10 @@ function isValid(board: Board, p: Piece): boolean {
 
 function lockPiece(board: Board, p: Piece): Board {
   const next = board.map((row) => [...row]);
+  const pieceId = nextPieceId++;
   for (const [r, c] of getCells(p)) {
     if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
-      next[r][c] = p.shape;
+      next[r][c] = { color: p.shape, pieceId };
     }
   }
   return next;
@@ -276,19 +279,22 @@ function lockPiece(board: Board, p: Piece): Board {
 function clearLines(board: Board): [Board, number] {
   const kept = board.filter((row) => row.some((c) => c === null));
   const cleared = ROWS - kept.length;
-  const empties = Array.from({ length: cleared }, () => Array(COLS).fill(null));
+  const empties = Array.from({ length: cleared }, () =>
+    Array<Cell>(COLS).fill(null),
+  );
   return [[...empties, ...kept], cleared];
 }
 
-/** Find connected groups of same-color blocks using flood fill */
+/** Find connected groups by piece ID using flood fill */
 function findGroups(board: Board): [number, number][][] {
   const visited = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
   const groups: [number, number][][] = [];
 
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
-      if (board[r][c] === null || visited[r][c]) continue;
-      const color = board[r][c];
+      const cell = board[r][c];
+      if (cell === null || visited[r][c]) continue;
+      const pid = cell.pieceId;
       const group: [number, number][] = [];
       const stack: [number, number][] = [[r, c]];
       visited[r][c] = true;
@@ -309,7 +315,8 @@ function findGroups(board: Board): [number, number][][] {
             nc >= 0 &&
             nc < COLS &&
             !visited[nr][nc] &&
-            board[nr][nc] === color
+            board[nr][nc] !== null &&
+            board[nr][nc]!.pieceId === pid
           ) {
             visited[nr][nc] = true;
             stack.push([nr, nc]);
@@ -322,7 +329,7 @@ function findGroups(board: Board): [number, number][][] {
   return groups;
 }
 
-/** Quadra gravity: connected same-color groups fall as rigid units */
+/** Quadra gravity: connected piece groups fall as rigid units */
 function applyGravity(board: Board): Board {
   const next = board.map((row) => [...row]);
   let changed = true;
@@ -342,15 +349,17 @@ function applyGravity(board: Board): Board {
       });
 
       if (canFall) {
-        // Remove group from current positions (bottom-up to avoid overwrite)
-        const color = next[group[0][0]][group[0][1]];
-        const sorted = [...group].sort((a, b) => b[0] - a[0]); // bottom first
+        // Capture cell data before clearing
+        const cells = group.map(
+          ([r, c]) => [r, c, next[r][c]!] as [number, number, Cell],
+        );
+        const sorted = [...cells].sort((a, b) => b[0] - a[0]); // bottom first
         for (const [r, c] of sorted) {
           next[r][c] = null;
         }
         // Place group one row down
-        for (const [r, c] of sorted) {
-          next[r + 1][c] = color;
+        for (const [r, c, cell] of sorted) {
+          next[r + 1][c] = cell;
         }
         changed = true;
         break; // restart since board changed
@@ -401,6 +410,7 @@ const STORAGE_KEY = "quadra-game-state";
 
 interface SavedState {
   board: Board;
+  nextPieceId: number;
   score: number;
   level: number;
   totalLines: number;
@@ -421,8 +431,19 @@ function BoardDisplay({
   ghostRow: number | null;
   cascading: boolean;
 }) {
-  // Build display grid
-  const display = board.map((row) => [...row]);
+  // Build display grid — map to color index for rendering
+  const display: (number | null)[][] = board.map((row) =>
+    row.map((cell) => (cell !== null ? cell.color : null)),
+  );
+
+  // Build piece ID grid for connectivity
+  const pieceIds: (number | null)[][] = board.map((row) =>
+    row.map((cell) => (cell !== null ? cell.pieceId : null)),
+  );
+
+  // Use negative IDs for active piece and ghost
+  const ACTIVE_ID = -2;
+  const GHOST_ID = -3;
 
   // Ghost piece
   if (piece && ghostRow !== null && !cascading) {
@@ -430,6 +451,7 @@ function BoardDisplay({
     for (const [r, c] of ghostCells) {
       if (r >= 0 && r < ROWS && c >= 0 && c < COLS && display[r][c] === null) {
         display[r][c] = -1; // ghost marker
+        pieceIds[r][c] = GHOST_ID;
       }
     }
   }
@@ -439,6 +461,7 @@ function BoardDisplay({
     for (const [r, c] of getCells(piece)) {
       if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
         display[r][c] = piece.shape;
+        pieceIds[r][c] = ACTIVE_ID;
       }
     }
   }
@@ -449,19 +472,44 @@ function BoardDisplay({
     <div className="quadra-board">
       {display.map((row, ri) => (
         <div key={ri} className="quadra-row">
-          {row.map((cell, ci) => (
-            <div
-              key={ci}
-              className={`quadra-cell ${cell !== null && cell >= 0 ? "quadra-cell-filled" : ""} ${cell === -1 ? "quadra-cell-ghost" : ""}`}
-              style={
-                cell !== null && cell >= 0
-                  ? { backgroundColor: COLORS[cell] }
-                  : cell === -1 && ghostColor
-                    ? ({ "--ghost-color": ghostColor } as React.CSSProperties)
-                    : undefined
-              }
-            />
-          ))}
+          {row.map((cell, ci) => {
+            const pid = pieceIds[ri][ci];
+            const filled = cell !== null && cell >= 0;
+            const ghost = cell === -1;
+
+            // Check neighbors for same piece
+            const sameUp =
+              pid !== null && ri > 0 && pieceIds[ri - 1][ci] === pid;
+            const sameDown =
+              pid !== null && ri < ROWS - 1 && pieceIds[ri + 1][ci] === pid;
+            const sameLeft =
+              pid !== null && ci > 0 && pieceIds[ri][ci - 1] === pid;
+            const sameRight =
+              pid !== null && ci < COLS - 1 && pieceIds[ri][ci + 1] === pid;
+
+            const r = 4; // border radius
+            const borderRadius =
+              filled || ghost
+                ? `${sameUp || sameLeft ? 0 : r}px ${sameUp || sameRight ? 0 : r}px ${sameDown || sameRight ? 0 : r}px ${sameDown || sameLeft ? 0 : r}px`
+                : undefined;
+
+            return (
+              <div
+                key={ci}
+                className={`quadra-cell ${filled ? "quadra-cell-filled" : ""} ${ghost ? "quadra-cell-ghost" : ""} ${sameUp ? "quadra-join-up" : ""} ${sameLeft ? "quadra-join-left" : ""}`}
+                style={
+                  filled
+                    ? { backgroundColor: COLORS[cell], borderRadius }
+                    : ghost && ghostColor
+                      ? ({
+                          "--ghost-color": ghostColor,
+                          borderRadius,
+                        } as React.CSSProperties)
+                      : undefined
+                }
+              />
+            );
+          })}
         </div>
       ))}
     </div>
@@ -478,7 +526,9 @@ function NextPieceDisplay({ piece }: { piece: Piece }) {
   const h = maxR - minR + 1;
   const w = maxC - minC + 1;
 
-  const grid: Cell[][] = Array.from({ length: h }, () => Array(w).fill(null));
+  const grid: (number | null)[][] = Array.from({ length: h }, () =>
+    Array<number | null>(w).fill(null),
+  );
   for (const [r, c] of cells) {
     grid[r - minR][c - minC] = piece.shape;
   }
@@ -491,15 +541,30 @@ function NextPieceDisplay({ piece }: { piece: Piece }) {
       <div className="quadra-next-grid">
         {grid.map((row, ri) => (
           <div key={ri} className="quadra-row">
-            {row.map((cell, ci) => (
-              <div
-                key={ci}
-                className={`quadra-cell quadra-cell-small ${cell !== null ? "quadra-cell-filled" : ""}`}
-                style={
-                  cell !== null ? { backgroundColor: COLORS[cell] } : undefined
-                }
-              />
-            ))}
+            {row.map((cell, ci) => {
+              const filled = cell !== null;
+              const sameUp = filled && ri > 0 && grid[ri - 1][ci] !== null;
+              const sameDown =
+                filled && ri < h - 1 && grid[ri + 1][ci] !== null;
+              const sameLeft = filled && ci > 0 && grid[ri][ci - 1] !== null;
+              const sameRight =
+                filled && ci < w - 1 && grid[ri][ci + 1] !== null;
+              const rad = 4;
+              const borderRadius = filled
+                ? `${sameUp || sameLeft ? 0 : rad}px ${sameUp || sameRight ? 0 : rad}px ${sameDown || sameRight ? 0 : rad}px ${sameDown || sameLeft ? 0 : rad}px`
+                : undefined;
+              return (
+                <div
+                  key={ci}
+                  className={`quadra-cell quadra-cell-small ${filled ? "quadra-cell-filled" : ""} ${sameUp ? "quadra-join-up" : ""} ${sameLeft ? "quadra-join-left" : ""}`}
+                  style={
+                    filled
+                      ? { backgroundColor: COLORS[cell], borderRadius }
+                      : undefined
+                  }
+                />
+              );
+            })}
           </div>
         ))}
       </div>
@@ -544,6 +609,7 @@ function GameScreen() {
   const saveState = useCallback(() => {
     setStoredData(STORAGE_KEY, {
       board: boardRef.current,
+      nextPieceId,
       score: scoreRef.current,
       level: levelRef.current,
       totalLines: totalLinesRef.current,
@@ -562,6 +628,7 @@ function GameScreen() {
       setScore(stored.score ?? 0);
       setLevel(stored.level ?? 0);
       setTotalLines(stored.totalLines ?? 0);
+      if (stored.nextPieceId) nextPieceId = stored.nextPieceId;
     }
     setIsLoaded(true);
   }, []);
