@@ -94,10 +94,10 @@ export default function Memory() {
     }
   };
 
-  const handleStartGame = () => {
+  const handleStartGame = (d = difficulty) => {
     const newCorrectCells = new Set<number>();
-    const totalCells = difficulty * difficulty;
-    while (newCorrectCells.size < difficulty) {
+    const totalCells = d * d;
+    while (newCorrectCells.size < d) {
       const randomIndex = Math.floor(Math.random() * totalCells);
       newCorrectCells.add(randomIndex);
     }
@@ -189,7 +189,7 @@ export default function Memory() {
             </Typography>
           </Box>
 
-          <button className="btn" onClick={handleStartGame} style={{ fontSize: "1.2rem", padding: "14px 48px" }}>
+          <button className="btn" onClick={() => handleStartGame()} style={{ fontSize: "1.2rem", padding: "14px 48px" }}>
             Play!&nbsp;&nbsp;<FontAwesomeIcon icon={faBrain} />
           </button>
         </Container>
@@ -229,14 +229,15 @@ export default function Memory() {
             {endSubtitle}
           </Typography>
           <Box sx={{ display: "flex", gap: 2, justifyContent: "center", flexWrap: "wrap" }}>
-            <button className="btn" onClick={handleStartGame} style={{ fontSize: "1rem", padding: "12px 32px" }}>
+            <button className="btn" onClick={() => handleStartGame()} style={{ fontSize: "1rem", padding: "12px 32px" }}>
               Play Again
             </button>
             <button
               className="btn"
               onClick={() => {
-                setDifficulty((d) => Math.min(15, d + 1));
-                setTimeout(handleStartGame, 0);
+                const next = Math.min(15, difficulty + 1);
+                setDifficulty(next);
+                handleStartGame(next);
               }}
               style={{ fontSize: "1rem", padding: "12px 32px", background: "linear-gradient(135deg, #a855f7, #6366f1)" }}>
               Level Up&nbsp;&nbsp;<FontAwesomeIcon icon={faArrowUp} />

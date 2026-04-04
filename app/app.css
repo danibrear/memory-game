@@ -180,15 +180,15 @@ input[type="range"] {
   background-color: transparent; /* Make the background transparent to see the track */
 }
 input[type="range"]::-webkit-slider-runnable-track {
-  height: 20px; /* Height of the track */
-  background: #ccc; /* Track color */
-  border-radius: 10px; /* Rounded corners for the track */
+  height: 20px;
+  background: light-dark(#ccc, #4b5563);
+  border-radius: 10px;
   cursor: pointer;
 }
 
 input[type="range"]::-moz-range-track {
   height: 20px;
-  background: #ccc;
+  background: light-dark(#ccc, #4b5563);
   border-radius: 10px;
   cursor: pointer;
 }
@@ -240,27 +240,32 @@ input[type="range"]::-ms-thumb {
 
 /* ========== Bubble Pop ========== */
 
-.bubblepop-bubble {
+/* Transparent hitbox wrapper — handles animation, positioning, and click area */
+.bubblepop-hitbox {
   position: absolute;
-  bottom: -120px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  animation: bubblepop-float linear forwards;
+}
+
+/* Visual bubble inside the hitbox */
+.bubblepop-bubble {
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
   border: 2px solid rgba(255, 255, 255, 0.6);
   box-shadow:
     inset -5px -5px 10px rgba(0, 0, 0, 0.08),
     inset 4px 4px 10px rgba(255, 255, 255, 0.5),
     0 4px 16px rgba(0, 0, 0, 0.1);
-  animation: bubblepop-float linear forwards;
+  pointer-events: none;
 }
-.bubblepop-bubble:hover {
+.bubblepop-hitbox:hover .bubblepop-bubble {
   filter: brightness(1.1);
 }
-.bubblepop-bubble:active {
+.bubblepop-hitbox:active .bubblepop-bubble {
   transform: scale(0.88);
 }
 

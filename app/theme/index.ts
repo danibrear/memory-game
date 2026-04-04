@@ -63,30 +63,5 @@ export const theme = createTheme({
         },
       },
     },
-    MuiTypography: {
-      styleOverrides: {
-        root: {
-          color: "#343434",
-        },
-        h1: {
-          color: PRIMARY,
-        },
-        h2: {
-          color: PRIMARY,
-        },
-        h3: {
-          color: SECONDARY,
-        },
-        h4: {
-          color: SECONDARY,
-        },
-        h5: {
-          color: PRIMARY,
-        },
-        h6: {
-          color: PRIMARY,
-        },
-      },
-    },
   },
 });
