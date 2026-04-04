@@ -335,11 +335,15 @@ function GameScreen({
   const [selectedTube, setSelectedTube] = useState<number | null>(null);
   const [moveCount, setMoveCount] = useState(savedState?.moveCount ?? 0);
   const [history, setHistory] = useState<Tube[][]>(savedState?.history ?? []);
-  const [sizeIdx, setSizeIdx] = useState(1); // 0=S, 1=M, 2=L
-  const sizeLabels = ["Small", "Medium", "Large"];
-  const sizeClass = ["ballsort-size-s", "ballsort-size-m", "ballsort-size-l"][
-    sizeIdx
-  ];
+  const [sizeIdx, setSizeIdx] = useState(1); // 0=S, 1=M, 2=L, 3=XL, 4=XXL
+  const sizeLabels = ["Small", "Medium", "Large", "X-Large", "XXL"];
+  const sizeClass = [
+    "ballsort-size-s",
+    "ballsort-size-m",
+    "ballsort-size-l",
+    "ballsort-size-xl",
+    "ballsort-size-xxl",
+  ][sizeIdx];
 
   // Animation state
   type FlyingBall = {
@@ -520,7 +524,7 @@ function GameScreen({
         </button>
         <button
           className="btn"
-          onClick={() => setSizeIdx((s) => (s + 1) % 3)}
+          onClick={() => setSizeIdx((s) => (s + 1) % sizeLabels.length)}
           style={{ fontSize: "0.85rem" }}>
           <FontAwesomeIcon icon={faMagnifyingGlassPlus} /> {sizeLabels[sizeIdx]}
         </button>

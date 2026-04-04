@@ -1,6 +1,3 @@
-import { recipes as defaultRecipes } from "~/data/recipes";
-import type { Recipe } from "~/data/recipes";
-
 /**
  * Set this to your S3 file URL to enable remote configuration.
  * Leave empty to always use the built-in defaults (offline-safe).
@@ -31,20 +28,11 @@ export type BallSortConfig = {
   maxExtraTubes: number;
 };
 
-export type KitchenConfig = {
-  /** Full list of recipes shown on the recipe select screen. */
-  recipes: Recipe[];
-};
-
 export type GameConfig = {
-  kitchen: KitchenConfig;
   ballSort: BallSortConfig;
 };
 
 export const DEFAULT_CONFIG: GameConfig = {
-  kitchen: {
-    recipes: defaultRecipes,
-  },
   ballSort: {
     colors: [
       { name: "Red", hsl: "hsl(0, 80%, 55%)" },
@@ -67,13 +55,11 @@ export const DEFAULT_CONFIG: GameConfig = {
 };
 
 type RemoteConfig = {
-  kitchen?: Partial<KitchenConfig>;
   ballSort?: Partial<BallSortConfig>;
 };
 
 function mergeConfig(remote: RemoteConfig): GameConfig {
   return {
-    kitchen: { ...DEFAULT_CONFIG.kitchen, ...remote.kitchen },
     ballSort: { ...DEFAULT_CONFIG.ballSort, ...remote.ballSort },
   };
 }
