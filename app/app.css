@@ -595,13 +595,38 @@ input[type="range"]::-ms-thumb {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 12px 0;
+  gap: var(--bs-grid-gap, 10px);
+  padding: 16px 12px;
+  overflow: visible;
 }
 .ballsort-row {
   display: flex;
   justify-content: center;
-  gap: 10px;
+  gap: var(--bs-grid-gap, 10px);
+  overflow: visible;
+}
+
+/* Size presets via CSS custom properties */
+.ballsort-size-s {
+  --bs-tube-w: 48px;
+  --bs-ball: 38px;
+  --bs-pad: 3px;
+  --bs-gap: 2px;
+  --bs-grid-gap: 8px;
+}
+.ballsort-size-m {
+  --bs-tube-w: 58px;
+  --bs-ball: 46px;
+  --bs-pad: 4px;
+  --bs-gap: 3px;
+  --bs-grid-gap: 10px;
+}
+.ballsort-size-l {
+  --bs-tube-w: 74px;
+  --bs-ball: 60px;
+  --bs-pad: 5px;
+  --bs-gap: 4px;
+  --bs-grid-gap: 12px;
 }
 
 /* Individual tube */
@@ -612,9 +637,9 @@ input[type="range"]::-ms-thumb {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 4px;
+  padding: var(--bs-pad, 4px);
   cursor: pointer;
-  width: 58px;
+  width: var(--bs-tube-w, 58px);
   transition:
     transform 0.15s ease,
     box-shadow 0.15s ease,
@@ -662,14 +687,14 @@ input[type="range"]::-ms-thumb {
 .ballsort-tube-inner {
   display: flex;
   flex-direction: column-reverse;
-  gap: 3px;
+  gap: var(--bs-gap, 3px);
   width: 100%;
 }
 
 /* Ball slots */
 .ballsort-slot {
-  width: 46px;
-  height: 46px;
+  width: var(--bs-ball, 46px);
+  height: var(--bs-ball, 46px);
   border-radius: 50%;
   transition:
     background-color 0.15s ease,
@@ -709,41 +734,41 @@ input[type="range"]::-ms-thumb {
   }
 }
 
-/* Compact mode: more than 7 tubes → shrink to fit 2 rows */
-.ballsort-grid-compact {
-  gap: 8px;
+/* Compact mode: more than 7 tubes → scale down one notch */
+.ballsort-grid-compact.ballsort-size-m {
+  --bs-tube-w: 48px;
+  --bs-ball: 38px;
+  --bs-pad: 3px;
+  --bs-gap: 2px;
+  --bs-grid-gap: 8px;
 }
-.ballsort-grid-compact .ballsort-row {
-  gap: 8px;
+.ballsort-grid-compact.ballsort-size-l {
+  --bs-tube-w: 58px;
+  --bs-ball: 46px;
+  --bs-pad: 4px;
+  --bs-gap: 3px;
+  --bs-grid-gap: 10px;
 }
-.ballsort-grid-compact .ballsort-tube {
-  width: 46px;
-  padding: 3px;
-}
-.ballsort-grid-compact .ballsort-slot {
-  width: 36px;
-  height: 36px;
-}
-.ballsort-grid-compact .ballsort-tube-inner {
-  gap: 2px;
+.ballsort-grid-compact.ballsort-size-s {
+  --bs-tube-w: 40px;
+  --bs-ball: 30px;
+  --bs-pad: 2px;
+  --bs-gap: 2px;
+  --bs-grid-gap: 6px;
 }
 
-/* Responsive: smaller tubes on narrow screens */
-@media (max-width: 480px) {
-  .ballsort-tube {
-    width: 48px;
+/* Flying ball animation */
+.ballsort-flying-ball {
+  animation: ballFly 300ms ease-in-out forwards;
+  pointer-events: none;
+}
+
+@keyframes ballFly {
+  0% {
+    transform: translate(0, 0);
   }
-  .ballsort-slot {
-    width: 38px;
-    height: 38px;
-  }
-  .ballsort-grid-compact .ballsort-tube {
-    width: 40px;
-    padding: 2px;
-  }
-  .ballsort-grid-compact .ballsort-slot {
-    width: 30px;
-    height: 30px;
+  100% {
+    transform: translate(var(--fly-end-x), var(--fly-end-y));
   }
 }
 

@@ -11,7 +11,8 @@ import type { Recipe } from "~/data/recipes";
  * Any keys you omit fall back to the built-in defaults, so you only
  * need to include the sections you want to override.
  */
-export const REMOTE_CONFIG_URL = "";
+export const REMOTE_CONFIG_URL =
+  "https://danibs-games-config.s3.us-east-2.amazonaws.com/games-config.json";
 
 export type BallColor = { name: string; hsl: string };
 
@@ -65,9 +66,12 @@ export const DEFAULT_CONFIG: GameConfig = {
   },
 };
 
-type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
+type RemoteConfig = {
+  kitchen?: Partial<KitchenConfig>;
+  ballSort?: Partial<BallSortConfig>;
+};
 
-function mergeConfig(remote: DeepPartial<GameConfig>): GameConfig {
+function mergeConfig(remote: RemoteConfig): GameConfig {
   return {
     kitchen: { ...DEFAULT_CONFIG.kitchen, ...remote.kitchen },
     ballSort: { ...DEFAULT_CONFIG.ballSort, ...remote.ballSort },
@@ -87,10 +91,12 @@ export function loadConfig(): Promise<GameConfig> {
     return Promise.resolve(cached);
   }
 
+  console.log("Fetching remote config from", REMOTE_CONFIG_URL);
+
   pending = fetch(REMOTE_CONFIG_URL)
     .then((res) => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json() as Promise<DeepPartial<GameConfig>>;
+      return res.json() as Promise<RemoteConfig>;
     })
     .then((remote) => {
       cached = mergeConfig(remote);

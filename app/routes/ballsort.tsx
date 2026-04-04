@@ -1,5 +1,17 @@
+import {
+  faArrowsRotate,
+  faFlask,
+  faMagnifyingGlassPlus,
+  faPlay,
+  faRepeat,
+  faRotateLeft,
+  faShuffle,
+  faStar,
+  faTrophy,
+} from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Box, Container, Typography } from "@mui/material";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearStoredData, getStoredData, setStoredData } from "~/storage";
 import { useRemoteConfig } from "~/utils/useRemoteConfig";
 import type { Route } from "./+types/ballsort";
@@ -159,7 +171,7 @@ function StartScreen({
   return (
     <Container maxWidth="sm">
       <Typography variant="h4" sx={{ textAlign: "center", mb: 3 }}>
-        🧪 Ball Sort Puzzle
+        <FontAwesomeIcon icon={faFlask} /> Ball Sort Puzzle
       </Typography>
 
       <div className="ballsort-config">
@@ -231,7 +243,7 @@ function StartScreen({
           className="btn"
           style={{ marginTop: 24, width: "100%" }}
           onClick={onStart}>
-          Start! 🎮
+          <FontAwesomeIcon icon={faPlay} /> Start!
         </button>
       </div>
     </Container>
@@ -246,6 +258,8 @@ function TubeComponent({
   canReceive,
   tubeCapacity,
   ballColors,
+  hiddenTopCount,
+  tubeRef,
   onClick,
 }: {
   tube: Tube;
@@ -255,18 +269,24 @@ function TubeComponent({
   canReceive: boolean;
   tubeCapacity: number;
   ballColors: { name: string; hsl: string }[];
+  hiddenTopCount: number;
+  tubeRef: (el: HTMLButtonElement | null) => void;
   onClick: () => void;
 }) {
+  const visibleCount = tube.length - hiddenTopCount;
   return (
     <button
+      ref={tubeRef}
       className={`ballsort-tube ${isSelected ? "ballsort-tube-selected" : ""} ${canReceive ? "ballsort-tube-receivable" : ""}`}
       onClick={onClick}
       aria-label={`Tube ${index + 1}`}>
       <div className="ballsort-tube-inner">
         {Array.from({ length: tubeCapacity }).map((_, slotIdx) => {
-          const ball = tube[slotIdx];
+          const ball = slotIdx < visibleCount ? tube[slotIdx] : undefined;
           const isHighlighted =
-            isSelected && slotIdx >= tube.length - highlightCount;
+            isSelected &&
+            ball != null &&
+            slotIdx >= visibleCount - highlightCount;
           return (
             <div
               key={slotIdx}
@@ -315,6 +335,27 @@ function GameScreen({
   const [selectedTube, setSelectedTube] = useState<number | null>(null);
   const [moveCount, setMoveCount] = useState(savedState?.moveCount ?? 0);
   const [history, setHistory] = useState<Tube[][]>(savedState?.history ?? []);
+  const [sizeIdx, setSizeIdx] = useState(1); // 0=S, 1=M, 2=L
+  const sizeLabels = ["Small", "Medium", "Large"];
+  const sizeClass = ["ballsort-size-s", "ballsort-size-m", "ballsort-size-l"][
+    sizeIdx
+  ];
+
+  // Animation state
+  type FlyingBall = {
+    color: number;
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+    size: number;
+  };
+  const [flyingBalls, setFlyingBalls] = useState<FlyingBall[]>([]);
+  const [animSrc, setAnimSrc] = useState<number | null>(null);
+  const [animCount, setAnimCount] = useState(0);
+  const animating = flyingBalls.length > 0;
+  const tubeRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const gridRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (moveCount > 0 && isSolved(tubes, tubeCapacity)) {
@@ -329,6 +370,7 @@ function GameScreen({
 
   const handleTubeClick = useCallback(
     (index: number) => {
+      if (animating) return;
       if (selectedTube === null) {
         if (tubes[index].length === 0) return;
         setSelectedTube(index);
@@ -341,6 +383,74 @@ function GameScreen({
           tubeCapacity,
         );
         if (movable > 0) {
+          // Calculate positions for flying balls
+          const srcEl = tubeRefs.current[selectedTube];
+          const dstEl = tubeRefs.current[index];
+          const gridEl = gridRef.current;
+          if (srcEl && dstEl && gridEl) {
+            const gridRect = gridEl.getBoundingClientRect();
+            const srcSlots = srcEl.querySelectorAll(".ballsort-slot");
+            const dstSlots = dstEl.querySelectorAll(".ballsort-slot");
+            // slots are rendered in DOM order 0..cap-1, displayed column-reverse
+            // Source: top balls are at indices tube.length-1 down to tube.length-movable
+            // Dest: landing slots are at dest.length up to dest.length+movable-1
+            const destLen = tubes[index].length;
+            const srcLen = tubes[selectedTube].length;
+            const ballSize = srcSlots[0]?.getBoundingClientRect().width ?? 46;
+
+            const balls: FlyingBall[] = [];
+            for (let b = 0; b < movable; b++) {
+              const srcSlotIdx = srcLen - 1 - b; // top ball first
+              const dstSlotIdx = destLen + b;
+              const srcSlot = srcSlots[srcSlotIdx];
+              const dstSlot = dstSlots[dstSlotIdx];
+              if (srcSlot && dstSlot) {
+                const sr = srcSlot.getBoundingClientRect();
+                const dr = dstSlot.getBoundingClientRect();
+                balls.push({
+                  color: tubes[selectedTube][srcSlotIdx],
+                  startX: sr.left - gridRect.left,
+                  startY: sr.top - gridRect.top,
+                  endX: dr.left - gridRect.left,
+                  endY: dr.top - gridRect.top,
+                  size: ballSize,
+                });
+              }
+            }
+
+            if (balls.length > 0) {
+              setAnimSrc(selectedTube);
+              setAnimCount(movable);
+              setFlyingBalls(balls);
+
+              // After animation, commit the move
+              setTimeout(() => {
+                const newHistory = [...history, tubes.map((t) => [...t])];
+                const next = tubes.map((t) => [...t]);
+                const moved = next[selectedTube].splice(
+                  next[selectedTube].length - movable,
+                  movable,
+                );
+                next[index].push(...moved);
+                const newMoveCount = moveCount + 1;
+                setHistory(newHistory);
+                setTubes(next);
+                setMoveCount(newMoveCount);
+                setFlyingBalls([]);
+                setAnimSrc(null);
+                setAnimCount(0);
+                onSave({
+                  tubes: next,
+                  moveCount: newMoveCount,
+                  history: newHistory,
+                });
+              }, 350);
+              setSelectedTube(null);
+              return;
+            }
+          }
+
+          // Fallback: no DOM refs, instant move
           const newHistory = [...history, tubes.map((t) => [...t])];
           const next = tubes.map((t) => [...t]);
           const balls = next[selectedTube].splice(
@@ -361,7 +471,7 @@ function GameScreen({
         setSelectedTube(null);
       }
     },
-    [selectedTube, tubes, history, moveCount, tubeCapacity, onSave],
+    [selectedTube, tubes, history, moveCount, tubeCapacity, onSave, animating],
   );
 
   const handleUndo = useCallback(() => {
@@ -380,7 +490,7 @@ function GameScreen({
     <Container maxWidth="md" sx={{ textAlign: "center" }}>
       <div className="ballsort-header">
         <Typography variant="h5" sx={{ fontWeight: 600 }}>
-          🧪 Ball Sort
+          <FontAwesomeIcon icon={faFlask} /> Ball Sort
         </Typography>
         <Typography variant="body2" sx={{ opacity: 0.6 }}>
           Moves: {moveCount}
@@ -394,24 +504,52 @@ function GameScreen({
           onClick={handleUndo}
           disabled={history.length === 0}
           style={{ fontSize: "0.85rem" }}>
-          ↩ Undo
+          <FontAwesomeIcon icon={faRotateLeft} /> Undo
         </button>
         <button
           className="btn"
           onClick={onRestart}
           style={{ fontSize: "0.85rem" }}>
-          🔄 Restart
+          <FontAwesomeIcon icon={faArrowsRotate} /> Restart
         </button>
         <button
           className="btn"
           onClick={onNewGame}
           style={{ fontSize: "0.85rem" }}>
-          🆕 New Game
+          <FontAwesomeIcon icon={faShuffle} /> New Game
+        </button>
+        <button
+          className="btn"
+          onClick={() => setSizeIdx((s) => (s + 1) % 3)}
+          style={{ fontSize: "0.85rem" }}>
+          <FontAwesomeIcon icon={faMagnifyingGlassPlus} /> {sizeLabels[sizeIdx]}
         </button>
       </div>
 
       <div
-        className={`ballsort-grid ${tubes.length > 7 ? "ballsort-grid-compact" : ""}`}>
+        ref={gridRef}
+        className={`ballsort-grid ${sizeClass} ${tubes.length > 7 ? "ballsort-grid-compact" : ""}`}
+        style={{ position: "relative" }}>
+        {flyingBalls.map((fb, i) => (
+          <div
+            key={i}
+            className="ballsort-ball ballsort-flying-ball"
+            style={
+              {
+                position: "absolute",
+                width: fb.size,
+                height: fb.size,
+                borderRadius: "50%",
+                backgroundColor: ballColors[fb.color]?.hsl,
+                left: fb.startX,
+                top: fb.startY,
+                zIndex: 10,
+                "--fly-end-x": `${fb.endX - fb.startX}px`,
+                "--fly-end-y": `${fb.endY - fb.startY}px`,
+              } as React.CSSProperties
+            }
+          />
+        ))}
         {(() => {
           const n = tubes.length;
           const perRow = n <= 7 ? n : Math.ceil(n / 2);
@@ -439,6 +577,10 @@ function GameScreen({
                     canReceive={canReceive}
                     tubeCapacity={tubeCapacity}
                     ballColors={ballColors}
+                    hiddenTopCount={animSrc === i ? animCount : 0}
+                    tubeRef={(el) => {
+                      tubeRefs.current[i] = el;
+                    }}
                     onClick={() => handleTubeClick(i)}
                   />
                 );
@@ -465,7 +607,11 @@ function WinScreen({
   return (
     <Container maxWidth="sm" sx={{ textAlign: "center" }}>
       <div className="cooking-celebration">
-        <div className="cooking-stars">🎉 ⭐ 🎉</div>
+        <div className="cooking-stars">
+          <FontAwesomeIcon icon={faTrophy} style={{ color: "#FFD700" }} />{" "}
+          <FontAwesomeIcon icon={faStar} style={{ color: "#FFD700" }} />{" "}
+          <FontAwesomeIcon icon={faTrophy} style={{ color: "#FFD700" }} />
+        </div>
         <Typography variant="h4" sx={{ mb: 1, fontWeight: 700 }}>
           You solved it!
         </Typography>
@@ -474,17 +620,22 @@ function WinScreen({
         </Typography>
         {optimalMoves != null && (
           <Typography variant="body1" sx={{ mb: 2, opacity: 0.6 }}>
-            {moveCount === optimalMoves
-              ? "⭐ Perfect score!"
-              : `Best possible: ${optimalMoves} moves`}
+            {moveCount === optimalMoves ? (
+              <>
+                <FontAwesomeIcon icon={faStar} style={{ color: "#FFD700" }} />{" "}
+                Perfect score!
+              </>
+            ) : (
+              `Best possible: ${optimalMoves} moves`
+            )}
           </Typography>
         )}
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
           <button className="btn" onClick={onPlayAgain}>
-            Play Again! 🔁
+            <FontAwesomeIcon icon={faRepeat} /> Play Again!
           </button>
           <button className="btn" onClick={onNewGame}>
-            New Puzzle! 🧪
+            <FontAwesomeIcon icon={faFlask} /> New Puzzle!
           </button>
         </div>
       </div>
@@ -496,8 +647,14 @@ const STORAGE_KEY = "ballsort-game-state";
 
 export default function BallSort() {
   const config = useRemoteConfig();
-  const { colors: ballColors, tubeCapacity, minColors, maxColors, minExtraTubes, maxExtraTubes } =
-    config.ballSort;
+  const {
+    colors: ballColors,
+    tubeCapacity,
+    minColors,
+    maxColors,
+    minExtraTubes,
+    maxExtraTubes,
+  } = config.ballSort;
 
   const [gameState, setGameState] = useState<GameState>("START");
   const [numColors, setNumColors] = useState(4);

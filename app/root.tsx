@@ -215,7 +215,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </IconButton>
               <Box
                 component="span"
-                sx={{ fontWeight: 900, fontSize: "1.1rem", color: "white" }}>
+                onClick={() => navigate("/")}
+                sx={{ fontWeight: 900, fontSize: "1.1rem", color: "white", cursor: "pointer", userSelect: "none" }}>
                 🎮 DaniB's Games
               </Box>
             </Container>
