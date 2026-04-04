@@ -160,3 +160,781 @@ input[type="range"]::-ms-thumb {
   @apply bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700;
   cursor: pointer;
 }
+
+/* ========== Cooking Game ========== */
+
+.cooking-recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+@media (max-width: 480px) {
+  .cooking-recipe-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.cooking-recipe-card {
+  @apply bg-white dark:bg-gray-800 rounded-2xl border-2 border-gray-200 dark:border-gray-600;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 12px;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.cooking-recipe-card:hover {
+  transform: scale(1.05);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.cooking-recipe-card:active {
+  transform: scale(0.97);
+}
+
+/* Progress dots */
+.cooking-progress {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.cooking-progress-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  @apply bg-gray-300 dark:bg-gray-600;
+  transition:
+    background-color 0.3s ease,
+    transform 0.3s ease;
+}
+.cooking-progress-dot.done {
+  @apply bg-green-500;
+}
+.cooking-progress-dot.active {
+  @apply bg-blue-500;
+  transform: scale(1.3);
+}
+
+/* Instruction banner */
+.cooking-instruction {
+  @apply bg-blue-50 dark:bg-blue-900 rounded-2xl;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  transition:
+    background-color 0.3s ease,
+    transform 0.2s ease;
+}
+.cooking-instruction-correct {
+  @apply bg-green-100 dark:bg-green-900;
+  animation: pulseGreen 0.5s ease;
+}
+.cooking-instruction-wrong {
+  animation: shakeX 0.4s ease;
+}
+
+/* Drop zone */
+.cooking-dropzone {
+  @apply bg-amber-50 dark:bg-amber-900 border-4 border-dashed border-amber-300 dark:border-amber-600 rounded-3xl;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 20px;
+  margin-bottom: 24px;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    transform 0.2s ease;
+}
+.cooking-dropzone-active {
+  @apply border-green-400 dark:border-green-500 bg-green-50 dark:bg-green-900;
+  transform: scale(1.03);
+}
+
+.cooking-added-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 8px;
+}
+.cooking-added-item {
+  animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Draggable ingredients */
+.cooking-options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+}
+
+.cooking-ingredient {
+  @apply bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-600 rounded-2xl;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 16px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.cooking-ingredient:active {
+  cursor: grabbing;
+}
+.cooking-ingredient-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-top: 4px;
+  @apply text-gray-600 dark:text-gray-300;
+}
+
+.cooking-dragging {
+  transform: scale(1.15);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  z-index: 100;
+  opacity: 0.9;
+}
+.cooking-disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Celebration */
+.cooking-celebration {
+  animation: fadeIn 0.5s ease;
+}
+.cooking-stars {
+  font-size: 3rem;
+  animation: bounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  margin-bottom: 12px;
+}
+.cooking-finished-dish {
+  animation: popIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: inline-block;
+}
+
+/* Cooking Action Steps */
+.cooking-action-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.cooking-action-cookware {
+  transition: transform 0.3s ease;
+}
+
+.cooking-action-tool {
+  @apply bg-white dark:bg-gray-800 border-2 border-amber-300 dark:border-amber-500 rounded-2xl;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 24px;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.cooking-action-tool:hover:not(:disabled) {
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+.cooking-action-tool:active:not(:disabled) {
+  transform: scale(0.93);
+}
+.cooking-action-tool-active {
+  animation: tapBounce 0.3s ease;
+}
+
+.cooking-action-progress-bar {
+  width: 200px;
+  height: 16px;
+  @apply bg-gray-200 dark:bg-gray-700 rounded-full;
+  overflow: hidden;
+}
+.cooking-action-progress-fill {
+  height: 100%;
+  @apply bg-green-500;
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+
+/* Action-specific animations on the cookware */
+.cooking-action-stir {
+  animation: stirRotate 0.3s ease;
+}
+.cooking-action-roll {
+  animation: rollSquash 0.3s ease;
+}
+.cooking-action-bake {
+  animation: bakeGlow 0.3s ease;
+}
+.cooking-action-blend {
+  animation: blendShake 0.3s ease;
+}
+.cooking-action-chop {
+  animation: chopSlice 0.3s ease;
+}
+.cooking-action-flip {
+  animation: flipY 0.3s ease;
+}
+
+/* Keyframes */
+@keyframes tapBounce {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.88);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes stirRotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(15deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes rollSquash {
+  0% {
+    transform: scaleY(1) scaleX(1);
+  }
+  50% {
+    transform: scaleY(0.85) scaleX(1.1);
+  }
+  100% {
+    transform: scaleY(1) scaleX(1);
+  }
+}
+
+@keyframes bakeGlow {
+  0% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.3) saturate(1.3);
+  }
+  100% {
+    filter: brightness(1);
+  }
+}
+
+@keyframes blendShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px) rotate(-2deg);
+  }
+  75% {
+    transform: translateX(4px) rotate(2deg);
+  }
+}
+
+@keyframes chopSlice {
+  0% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-8px);
+  }
+  60% {
+    transform: translateY(3px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes flipY {
+  0% {
+    transform: perspective(400px) rotateX(0deg);
+  }
+  50% {
+    transform: perspective(400px) rotateX(180deg);
+  }
+  100% {
+    transform: perspective(400px) rotateX(360deg);
+  }
+}
+
+@keyframes shakeX {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-10px);
+  }
+  40% {
+    transform: translateX(10px);
+  }
+  60% {
+    transform: translateX(-6px);
+  }
+  80% {
+    transform: translateX(6px);
+  }
+}
+
+@keyframes pulseGreen {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes popIn {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes bounceIn {
+  0% {
+    transform: scale(0) rotate(-10deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.3) rotate(5deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+/* ========== Ball Sort Puzzle ========== */
+
+.ballsort-config {
+  @apply bg-white dark:bg-gray-800 rounded-2xl;
+  padding: 24px;
+  max-width: 400px;
+  margin: 0 auto;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.ballsort-config-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ballsort-config-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ballsort-color-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.ballsort-ball-small {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+}
+
+/* Header & actions */
+.ballsort-header {
+  margin-bottom: 8px;
+}
+
+.ballsort-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+/* Tube grid */
+.ballsort-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+/* Individual tube */
+.ballsort-tube {
+  @apply bg-gray-100 dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600;
+  border-radius: 0 0 20px 20px;
+  border-top: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px;
+  cursor: pointer;
+  width: 58px;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
+  position: relative;
+  background: transparent;
+}
+.ballsort-tube::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  height: 4px;
+  @apply bg-gray-100 dark:bg-gray-800;
+  border-left: 2px solid;
+  border-right: 2px solid;
+  @apply border-gray-300 dark:border-gray-600;
+  border-radius: 0;
+}
+
+.ballsort-tube:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+.ballsort-tube-selected {
+  @apply border-blue-500 dark:border-blue-400;
+  transform: translateY(-6px);
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.25);
+}
+.ballsort-tube-selected::before {
+  @apply border-blue-500 dark:border-blue-400;
+}
+
+.ballsort-tube-receivable {
+  @apply border-green-400 dark:border-green-500;
+  box-shadow: 0 4px 16px rgba(74, 222, 128, 0.2);
+}
+.ballsort-tube-receivable::before {
+  @apply border-green-400 dark:border-green-500;
+}
+
+/* Tube inner stacks bottom to top */
+.ballsort-tube-inner {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 3px;
+  width: 100%;
+}
+
+/* Ball slots */
+.ballsort-slot {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  transition:
+    background-color 0.15s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.ballsort-ball {
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  box-shadow:
+    inset 0 -3px 6px rgba(0, 0, 0, 0.15),
+    inset 0 3px 6px rgba(255, 255, 255, 0.2);
+}
+
+.ballsort-ball-highlighted {
+  transform: scale(1.1);
+  box-shadow:
+    inset 0 -3px 6px rgba(0, 0, 0, 0.15),
+    inset 0 3px 6px rgba(255, 255, 255, 0.2),
+    0 0 12px rgba(59, 130, 246, 0.5);
+  animation: ballPulse 0.8s ease infinite;
+}
+
+@keyframes ballPulse {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 -3px 6px rgba(0, 0, 0, 0.15),
+      inset 0 3px 6px rgba(255, 255, 255, 0.2),
+      0 0 8px rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    box-shadow:
+      inset 0 -3px 6px rgba(0, 0, 0, 0.15),
+      inset 0 3px 6px rgba(255, 255, 255, 0.2),
+      0 0 18px rgba(59, 130, 246, 0.7);
+  }
+}
+
+/* Responsive: smaller tubes on narrow screens */
+@media (max-width: 480px) {
+  .ballsort-tube {
+    width: 48px;
+  }
+  .ballsort-slot {
+    width: 38px;
+    height: 38px;
+  }
+}
+
+/* ================================
+   QUADRA GAME
+   ================================ */
+
+.quadra-container {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 0 8px;
+  touch-action: none;
+  user-select: none;
+}
+
+.quadra-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 80px;
+}
+
+.quadra-next {
+  text-align: center;
+}
+
+.quadra-next-grid {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+
+.quadra-stats {
+  text-align: center;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+
+.quadra-board-wrapper {
+  position: relative;
+}
+
+.quadra-board {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.quadra-row {
+  display: flex;
+  gap: 1px;
+}
+
+.quadra-cell {
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.quadra-cell-small {
+  width: 18px;
+  height: 18px;
+}
+
+.quadra-cell-filled {
+  box-shadow:
+    inset 0 -2px 3px rgba(0, 0, 0, 0.3),
+    inset 0 2px 3px rgba(255, 255, 255, 0.2);
+}
+
+.quadra-cell-ghost {
+  background: none;
+  border: 2px solid var(--ghost-color, rgba(255, 255, 255, 0.3));
+  opacity: 0.4;
+}
+
+.quadra-chain-popup {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  animation: quadra-chain-flash 1.5s ease-out forwards;
+}
+
+@keyframes quadra-chain-flash {
+  0% {
+    opacity: 1;
+    transform: scale(0.5);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+.quadra-pause-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  border-radius: 8px;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.quadra-controls {
+  display: none;
+}
+
+/* Show touch controls on mobile / tablet */
+@media (max-width: 900px) and (hover: none) and (pointer: coarse),
+  (max-width: 600px) {
+  .quadra-container {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .quadra-sidebar {
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    min-width: unset;
+    width: 100%;
+  }
+
+  .quadra-stats {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+
+  .quadra-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 0 4px;
+    width: 100%;
+    max-width: 340px;
+  }
+
+  .quadra-ctrl-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .quadra-ctrl-btn {
+    width: 64px;
+    height: 56px;
+    border-radius: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.08);
+    color: white;
+    font-size: 1.4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    touch-action: manipulation;
+  }
+
+  .quadra-ctrl-btn:active {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(0.93);
+  }
+
+  .quadra-ctrl-drop {
+    flex: 1;
+    font-size: 1rem;
+    gap: 6px;
+    border-radius: 14px;
+  }
+
+  .quadra-ctrl-rotate {
+    flex: 1;
+    font-size: 1rem;
+    gap: 6px;
+    border-radius: 14px;
+  }
+
+  .quadra-ctrl-pause {
+    width: 48px;
+    font-size: 1.1rem;
+  }
+
+  .quadra-cell {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+@media (min-width: 601px) {
+  .quadra-cell {
+    width: 28px;
+    height: 28px;
+  }
+
+  .quadra-cell-small {
+    width: 22px;
+    height: 22px;
+  }
+}

@@ -5,6 +5,9 @@ import "@fontsource/roboto/700.css";
 import {
   faBrain,
   faCopy,
+  faCubes,
+  faFlask,
+  faKitchenSet,
   faPaintBrush,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -87,6 +90,24 @@ export const PAGES = [
     path: "/match",
     description: "Match pairs of colors in this exciting game!",
     icon: <FontAwesomeIcon icon={faCopy} />,
+  },
+  {
+    name: "Kitchen",
+    path: "/cooking",
+    description: "Cook yummy food by dragging ingredients!",
+    icon: <FontAwesomeIcon icon={faKitchenSet} />,
+  },
+  {
+    name: "Ball Sort",
+    path: "/ballsort",
+    description: "Sort colored balls into matching tubes!",
+    icon: <FontAwesomeIcon icon={faFlask} />,
+  },
+  {
+    name: "Cascade",
+    path: "/quadra",
+    description: "Tetris with chain reactions!",
+    icon: <FontAwesomeIcon icon={faCubes} />,
   },
 ];
 

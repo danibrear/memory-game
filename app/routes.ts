@@ -5,5 +5,8 @@ export default [
   route("/memory", "routes/memory.tsx"),
   route("/color", "routes/color.tsx"),
   route("/match", "routes/match.tsx"),
+  route("/cooking", "routes/cooking.tsx"),
+  route("/ballsort", "routes/ballsort.tsx"),
+  route("/quadra", "routes/quadra.tsx"),
   route("/e", "routes/el.tsx"),
 ] satisfies RouteConfig;
