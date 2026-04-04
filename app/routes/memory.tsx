@@ -19,7 +19,10 @@ import type { Route } from "./+types/memory";
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Memory Game - Games by DaniB" },
-    { name: "description", content: "Remember the highlighted cells and find them all!" },
+    {
+      name: "description",
+      content: "Remember the highlighted cells and find them all!",
+    },
   ];
 }
 
@@ -111,31 +114,51 @@ export default function Memory() {
 
   const accuracy =
     correctCells.size + incorrectCells.size > 0
-      ? Math.round((correctCells.size / (correctCells.size + incorrectCells.size)) * 100)
+      ? Math.round(
+          (correctCells.size / (correctCells.size + incorrectCells.size)) * 100,
+        )
       : 100;
 
   const DIFFICULTY_LABELS: Record<number, string> = {
-    2: "Tiny", 3: "Easy", 4: "Easy", 5: "Medium",
-    6: "Medium", 7: "Hard", 8: "Hard", 9: "Expert", 10: "Expert",
+    2: "Tiny",
+    3: "Easy",
+    4: "Easy",
+    5: "Medium",
+    6: "Medium",
+    7: "Hard",
+    8: "Hard",
+    9: "Expert",
+    10: "Expert",
   };
-  const diffLabel = DIFFICULTY_LABELS[difficulty] ?? (difficulty >= 11 ? "Insane" : "Easy");
+  const diffLabel =
+    DIFFICULTY_LABELS[difficulty] ?? (difficulty >= 11 ? "Insane" : "Easy");
 
   const diffColor =
-    difficulty <= 4 ? "#22c55e" : difficulty <= 6 ? "#f59e0b" : difficulty <= 8 ? "#ef4444" : "#a855f7";
+    difficulty <= 4
+      ? "#22c55e"
+      : difficulty <= 6
+        ? "#f59e0b"
+        : difficulty <= 8
+          ? "#ef4444"
+          : "#a855f7";
 
-  const endIcon = incorrectCells.size === 0 ? faTrophy : accuracy >= 80 ? faMedal : faBrain;
+  const endIcon =
+    incorrectCells.size === 0 ? faTrophy : accuracy >= 80 ? faMedal : faBrain;
   const endTitle =
-    incorrectCells.size === 0 ? "Perfect!" : accuracy >= 80 ? "Well done!" : "Nice try!";
+    incorrectCells.size === 0
+      ? "Perfect!"
+      : accuracy >= 80
+        ? "Well done!"
+        : "Nice try!";
   const endSubtitle =
     incorrectCells.size === 0
       ? "Flawless memory!"
       : accuracy >= 80
-      ? `${accuracy}% accuracy — great job!`
-      : `${accuracy}% accuracy — keep practising!`;
+        ? `${accuracy}% accuracy — great job!`
+        : `${accuracy}% accuracy — keep practising!`;
 
   return (
     <Box sx={{ minHeight: "calc(100dvh - 64px)" }}>
-
       {/* ── Start screen ── */}
       {gameState === "START" && (
         <Container maxWidth="xs" sx={{ textAlign: "center", pt: 6, pb: 4 }}>
@@ -157,22 +180,40 @@ export default function Memory() {
               p: 3,
               mb: 4,
             }}>
-            <Typography variant="overline" sx={{ opacity: 0.55, letterSpacing: 2 }}>
+            <Typography
+              variant="overline"
+              sx={{ opacity: 0.55, letterSpacing: 2 }}>
               Difficulty
             </Typography>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1, mb: 2, justifyContent: "center" }}>
-              <button className="icon-btn" onClick={() => setDifficulty((d) => Math.max(2, d - 1))}>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 2,
+                mt: 1,
+                mb: 2,
+                justifyContent: "center",
+              }}>
+              <button
+                className="icon-btn"
+                onClick={() => setDifficulty((d) => Math.max(2, d - 1))}>
                 −
               </button>
               <Box sx={{ textAlign: "center", minWidth: 80 }}>
-                <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1 }}>
+                <Typography
+                  variant="h4"
+                  sx={{ fontWeight: 900, lineHeight: 1 }}>
                   {difficulty}×{difficulty}
                 </Typography>
-                <Typography variant="caption" sx={{ color: diffColor, fontWeight: 700, letterSpacing: 1 }}>
+                <Typography
+                  variant="caption"
+                  sx={{ color: diffColor, fontWeight: 700, letterSpacing: 1 }}>
                   {diffLabel}
                 </Typography>
               </Box>
-              <button className="icon-btn" onClick={() => setDifficulty((d) => Math.min(15, d + 1))}>
+              <button
+                className="icon-btn"
+                onClick={() => setDifficulty((d) => Math.min(15, d + 1))}>
                 +
               </button>
             </Box>
@@ -184,13 +225,19 @@ export default function Memory() {
               onChange={(e) => setDifficulty(parseInt(e.target.value))}
               style={{ width: "100%" }}
             />
-            <Typography variant="caption" sx={{ opacity: 0.45, display: "block", mt: 0.5 }}>
+            <Typography
+              variant="caption"
+              sx={{ opacity: 0.45, display: "block", mt: 0.5 }}>
               Find {difficulty} cells in a {difficulty}×{difficulty} grid
             </Typography>
           </Box>
 
-          <button className="btn" onClick={() => handleStartGame()} style={{ fontSize: "1.2rem", padding: "14px 48px" }}>
-            Play!&nbsp;&nbsp;<FontAwesomeIcon icon={faBrain} />
+          <button
+            className="btn"
+            onClick={() => handleStartGame()}
+            style={{ fontSize: "1.2rem", padding: "14px 48px" }}>
+            Play!&nbsp;&nbsp;
+            <FontAwesomeIcon icon={faBrain} />
           </button>
         </Container>
       )}
@@ -198,12 +245,18 @@ export default function Memory() {
       {/* ── Ended screen ── */}
       {gameState === "ENDED" && (
         <Container maxWidth="xs" sx={{ textAlign: "center", pt: 6, pb: 4 }}>
-          <Box sx={{
-            fontSize: "3.5rem",
-            mb: 2,
-            color: incorrectCells.size === 0 ? "#f59e0b" : accuracy >= 80 ? "#6366f1" : "#64748b",
-            animation: "bounceIn 0.5s ease",
-          }}>
+          <Box
+            sx={{
+              fontSize: "3.5rem",
+              mb: 2,
+              color:
+                incorrectCells.size === 0
+                  ? "#f59e0b"
+                  : accuracy >= 80
+                    ? "#6366f1"
+                    : "#64748b",
+              animation: "bounceIn 0.5s ease",
+            }}>
             <FontAwesomeIcon icon={endIcon} />
           </Box>
           <Typography variant="h3" sx={{ fontWeight: 900, mb: 1 }}>
@@ -212,7 +265,13 @@ export default function Memory() {
           <Typography variant="h5" sx={{ mb: 1, opacity: 0.7 }}>
             Found all <strong>{difficulty}</strong> cells
           </Typography>
-          <Box sx={{ display: "flex", justifyContent: "center", gap: 0.75, mb: 1 }}>
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "center",
+              gap: 0.75,
+              mb: 1,
+            }}>
             {Array.from({ length: difficulty }, (_, i) => (
               <FontAwesomeIcon
                 key={i}
@@ -228,8 +287,17 @@ export default function Memory() {
           <Typography variant="body2" sx={{ mb: 4, opacity: 0.5 }}>
             {endSubtitle}
           </Typography>
-          <Box sx={{ display: "flex", gap: 2, justifyContent: "center", flexWrap: "wrap" }}>
-            <button className="btn" onClick={() => handleStartGame()} style={{ fontSize: "1rem", padding: "12px 32px" }}>
+          <Box
+            sx={{
+              display: "flex",
+              gap: 2,
+              justifyContent: "center",
+              flexWrap: "wrap",
+            }}>
+            <button
+              className="btn"
+              onClick={() => handleStartGame()}
+              style={{ fontSize: "1rem", padding: "12px 32px" }}>
               Play Again
             </button>
             <button
@@ -239,15 +307,22 @@ export default function Memory() {
                 setDifficulty(next);
                 handleStartGame(next);
               }}
-              style={{ fontSize: "1rem", padding: "12px 32px", background: "linear-gradient(135deg, #a855f7, #6366f1)" }}>
-              Level Up&nbsp;&nbsp;<FontAwesomeIcon icon={faArrowUp} />
+              style={{
+                fontSize: "1rem",
+                padding: "12px 32px",
+                background: "linear-gradient(135deg, #a855f7, #6366f1)",
+              }}>
+              Level Up&nbsp;&nbsp;
+              <FontAwesomeIcon icon={faArrowUp} />
             </button>
           </Box>
         </Container>
       )}
 
       {/* ── Active / Showing / Intro ── */}
-      {(gameState === "ACTIVE" || gameState === "SHOWING" || gameState === "INTRO") && (
+      {(gameState === "ACTIVE" ||
+        gameState === "SHOWING" ||
+        gameState === "INTRO") && (
         <Box>
           {/* HUD */}
           <Box
@@ -264,48 +339,81 @@ export default function Memory() {
               borderBottom: "1px solid",
               borderColor: "divider",
             }}>
-            <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "1rem", display: "flex", alignItems: "center", gap: 1 }}>
+            <Typography
+              variant="h6"
+              sx={{
+                fontWeight: 700,
+                fontSize: "1rem",
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+              }}>
               <FontAwesomeIcon icon={faStar} style={{ color: "#f59e0b" }} />
               {correctCells.size} / {difficulty}
             </Typography>
 
             {gameState === "SHOWING" && (
-              <Box sx={{
-                px: 2, py: 0.5, borderRadius: 99,
-                background: "linear-gradient(135deg,#6366f1,#a855f7)",
-                color: "white", fontWeight: 700, fontSize: "0.85rem",
-                display: "flex", alignItems: "center", gap: 1,
-                animation: "fadeIn 0.3s ease",
-              }}>
+              <Box
+                sx={{
+                  px: 2,
+                  py: 0.5,
+                  borderRadius: 99,
+                  background: "linear-gradient(135deg,#6366f1,#a855f7)",
+                  color: "white",
+                  fontWeight: 700,
+                  fontSize: "0.85rem",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  animation: "fadeIn 0.3s ease",
+                }}>
                 <FontAwesomeIcon icon={faEye} />
                 Remember these!
               </Box>
             )}
             {gameState === "INTRO" && (
-              <Box sx={{
-                px: 2, py: 0.5, borderRadius: 99,
-                background: "rgba(99,102,241,0.15)",
-                fontWeight: 700, fontSize: "0.85rem",
-                display: "flex", alignItems: "center", gap: 1,
-              }}>
+              <Box
+                sx={{
+                  px: 2,
+                  py: 0.5,
+                  borderRadius: 99,
+                  background: "rgba(99,102,241,0.15)",
+                  fontWeight: 700,
+                  fontSize: "0.85rem",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                }}>
                 <FontAwesomeIcon icon={faBolt} />
                 Get ready…
               </Box>
             )}
 
-            <Typography sx={{
-              fontWeight: 700, fontSize: "0.95rem",
-              opacity: incorrectCells.size > 0 ? 1 : 0.3,
-              display: "flex", alignItems: "center", gap: 1,
-              color: incorrectCells.size > 0 ? "#ef4444" : "inherit",
-            }}>
+            <Typography
+              sx={{
+                fontWeight: 700,
+                fontSize: "0.95rem",
+                opacity: incorrectCells.size > 0 ? 1 : 0.3,
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                color: incorrectCells.size > 0 ? "#ef4444" : "inherit",
+              }}>
               <FontAwesomeIcon icon={faXmark} />
               {incorrectCells.size}
             </Typography>
           </Box>
 
           {/* Grid */}
-          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", pt: 2, pb: 3, px: 2 }}>
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              pt: 2,
+              pb: 3,
+              px: 2,
+            }}>
             <Box
               sx={{
                 display: "grid",
@@ -316,8 +424,10 @@ export default function Memory() {
               {Array.from({ length: difficulty * difficulty }, (_, index) => {
                 const isCorrect = correctCells.has(index);
                 const isIncorrect = incorrectCells.has(index);
-                const isShowing = gameState === "SHOWING" && selectedCells.has(index);
-                const isClickable = gameState === "ACTIVE" && !isCorrect && !isIncorrect;
+                const isShowing =
+                  gameState === "SHOWING" && selectedCells.has(index);
+                const isClickable =
+                  gameState === "ACTIVE" && !isCorrect && !isIncorrect;
 
                 const cardClass = [
                   "memory-card",
@@ -325,13 +435,20 @@ export default function Memory() {
                   isCorrect ? "memory-card--correct" : "",
                   isIncorrect ? "memory-card--incorrect" : "",
                   isClickable ? "memory-card--clickable" : "",
-                ].filter(Boolean).join(" ");
+                ]
+                  .filter(Boolean)
+                  .join(" ");
 
                 return (
-                  <div key={index} className={cardClass} onClick={() => handleClickCell(index)}
+                  <div
+                    key={index}
+                    className={cardClass}
+                    onClick={() => handleClickCell(index)}
                     style={{ paddingBottom: "100%", position: "relative" }}>
                     <div className="memory-card__face memory-card__back">
-                      {(isShowing || isCorrect) && <FontAwesomeIcon icon={faCheck} />}
+                      {(isShowing || isCorrect) && (
+                        <FontAwesomeIcon icon={faCheck} />
+                      )}
                       {isIncorrect && <FontAwesomeIcon icon={faXmark} />}
                     </div>
                     <div className="memory-card__face memory-card__front">
@@ -344,8 +461,14 @@ export default function Memory() {
 
             {gameState === "ACTIVE" && (
               <Box sx={{ mt: 3, textAlign: "center" }}>
-                <button onClick={() => setGameState("START")} className="btn btn-sm"
-                  style={{ opacity: 0.6, fontSize: "0.8rem", padding: "6px 20px" }}>
+                <button
+                  onClick={() => setGameState("START")}
+                  className="btn btn-sm"
+                  style={{
+                    opacity: 0.6,
+                    fontSize: "0.8rem",
+                    padding: "6px 20px",
+                  }}>
                   Restart
                 </button>
               </Box>

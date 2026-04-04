@@ -96,6 +96,44 @@ function spawnBubble(score: number, easy: boolean): Bubble {
   };
 }
 
+function DifficultyToggle({ easyMode, onChange }: { easyMode: boolean; onChange: (easy: boolean) => void }) {
+  return (
+    <Box sx={{ mb: 4 }}>
+      <Box sx={{ display: "inline-flex", borderRadius: 99, overflow: "hidden", border: "2px solid", borderColor: "divider" }}>
+        {(["normal", "easy"] as const).map((mode) => {
+          const active = (mode === "easy") === easyMode;
+          return (
+            <Box
+              key={mode}
+              component="button"
+              onClick={() => onChange(mode === "easy")}
+              sx={{
+                px: 3, py: 1.25,
+                border: "none",
+                cursor: "pointer",
+                fontWeight: 700,
+                fontSize: "0.9rem",
+                display: "flex", alignItems: "center", gap: 1,
+                background: active ? "linear-gradient(135deg,#6366f1,#a855f7)" : "transparent",
+                color: active ? "white" : "text.secondary",
+                transition: "all 0.2s",
+              }}>
+              <FontAwesomeIcon icon={mode === "easy" ? faFeather : faBolt} />
+              {mode === "easy" ? "Easy" : "Normal"}
+            </Box>
+          );
+        })}
+      </Box>
+      {easyMode && (
+        <Typography variant="body2" sx={{ mt: 1, opacity: 0.55, display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
+          <FontAwesomeIcon icon={faFeather} />
+          Slower bubbles &amp; bigger tap areas
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
 export default function BubblePop() {
   const [phase, setPhase] = useState<"start" | "playing" | "gameover">("start");
   const [easyMode, setEasyMode] = useState(false);
@@ -221,39 +259,7 @@ export default function BubblePop() {
             Don't let {MAX_MISSES} escape!
           </Typography>
 
-          {/* Difficulty toggle */}
-          <Box sx={{ display: "inline-flex", borderRadius: 99, overflow: "hidden", border: "2px solid", borderColor: "divider", mb: 4 }}>
-            {(["normal", "easy"] as const).map((mode) => {
-              const active = (mode === "easy") === easyMode;
-              return (
-                <Box
-                  key={mode}
-                  component="button"
-                  onClick={() => setEasyMode(mode === "easy")}
-                  sx={{
-                    px: 3, py: 1.25,
-                    border: "none",
-                    cursor: "pointer",
-                    fontWeight: 700,
-                    fontSize: "0.9rem",
-                    display: "flex", alignItems: "center", gap: 1,
-                    background: active ? "linear-gradient(135deg,#6366f1,#a855f7)" : "transparent",
-                    color: active ? "white" : "text.secondary",
-                    transition: "all 0.2s",
-                  }}>
-                  <FontAwesomeIcon icon={mode === "easy" ? faFeather : faBolt} />
-                  {mode === "easy" ? "Easy" : "Normal"}
-                </Box>
-              );
-            })}
-          </Box>
-
-          {easyMode && (
-            <Typography variant="body2" sx={{ mb: 3, opacity: 0.55, display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
-              <FontAwesomeIcon icon={faFeather} />
-              Slower bubbles &amp; bigger tap areas
-            </Typography>
-          )}
+          <DifficultyToggle easyMode={easyMode} onChange={setEasyMode} />
 
           <Box>
             <button className="btn" onClick={handleStartGame} style={{ fontSize: "1.25rem", padding: "16px 48px" }}>
@@ -275,13 +281,14 @@ export default function BubblePop() {
           <Typography variant="h5" sx={{ mb: 1, opacity: 0.7 }}>
             You popped <strong>{score}</strong> bubble{score !== 1 ? "s" : ""}!
           </Typography>
-          <Typography variant="body2" sx={{ mb: 5, opacity: 0.45 }}>
+          <Typography variant="body2" sx={{ mb: 4, opacity: 0.45 }}>
             {score >= 25
               ? "You're a popping pro!"
               : score >= 8
               ? "Can you beat your score?"
               : "Keep practising — you've got this!"}
           </Typography>
+          <DifficultyToggle easyMode={easyMode} onChange={setEasyMode} />
           <button className="btn" onClick={handleStartGame} style={{ fontSize: "1.1rem", padding: "14px 40px" }}>
             Play Again!&nbsp;&nbsp;<FontAwesomeIcon icon={faBullseye} />
           </button>
