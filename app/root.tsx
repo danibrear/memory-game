@@ -67,12 +67,15 @@ export function meta({}: Route.MetaArgs) {
     { name: "description", content: "Free fun games made with love for the whole family!" },
     { property: "og:title", content: "DaniB's Games" },
     { property: "og:description", content: "Free fun games made with love for the whole family!" },
-    { property: "og:image", content: "/og-image.svg" },
+    { property: "og:url", content: "https://games.db.rocks" },
+    { property: "og:image", content: "https://games.db.rocks/og-image.png" },
+    { property: "og:image:width", content: "1200" },
+    { property: "og:image:height", content: "630" },
     { property: "og:type", content: "website" },
     { name: "twitter:card", content: "summary_large_image" },
     { name: "twitter:title", content: "DaniB's Games" },
     { name: "twitter:description", content: "Free fun games made with love for the whole family!" },
-    { name: "twitter:image", content: "/og-image.svg" },
+    { name: "twitter:image", content: "https://games.db.rocks/og-image.png" },
   ];
 }
 
