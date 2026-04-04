@@ -593,10 +593,15 @@ input[type="range"]::-ms-thumb {
 /* Tube grid */
 .ballsort-grid {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
   gap: 10px;
   padding: 12px 0;
+}
+.ballsort-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
 }
 
 /* Individual tube */
@@ -704,6 +709,25 @@ input[type="range"]::-ms-thumb {
   }
 }
 
+/* Compact mode: more than 7 tubes → shrink to fit 2 rows */
+.ballsort-grid-compact {
+  gap: 8px;
+}
+.ballsort-grid-compact .ballsort-row {
+  gap: 8px;
+}
+.ballsort-grid-compact .ballsort-tube {
+  width: 46px;
+  padding: 3px;
+}
+.ballsort-grid-compact .ballsort-slot {
+  width: 36px;
+  height: 36px;
+}
+.ballsort-grid-compact .ballsort-tube-inner {
+  gap: 2px;
+}
+
 /* Responsive: smaller tubes on narrow screens */
 @media (max-width: 480px) {
   .ballsort-tube {
@@ -712,6 +736,14 @@ input[type="range"]::-ms-thumb {
   .ballsort-slot {
     width: 38px;
     height: 38px;
+  }
+  .ballsort-grid-compact .ballsort-tube {
+    width: 40px;
+    padding: 2px;
+  }
+  .ballsort-grid-compact .ballsort-slot {
+    width: 30px;
+    height: 30px;
   }
 }
 

@@ -428,24 +428,40 @@ function GameScreen({
         </button>
       </div>
 
-      <div className="ballsort-grid">
-        {tubes.map((tube, i) => {
-          const canReceive =
-            selectedTube !== null &&
-            selectedTube !== i &&
-            getMovableCount(tubes[selectedTube], tube) > 0;
-          return (
-            <TubeComponent
-              key={i}
-              tube={tube}
-              index={i}
-              isSelected={selectedTube === i}
-              highlightCount={selectedTube === i ? selectedGroup.count : 0}
-              canReceive={canReceive}
-              onClick={() => handleTubeClick(i)}
-            />
-          );
-        })}
+      <div
+        className={`ballsort-grid ${tubes.length > 7 ? "ballsort-grid-compact" : ""}`}>
+        {(() => {
+          const n = tubes.length;
+          const perRow = n <= 7 ? n : Math.ceil(n / 2);
+          const rows: Tube[][] = [];
+          for (let r = 0; r < n; r += perRow) {
+            rows.push(tubes.slice(r, r + perRow));
+          }
+          return rows.map((row, ri) => (
+            <div key={ri} className="ballsort-row">
+              {row.map((tube, ci) => {
+                const i = ri * perRow + ci;
+                const canReceive =
+                  selectedTube !== null &&
+                  selectedTube !== i &&
+                  getMovableCount(tubes[selectedTube], tube) > 0;
+                return (
+                  <TubeComponent
+                    key={i}
+                    tube={tube}
+                    index={i}
+                    isSelected={selectedTube === i}
+                    highlightCount={
+                      selectedTube === i ? selectedGroup.count : 0
+                    }
+                    canReceive={canReceive}
+                    onClick={() => handleTubeClick(i)}
+                  />
+                );
+              })}
+            </div>
+          ));
+        })()}
       </div>
     </Container>
   );
