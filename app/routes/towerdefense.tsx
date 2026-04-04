@@ -21,7 +21,14 @@ const TOTAL_WAVES = 20;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type EnemyType = "normal" | "fast" | "tank" | "swarm" | "boss" | "healer" | "armored";
+type EnemyType =
+  | "normal"
+  | "fast"
+  | "tank"
+  | "swarm"
+  | "boss"
+  | "healer"
+  | "armored";
 type TowerType = "basic" | "sniper" | "splash";
 type Tool = TowerType | "sell";
 type Phase = "build" | "wave" | "gameover" | "win";
@@ -38,13 +45,76 @@ interface EnemyTypeDef {
 }
 
 const ENEMY_TYPES: Record<EnemyType, EnemyTypeDef> = {
-  normal:  { emoji: "👾", color: "#4ade80", hpMult: 1,   speedMult: 1,   rewardMult: 1,   armor: 0,  regen: 0,    sizeMult: 1   },
-  fast:    { emoji: "⚡", color: "#38bdf8", hpMult: 0.5, speedMult: 1.8, rewardMult: 0.8, armor: 0,  regen: 0,    sizeMult: 0.8 },
-  tank:    { emoji: "🛡️", color: "#a78bfa", hpMult: 3,   speedMult: 0.6, rewardMult: 2,   armor: 0,  regen: 0,    sizeMult: 1.2 },
-  swarm:   { emoji: "🐜", color: "#fb923c", hpMult: 0.3, speedMult: 1.5, rewardMult: 0.4, armor: 0,  regen: 0,    sizeMult: 0.7 },
-  boss:    { emoji: "👹", color: "#f43f5e", hpMult: 8,   speedMult: 0.5, rewardMult: 5,   armor: 15, regen: 0,    sizeMult: 1.4 },
-  healer:  { emoji: "💚", color: "#34d399", hpMult: 1.5, speedMult: 0.9, rewardMult: 1.5, armor: 0,  regen: 0.03, sizeMult: 1   },
-  armored: { emoji: "🔩", color: "#94a3b8", hpMult: 1.5, speedMult: 0.8, rewardMult: 1.5, armor: 20, regen: 0,    sizeMult: 1   },
+  normal: {
+    emoji: "👾",
+    color: "#4ade80",
+    hpMult: 1,
+    speedMult: 1,
+    rewardMult: 1,
+    armor: 0,
+    regen: 0,
+    sizeMult: 1,
+  },
+  fast: {
+    emoji: "⚡",
+    color: "#38bdf8",
+    hpMult: 0.5,
+    speedMult: 1.8,
+    rewardMult: 0.8,
+    armor: 0,
+    regen: 0,
+    sizeMult: 0.8,
+  },
+  tank: {
+    emoji: "🛡️",
+    color: "#a78bfa",
+    hpMult: 3,
+    speedMult: 0.6,
+    rewardMult: 2,
+    armor: 0,
+    regen: 0,
+    sizeMult: 1.2,
+  },
+  swarm: {
+    emoji: "🐜",
+    color: "#fb923c",
+    hpMult: 0.3,
+    speedMult: 1.5,
+    rewardMult: 0.4,
+    armor: 0,
+    regen: 0,
+    sizeMult: 0.7,
+  },
+  boss: {
+    emoji: "👹",
+    color: "#f43f5e",
+    hpMult: 8,
+    speedMult: 0.5,
+    rewardMult: 5,
+    armor: 15,
+    regen: 0,
+    sizeMult: 1.4,
+  },
+  healer: {
+    emoji: "💚",
+    color: "#34d399",
+    hpMult: 1.5,
+    speedMult: 0.9,
+    rewardMult: 1.5,
+    armor: 0,
+    regen: 0.03,
+    sizeMult: 1,
+  },
+  armored: {
+    emoji: "🔩",
+    color: "#94a3b8",
+    hpMult: 1.5,
+    speedMult: 0.8,
+    rewardMult: 1.5,
+    armor: 20,
+    regen: 0,
+    sizeMult: 1,
+  },
 };
 
 interface TowerDef {
@@ -60,9 +130,39 @@ interface TowerDef {
 }
 
 const DEFS: Record<TowerType, TowerDef> = {
-  basic:  { label: "Basic",  emoji: "🗼", color: "#3b82f6", cost: 50,  upgCost: 40,  dmg: 30,  range: 3,   rate: 1.5, splash: false },
-  sniper: { label: "Sniper", emoji: "🎯", color: "#8b5cf6", cost: 100, upgCost: 80,  dmg: 100, range: 6,   rate: 0.5, splash: false },
-  splash: { label: "Splash", emoji: "💣", color: "#ef4444", cost: 75,  upgCost: 60,  dmg: 20,  range: 2.5, rate: 2.0, splash: true  },
+  basic: {
+    label: "Basic",
+    emoji: "🗼",
+    color: "#3b82f6",
+    cost: 50,
+    upgCost: 40,
+    dmg: 30,
+    range: 3,
+    rate: 1.5,
+    splash: false,
+  },
+  sniper: {
+    label: "Sniper",
+    emoji: "🎯",
+    color: "#8b5cf6",
+    cost: 100,
+    upgCost: 80,
+    dmg: 100,
+    range: 6,
+    rate: 0.5,
+    splash: false,
+  },
+  splash: {
+    label: "Splash",
+    emoji: "💣",
+    color: "#ef4444",
+    cost: 75,
+    upgCost: 60,
+    dmg: 20,
+    range: 2.5,
+    rate: 2.0,
+    splash: true,
+  },
 };
 
 interface WaveGroup {
@@ -85,100 +185,200 @@ interface SpawnEntry {
 
 const WAVES: WaveDef[] = [
   // 1 – Intro
-  { groups: [{ type: "normal", count: 6, interval: 1.2 }], baseHp: 60, baseSpeed: 2.0, baseReward: 8 },
+  {
+    groups: [{ type: "normal", count: 6, interval: 1.2 }],
+    baseHp: 60,
+    baseSpeed: 2.0,
+    baseReward: 8,
+  },
   // 2 – More normals
-  { groups: [{ type: "normal", count: 8, interval: 1.0 }], baseHp: 80, baseSpeed: 2.1, baseReward: 9 },
+  {
+    groups: [{ type: "normal", count: 8, interval: 1.0 }],
+    baseHp: 80,
+    baseSpeed: 2.1,
+    baseReward: 9,
+  },
   // 3 – Introduce fast
-  { groups: [
-    { type: "normal", count: 5, interval: 1.0 },
-    { type: "fast", count: 4, interval: 0.7 },
-  ], baseHp: 100, baseSpeed: 2.2, baseReward: 10 },
+  {
+    groups: [
+      { type: "normal", count: 5, interval: 1.0 },
+      { type: "fast", count: 4, interval: 0.7 },
+    ],
+    baseHp: 100,
+    baseSpeed: 2.2,
+    baseReward: 10,
+  },
   // 4 – Fast rush
-  { groups: [{ type: "fast", count: 8, interval: 0.6 }], baseHp: 90, baseSpeed: 2.3, baseReward: 10 },
+  {
+    groups: [{ type: "fast", count: 8, interval: 0.6 }],
+    baseHp: 90,
+    baseSpeed: 2.3,
+    baseReward: 10,
+  },
   // 5 – Introduce tanks
-  { groups: [
-    { type: "normal", count: 5, interval: 1.0 },
-    { type: "tank", count: 2, interval: 2.0 },
-  ], baseHp: 120, baseSpeed: 2.3, baseReward: 12 },
+  {
+    groups: [
+      { type: "normal", count: 5, interval: 1.0 },
+      { type: "tank", count: 2, interval: 2.0 },
+    ],
+    baseHp: 120,
+    baseSpeed: 2.3,
+    baseReward: 12,
+  },
   // 6 – Introduce swarm
-  { groups: [{ type: "swarm", count: 15, interval: 0.4 }], baseHp: 130, baseSpeed: 2.4, baseReward: 10 },
+  {
+    groups: [{ type: "swarm", count: 15, interval: 0.4 }],
+    baseHp: 130,
+    baseSpeed: 2.4,
+    baseReward: 10,
+  },
   // 7 – Swarm + fast
-  { groups: [
-    { type: "swarm", count: 10, interval: 0.4 },
-    { type: "fast", count: 5, interval: 0.6 },
-  ], baseHp: 150, baseSpeed: 2.5, baseReward: 11 },
+  {
+    groups: [
+      { type: "swarm", count: 10, interval: 0.4 },
+      { type: "fast", count: 5, interval: 0.6 },
+    ],
+    baseHp: 150,
+    baseSpeed: 2.5,
+    baseReward: 11,
+  },
   // 8 – Introduce armored
-  { groups: [
-    { type: "armored", count: 5, interval: 1.2 },
-    { type: "normal", count: 5, interval: 0.9 },
-  ], baseHp: 180, baseSpeed: 2.5, baseReward: 13 },
+  {
+    groups: [
+      { type: "armored", count: 5, interval: 1.2 },
+      { type: "normal", count: 5, interval: 0.9 },
+    ],
+    baseHp: 180,
+    baseSpeed: 2.5,
+    baseReward: 13,
+  },
   // 9 – Fast + armored
-  { groups: [
-    { type: "fast", count: 6, interval: 0.6 },
-    { type: "armored", count: 4, interval: 1.0 },
-  ], baseHp: 210, baseSpeed: 2.6, baseReward: 14 },
+  {
+    groups: [
+      { type: "fast", count: 6, interval: 0.6 },
+      { type: "armored", count: 4, interval: 1.0 },
+    ],
+    baseHp: 210,
+    baseSpeed: 2.6,
+    baseReward: 14,
+  },
   // 10 – First boss!
-  { groups: [
-    { type: "normal", count: 8, interval: 0.8 },
-    { type: "boss", count: 1, interval: 2.0 },
-  ], baseHp: 250, baseSpeed: 2.6, baseReward: 15 },
+  {
+    groups: [
+      { type: "normal", count: 8, interval: 0.8 },
+      { type: "boss", count: 1, interval: 2.0 },
+    ],
+    baseHp: 250,
+    baseSpeed: 2.6,
+    baseReward: 15,
+  },
   // 11 – Introduce healer
-  { groups: [
-    { type: "healer", count: 4, interval: 1.0 },
-    { type: "normal", count: 8, interval: 0.8 },
-  ], baseHp: 300, baseSpeed: 2.7, baseReward: 16 },
+  {
+    groups: [
+      { type: "healer", count: 4, interval: 1.0 },
+      { type: "normal", count: 8, interval: 0.8 },
+    ],
+    baseHp: 300,
+    baseSpeed: 2.7,
+    baseReward: 16,
+  },
   // 12 – Tank parade
-  { groups: [
-    { type: "tank", count: 5, interval: 1.5 },
-    { type: "healer", count: 3, interval: 1.0 },
-  ], baseHp: 350, baseSpeed: 2.7, baseReward: 18 },
+  {
+    groups: [
+      { type: "tank", count: 5, interval: 1.5 },
+      { type: "healer", count: 3, interval: 1.0 },
+    ],
+    baseHp: 350,
+    baseSpeed: 2.7,
+    baseReward: 18,
+  },
   // 13 – Big swarm
-  { groups: [
-    { type: "swarm", count: 20, interval: 0.3 },
-    { type: "fast", count: 6, interval: 0.5 },
-  ], baseHp: 380, baseSpeed: 2.8, baseReward: 15 },
+  {
+    groups: [
+      { type: "swarm", count: 20, interval: 0.3 },
+      { type: "fast", count: 6, interval: 0.5 },
+    ],
+    baseHp: 380,
+    baseSpeed: 2.8,
+    baseReward: 15,
+  },
   // 14 – Armored + tank
-  { groups: [
-    { type: "armored", count: 8, interval: 1.0 },
-    { type: "tank", count: 4, interval: 1.5 },
-  ], baseHp: 420, baseSpeed: 2.8, baseReward: 20 },
+  {
+    groups: [
+      { type: "armored", count: 8, interval: 1.0 },
+      { type: "tank", count: 4, interval: 1.5 },
+    ],
+    baseHp: 420,
+    baseSpeed: 2.8,
+    baseReward: 20,
+  },
   // 15 – Boss + escort
-  { groups: [
-    { type: "armored", count: 6, interval: 0.8 },
-    { type: "boss", count: 1, interval: 2.0 },
-    { type: "healer", count: 4, interval: 0.8 },
-  ], baseHp: 480, baseSpeed: 2.9, baseReward: 22 },
+  {
+    groups: [
+      { type: "armored", count: 6, interval: 0.8 },
+      { type: "boss", count: 1, interval: 2.0 },
+      { type: "healer", count: 4, interval: 0.8 },
+    ],
+    baseHp: 480,
+    baseSpeed: 2.9,
+    baseReward: 22,
+  },
   // 16 – Mixed assault
-  { groups: [
-    { type: "fast", count: 6, interval: 0.5 },
-    { type: "normal", count: 6, interval: 0.7 },
-    { type: "armored", count: 4, interval: 1.0 },
-  ], baseHp: 550, baseSpeed: 3.0, baseReward: 22 },
+  {
+    groups: [
+      { type: "fast", count: 6, interval: 0.5 },
+      { type: "normal", count: 6, interval: 0.7 },
+      { type: "armored", count: 4, interval: 1.0 },
+    ],
+    baseHp: 550,
+    baseSpeed: 3.0,
+    baseReward: 22,
+  },
   // 17 – Healer heavy
-  { groups: [
-    { type: "healer", count: 6, interval: 0.8 },
-    { type: "tank", count: 4, interval: 1.2 },
-    { type: "healer", count: 4, interval: 0.8 },
-  ], baseHp: 620, baseSpeed: 3.0, baseReward: 25 },
+  {
+    groups: [
+      { type: "healer", count: 6, interval: 0.8 },
+      { type: "tank", count: 4, interval: 1.2 },
+      { type: "healer", count: 4, interval: 0.8 },
+    ],
+    baseHp: 620,
+    baseSpeed: 3.0,
+    baseReward: 25,
+  },
   // 18 – Swarm flood
-  { groups: [
-    { type: "swarm", count: 25, interval: 0.25 },
-    { type: "fast", count: 8, interval: 0.4 },
-  ], baseHp: 700, baseSpeed: 3.1, baseReward: 20 },
+  {
+    groups: [
+      { type: "swarm", count: 25, interval: 0.25 },
+      { type: "fast", count: 8, interval: 0.4 },
+    ],
+    baseHp: 700,
+    baseSpeed: 3.1,
+    baseReward: 20,
+  },
   // 19 – Hard mixed
-  { groups: [
-    { type: "tank", count: 4, interval: 1.2 },
-    { type: "armored", count: 6, interval: 0.8 },
-    { type: "healer", count: 4, interval: 0.8 },
-    { type: "fast", count: 8, interval: 0.4 },
-  ], baseHp: 800, baseSpeed: 3.2, baseReward: 28 },
+  {
+    groups: [
+      { type: "tank", count: 4, interval: 1.2 },
+      { type: "armored", count: 6, interval: 0.8 },
+      { type: "healer", count: 4, interval: 0.8 },
+      { type: "fast", count: 8, interval: 0.4 },
+    ],
+    baseHp: 800,
+    baseSpeed: 3.2,
+    baseReward: 28,
+  },
   // 20 – Final boss rush
-  { groups: [
-    { type: "armored", count: 8, interval: 0.6 },
-    { type: "boss", count: 2, interval: 3.0 },
-    { type: "healer", count: 6, interval: 0.6 },
-    { type: "tank", count: 4, interval: 1.0 },
-  ], baseHp: 1000, baseSpeed: 3.3, baseReward: 35 },
+  {
+    groups: [
+      { type: "armored", count: 8, interval: 0.6 },
+      { type: "boss", count: 2, interval: 3.0 },
+      { type: "healer", count: 6, interval: 0.6 },
+      { type: "tank", count: 4, interval: 1.0 },
+    ],
+    baseHp: 1000,
+    baseSpeed: 3.3,
+    baseReward: 35,
+  },
 ];
 
 interface Enemy {
@@ -222,18 +422,29 @@ interface GState {
 function findPath(grid: boolean[][]): [number, number][] | null {
   const [sr, sc] = ENTRY;
   const [er, ec] = EXIT;
-  const queue: [[number, number], [number, number][]][] = [[[sr, sc], [[sr, sc]]]];
+  const queue: [[number, number], [number, number][]][] = [
+    [[sr, sc], [[sr, sc]]],
+  ];
   const seen = new Set<string>([`${sr},${sc}`]);
   while (queue.length) {
     const [[r, c], path] = queue.shift()!;
     if (r === er && c === ec) return path;
-    for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0]] as [number, number][]) {
-      const nr = r + dr, nc = c + dc;
+    for (const [dr, dc] of [
+      [0, 1],
+      [0, -1],
+      [1, 0],
+      [-1, 0],
+    ] as [number, number][]) {
+      const nr = r + dr,
+        nc = c + dc;
       if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
       const k = `${nr},${nc}`;
       if (seen.has(k) || grid[nr][nc]) continue;
       seen.add(k);
-      queue.push([[nr, nc], [...path, [nr, nc]]]);
+      queue.push([
+        [nr, nc],
+        [...path, [nr, nc]],
+      ]);
     }
   }
   return null;
@@ -257,7 +468,11 @@ function buildSpawnQueue(wave: WaveDef): SpawnEntry[] {
       const isGroupStart = i === 0 && gi > 0;
       queue.push({
         type: group.type,
-        delay: isFirst ? 0 : isGroupStart ? group.interval + 0.5 : group.interval,
+        delay: isFirst
+          ? 0
+          : isGroupStart
+            ? group.interval + 0.5
+            : group.interval,
       });
     }
   }
@@ -265,14 +480,23 @@ function buildSpawnQueue(wave: WaveDef): SpawnEntry[] {
 }
 
 function initState(): GState {
-  const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(false) as boolean[]);
+  const grid = Array.from(
+    { length: ROWS },
+    () => Array(COLS).fill(false) as boolean[],
+  );
   return {
-    phase: "build", grid,
-    towers: [], enemies: [],
+    phase: "build",
+    grid,
+    towers: [],
+    enemies: [],
     path: findPath(grid),
-    gold: START_GOLD, lives: MAX_LIVES,
-    wave: 0, spawnQueue: [], spawnTimer: 0,
-    nextEId: 0, nextTId: 0,
+    gold: START_GOLD,
+    lives: MAX_LIVES,
+    wave: 0,
+    spawnQueue: [],
+    spawnTimer: 0,
+    nextEId: 0,
+    nextTId: 0,
   };
 }
 
@@ -318,9 +542,13 @@ function tickGame(g: GState, dt: number) {
       if (e.progress >= maxP) escaped.push(e.id);
     }
     if (escaped.length) {
-      g.enemies = g.enemies.filter(e => !escaped.includes(e.id));
+      g.enemies = g.enemies.filter((e) => !escaped.includes(e.id));
       g.lives = Math.max(0, g.lives - escaped.length);
-      if (g.lives === 0) { g.phase = "gameover"; g.enemies = []; return; }
+      if (g.lives === 0) {
+        g.phase = "gameover";
+        g.enemies = [];
+        return;
+      }
     }
   }
 
@@ -359,9 +587,9 @@ function tickGame(g: GState, dt: number) {
     }
 
     // Collect kills
-    const dead = g.enemies.filter(e => e.hp <= 0);
+    const dead = g.enemies.filter((e) => e.hp <= 0);
     for (const e of dead) g.gold += e.reward;
-    g.enemies = g.enemies.filter(e => e.hp > 0);
+    g.enemies = g.enemies.filter((e) => e.hp > 0);
   }
 
   // Wave complete?
@@ -405,7 +633,7 @@ export default function TowerDefense() {
       lastT.current = t;
       if (gRef.current.phase === "wave") {
         tickGame(gRef.current, dt);
-        setTick(n => n + 1);
+        setTick((n) => n + 1);
       }
       rafRef.current = requestAnimationFrame(loop);
     };
@@ -414,48 +642,63 @@ export default function TowerDefense() {
     return () => cancelAnimationFrame(rafRef.current);
   }, []);
 
-  const handleCellClick = useCallback((row: number, col: number) => {
-    const g = gRef.current;
-    if (g.phase !== "build") return;
-    if (row === ENTRY[0] && col === ENTRY[1]) return;
-    if (row === EXIT[0] && col === EXIT[1]) return;
+  const handleCellClick = useCallback(
+    (row: number, col: number) => {
+      const g = gRef.current;
+      if (g.phase !== "build") return;
+      if (row === ENTRY[0] && col === ENTRY[1]) return;
+      if (row === EXIT[0] && col === EXIT[1]) return;
 
-    if (tool === "sell") {
-      const idx = g.towers.findIndex(t => t.row === row && t.col === col);
-      if (idx !== -1) {
-        const t = g.towers[idx];
-        const refund = Math.floor(DEFS[t.type].cost * (t.level === 2 ? 1.5 : 0.5));
-        g.towers.splice(idx, 1);
+      if (tool === "sell") {
+        const idx = g.towers.findIndex((t) => t.row === row && t.col === col);
+        if (idx !== -1) {
+          const t = g.towers[idx];
+          const refund = Math.floor(
+            DEFS[t.type].cost * (t.level === 2 ? 1.5 : 0.5),
+          );
+          g.towers.splice(idx, 1);
+          g.grid[row][col] = false;
+          g.gold += refund;
+          g.path = findPath(g.grid);
+          setTick((n) => n + 1);
+        }
+        return;
+      }
+
+      if (g.grid[row][col]) {
+        // Upgrade existing tower
+        const t = g.towers.find((t) => t.row === row && t.col === col);
+        if (t && t.level === 1 && g.gold >= DEFS[t.type].upgCost) {
+          g.gold -= DEFS[t.type].upgCost;
+          t.level = 2;
+          setTick((n) => n + 1);
+        }
+        return;
+      }
+
+      // Place tower
+      const def = DEFS[tool];
+      if (g.gold < def.cost) return;
+      g.grid[row][col] = true;
+      const newPath = findPath(g.grid);
+      if (!newPath) {
         g.grid[row][col] = false;
-        g.gold += refund;
-        g.path = findPath(g.grid);
-        setTick(n => n + 1);
-      }
-      return;
-    }
-
-    if (g.grid[row][col]) {
-      // Upgrade existing tower
-      const t = g.towers.find(t => t.row === row && t.col === col);
-      if (t && t.level === 1 && g.gold >= DEFS[t.type].upgCost) {
-        g.gold -= DEFS[t.type].upgCost;
-        t.level = 2;
-        setTick(n => n + 1);
-      }
-      return;
-    }
-
-    // Place tower
-    const def = DEFS[tool];
-    if (g.gold < def.cost) return;
-    g.grid[row][col] = true;
-    const newPath = findPath(g.grid);
-    if (!newPath) { g.grid[row][col] = false; return; } // would block path
-    g.gold -= def.cost;
-    g.path = newPath;
-    g.towers.push({ id: g.nextTId++, row, col, type: tool, level: 1, cooldown: 0 });
-    setTick(n => n + 1);
-  }, [tool]);
+        return;
+      } // would block path
+      g.gold -= def.cost;
+      g.path = newPath;
+      g.towers.push({
+        id: g.nextTId++,
+        row,
+        col,
+        type: tool,
+        level: 1,
+        cooldown: 0,
+      });
+      setTick((n) => n + 1);
+    },
+    [tool],
+  );
 
   const startWave = () => {
     const g = gRef.current;
@@ -463,16 +706,19 @@ export default function TowerDefense() {
     g.phase = "wave";
     g.spawnQueue = buildSpawnQueue(WAVES[g.wave]);
     g.spawnTimer = g.spawnQueue.length > 0 ? g.spawnQueue[0].delay : 0;
-    setTick(n => n + 1);
+    setTick((n) => n + 1);
   };
 
-  const reset = () => { gRef.current = initState(); setTick(n => n + 1); };
+  const reset = () => {
+    gRef.current = initState();
+    setTick((n) => n + 1);
+  };
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
   const g = gRef.current;
 
-  const towerMap = new Map(g.towers.map(t => [`${t.row},${t.col}`, t]));
+  const towerMap = new Map(g.towers.map((t) => [`${t.row},${t.col}`, t]));
   const pathSet = new Set((g.path ?? []).map(([r, c]) => `${r},${c}`));
   const cs = cellSize;
   const gridW = cs * COLS;
@@ -480,24 +726,38 @@ export default function TowerDefense() {
 
   return (
     <Box sx={{ pb: 6 }}>
-
       {/* HUD */}
-      <Box sx={{
-        display: "flex", alignItems: "center", flexWrap: "wrap",
-        gap: { xs: 1.5, md: 3 }, px: 2, py: 1.5,
-        bgcolor: "background.paper",
-        borderBottom: "1px solid", borderColor: "divider",
-        position: "sticky", top: 0, zIndex: 10,
-      }}>
-        <Typography variant="h6" sx={{ fontWeight: 700 }}>💰 {g.gold}</Typography>
-        <Typography variant="h6" sx={{ fontWeight: 700 }}>❤️ {g.lives} / {MAX_LIVES}</Typography>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: { xs: 1.5, md: 3 },
+          px: 2,
+          py: 1.5,
+          bgcolor: "background.paper",
+          borderBottom: "1px solid",
+          borderColor: "divider",
+          position: "sticky",
+          top: 0,
+          zIndex: 10,
+        }}>
+        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+          💰 {g.gold}
+        </Typography>
+        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+          ❤️ {g.lives} / {MAX_LIVES}
+        </Typography>
         <Typography variant="h6" sx={{ fontWeight: 500, opacity: 0.7 }}>
           Wave {g.wave + 1} / {TOTAL_WAVES}
         </Typography>
         {g.phase === "build" && (
           <Typography variant="body2" sx={{ opacity: 0.6 }}>
             {WAVES[g.wave].groups.map((gr, i) => (
-              <span key={i}>{i > 0 ? " + " : ""}{ENEMY_TYPES[gr.type].emoji}×{gr.count}</span>
+              <span key={i}>
+                {i > 0 ? " + " : ""}
+                {ENEMY_TYPES[gr.type].emoji}×{gr.count}
+              </span>
             ))}
           </Typography>
         )}
@@ -522,143 +782,217 @@ export default function TowerDefense() {
       {/* Grid + enemies */}
       <Box ref={containerRef} sx={{ px: 1, pt: 2, overflowX: "auto" }}>
         <Box sx={{ position: "relative", width: gridW, height: gridH }}>
-
           {/* Cells */}
-          <Box sx={{
-            display: "grid",
-            gridTemplateColumns: `repeat(${COLS}, ${cs}px)`,
-            gridTemplateRows: `repeat(${ROWS}, ${cs}px)`,
-            border: "2px solid",
-            borderColor: "divider",
-            position: "absolute", inset: 0,
-          }}>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${COLS}, ${cs}px)`,
+              gridTemplateRows: `repeat(${ROWS}, ${cs}px)`,
+              border: "2px solid",
+              borderColor: "divider",
+              position: "absolute",
+              inset: 0,
+            }}>
             {Array.from({ length: ROWS }, (_, row) =>
               Array.from({ length: COLS }, (_, col) => {
                 const key = `${row},${col}`;
                 const tower = towerMap.get(key);
                 const isEntry = row === ENTRY[0] && col === ENTRY[1];
-                const isExit  = row === EXIT[0]  && col === EXIT[1];
-                const onPath  = pathSet.has(key) && !tower;
-                const def     = tower ? DEFS[tower.type] : null;
+                const isExit = row === EXIT[0] && col === EXIT[1];
+                const onPath = pathSet.has(key) && !tower;
+                const def = tower ? DEFS[tower.type] : null;
 
                 return (
                   <Box
                     key={key}
                     onClick={() => handleCellClick(row, col)}
                     sx={{
-                      width: cs, height: cs,
-                      display: "flex", alignItems: "center", justifyContent: "center",
+                      width: cs,
+                      height: cs,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                       fontSize: cs * 0.44,
                       position: "relative",
-                      bgcolor: isEntry ? "#86efac"
-                               : isExit  ? "#fca5a5"
-                               : tower   ? `${def!.color}30`
-                               : onPath  ? "rgba(0,0,0,0.04)"
-                               : "background.paper",
+                      bgcolor: isEntry
+                        ? "#86efac"
+                        : isExit
+                          ? "#fca5a5"
+                          : tower
+                            ? `${def!.color}30`
+                            : onPath
+                              ? "rgba(0,0,0,0.04)"
+                              : "background.paper",
                       border: "0.5px solid",
                       borderColor: tower ? def!.color + "88" : "divider",
                       cursor: g.phase === "build" ? "pointer" : "default",
                       userSelect: "none",
-                      "&:hover": g.phase === "build" && !tower ? {
-                        bgcolor: tool !== "sell" ? `${DEFS[tool as TowerType]?.color ?? "#ccc"}20` : "action.hover",
-                      } : {},
+                      "&:hover":
+                        g.phase === "build" && !tower
+                          ? {
+                              bgcolor:
+                                tool !== "sell"
+                                  ? `${DEFS[tool as TowerType]?.color ?? "#ccc"}20`
+                                  : "action.hover",
+                            }
+                          : {},
                     }}>
-                    {isEntry ? <span style={{ fontSize: cs * 0.5 }}>▶</span>
-                     : isExit  ? <span style={{ fontSize: cs * 0.5 }}>🏁</span>
-                     : tower   ? (
+                    {isEntry ? (
+                      <span style={{ fontSize: cs * 0.5 }}>▶</span>
+                    ) : isExit ? (
+                      <span style={{ fontSize: cs * 0.5 }}>🏁</span>
+                    ) : tower ? (
                       <>
                         {def!.emoji}
                         {tower.level === 2 && (
-                          <Box sx={{
-                            position: "absolute", top: 1, right: 1,
-                            width: cs * 0.28, height: cs * 0.28,
-                            borderRadius: "50%",
-                            bgcolor: "#f59e0b",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: cs * 0.18, fontWeight: 900, color: "white",
-                          }}>★</Box>
+                          <Box
+                            sx={{
+                              position: "absolute",
+                              top: 1,
+                              right: 1,
+                              width: cs * 0.28,
+                              height: cs * 0.28,
+                              borderRadius: "50%",
+                              bgcolor: "#f59e0b",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: cs * 0.18,
+                              fontWeight: 900,
+                              color: "white",
+                            }}>
+                            ★
+                          </Box>
                         )}
                       </>
                     ) : null}
                   </Box>
                 );
-              })
+              }),
             )}
           </Box>
 
           {/* Enemies */}
-          {g.path && g.enemies.map(enemy => {
-            const [er, ec] = enemyXY(enemy, g.path!);
-            const hpPct = Math.max(0, enemy.hp / enemy.maxHp);
-            const typeDef = ENEMY_TYPES[enemy.type];
-            const eSize = cs * 0.68 * typeDef.sizeMult;
-            return (
-              <Box
-                key={enemy.id}
-                sx={{
-                  position: "absolute",
-                  left: ec * cs + cs / 2 - eSize / 2,
-                  top:  er * cs + cs / 2 - eSize / 2,
-                  width: eSize, height: eSize,
-                  borderRadius: "50%",
-                  bgcolor: typeDef.color,
-                  border: enemy.type === "boss" ? "3px solid #b91c1c"
-                    : enemy.type === "armored" ? "2px solid #64748b"
-                    : "2px solid rgba(0,0,0,0.25)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: eSize * 0.5,
-                  pointerEvents: "none",
-                  zIndex: 5,
-                  opacity: hpPct > 0.3 ? 1 : 0.7,
-                }}>
-                {typeDef.emoji}
-                <Box sx={{
-                  position: "absolute", bottom: -3, left: 0, right: 0,
-                  height: 3, bgcolor: "rgba(0,0,0,0.2)", borderRadius: 1, overflow: "hidden",
-                }}>
-                  <Box sx={{
-                    width: `${hpPct * 100}%`, height: "100%", borderRadius: 1,
-                    bgcolor: hpPct > 0.6 ? "#16a34a" : hpPct > 0.3 ? "#ca8a04" : "#dc2626",
-                  }} />
+          {g.path &&
+            g.enemies.map((enemy) => {
+              const [er, ec] = enemyXY(enemy, g.path!);
+              const hpPct = Math.max(0, enemy.hp / enemy.maxHp);
+              const typeDef = ENEMY_TYPES[enemy.type];
+              const eSize = cs * 0.68 * typeDef.sizeMult;
+              return (
+                <Box
+                  key={enemy.id}
+                  sx={{
+                    position: "absolute",
+                    left: ec * cs + cs / 2 - eSize / 2,
+                    top: er * cs + cs / 2 - eSize / 2,
+                    width: eSize,
+                    height: eSize,
+                    borderRadius: "50%",
+                    bgcolor: typeDef.color,
+                    border:
+                      enemy.type === "boss"
+                        ? "3px solid #b91c1c"
+                        : enemy.type === "armored"
+                          ? "2px solid #64748b"
+                          : "2px solid rgba(0,0,0,0.25)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: eSize * 0.5,
+                    pointerEvents: "none",
+                    zIndex: 5,
+                    opacity: hpPct > 0.3 ? 1 : 0.7,
+                  }}>
+                  {typeDef.emoji}
+                  <Box
+                    sx={{
+                      position: "absolute",
+                      bottom: -3,
+                      left: 0,
+                      right: 0,
+                      height: 3,
+                      bgcolor: "rgba(0,0,0,0.2)",
+                      borderRadius: 1,
+                      overflow: "hidden",
+                    }}>
+                    <Box
+                      sx={{
+                        width: `${hpPct * 100}%`,
+                        height: "100%",
+                        borderRadius: 1,
+                        bgcolor:
+                          hpPct > 0.6
+                            ? "#16a34a"
+                            : hpPct > 0.3
+                              ? "#ca8a04"
+                              : "#dc2626",
+                      }}
+                    />
+                  </Box>
                 </Box>
-              </Box>
-            );
-          })}
+              );
+            })}
         </Box>
 
         {/* Tower picker */}
         <Box sx={{ display: "flex", gap: 1.5, mt: 2, flexWrap: "wrap" }}>
-          {(Object.entries(DEFS) as [TowerType, TowerDef][]).map(([type, def]) => (
-            <Box
-              key={type}
-              onClick={() => setTool(type)}
-              sx={{
-                border: "2px solid",
-                borderColor: tool === type ? def.color : "divider",
-                borderRadius: 2, p: 1.5, minWidth: 90, cursor: "pointer",
-                bgcolor: tool === type ? `${def.color}20` : "background.paper",
-                opacity: g.gold < def.cost ? 0.45 : 1,
-                "&:hover": { bgcolor: `${def.color}15` },
-              }}>
-              <Typography sx={{ fontSize: "1.6rem", textAlign: "center" }}>{def.emoji}</Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700, textAlign: "center" }}>{def.label}</Typography>
-              <Typography variant="caption" sx={{ display: "block", textAlign: "center", opacity: 0.6 }}>
-                💰{def.cost} · ⬆️{def.upgCost}
-              </Typography>
-            </Box>
-          ))}
+          {(Object.entries(DEFS) as [TowerType, TowerDef][]).map(
+            ([type, def]) => (
+              <Box
+                key={type}
+                onClick={() => setTool(type)}
+                sx={{
+                  border: "2px solid",
+                  borderColor: tool === type ? def.color : "divider",
+                  borderRadius: 2,
+                  p: 1.5,
+                  minWidth: 90,
+                  cursor: "pointer",
+                  bgcolor:
+                    tool === type ? `${def.color}20` : "background.paper",
+                  opacity: g.gold < def.cost ? 0.45 : 1,
+                  "&:hover": { bgcolor: `${def.color}15` },
+                }}>
+                <Typography sx={{ fontSize: "1.6rem", textAlign: "center" }}>
+                  {def.emoji}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ fontWeight: 700, textAlign: "center" }}>
+                  {def.label}
+                </Typography>
+                <Typography
+                  variant="caption"
+                  sx={{ display: "block", textAlign: "center", opacity: 0.6 }}>
+                  💰{def.cost} · ⬆️{def.upgCost}
+                </Typography>
+              </Box>
+            ),
+          )}
           <Box
             onClick={() => setTool("sell")}
             sx={{
               border: "2px solid",
               borderColor: tool === "sell" ? "#f59e0b" : "divider",
-              borderRadius: 2, p: 1.5, minWidth: 90, cursor: "pointer",
+              borderRadius: 2,
+              p: 1.5,
+              minWidth: 90,
+              cursor: "pointer",
               bgcolor: tool === "sell" ? "#f59e0b20" : "background.paper",
               "&:hover": { bgcolor: "#f59e0b15" },
             }}>
-            <Typography sx={{ fontSize: "1.6rem", textAlign: "center" }}>💸</Typography>
-            <Typography variant="body2" sx={{ fontWeight: 700, textAlign: "center" }}>Sell</Typography>
-            <Typography variant="caption" sx={{ display: "block", textAlign: "center", opacity: 0.6 }}>
+            <Typography sx={{ fontSize: "1.6rem", textAlign: "center" }}>
+              💸
+            </Typography>
+            <Typography
+              variant="body2"
+              sx={{ fontWeight: 700, textAlign: "center" }}>
+              Sell
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ display: "block", textAlign: "center", opacity: 0.6 }}>
               50% back
             </Typography>
           </Box>
@@ -670,41 +1004,76 @@ export default function TowerDefense() {
             Click empty cell to place · Click your own tower to upgrade (Lv★)
           </Typography>
           <Typography variant="caption" sx={{ opacity: 0.5 }}>
-            🗼 steady damage &nbsp;·&nbsp; 🎯 long range, high burst &nbsp;·&nbsp; 💣 hits all nearby enemies
+            🗼 steady damage &nbsp;·&nbsp; 🎯 long range, high burst
+            &nbsp;·&nbsp; 💣 hits all nearby enemies
           </Typography>
         </Box>
       </Box>
 
       {/* Game Over overlay */}
       {g.phase === "gameover" && (
-        <Box sx={{
-          position: "fixed", inset: 0, bgcolor: "rgba(0,0,0,0.72)",
-          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200,
-        }}>
-          <Box sx={{ bgcolor: "background.paper", borderRadius: 4, p: 4, textAlign: "center", maxWidth: 300 }}>
+        <Box
+          sx={{
+            position: "fixed",
+            inset: 0,
+            bgcolor: "rgba(0,0,0,0.72)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 200,
+          }}>
+          <Box
+            sx={{
+              bgcolor: "background.paper",
+              borderRadius: 4,
+              p: 4,
+              textAlign: "center",
+              maxWidth: 300,
+            }}>
             <Typography sx={{ fontSize: "3rem" }}>💀</Typography>
-            <Typography variant="h4" sx={{ fontWeight: 900, mb: 1 }}>Game Over</Typography>
+            <Typography variant="h4" sx={{ fontWeight: 900, mb: 1 }}>
+              Game Over
+            </Typography>
             <Typography variant="body1" sx={{ mb: 3, opacity: 0.6 }}>
               You made it to Wave {g.wave + 1}
             </Typography>
-            <button className="btn" onClick={reset}>Play Again</button>
+            <button className="btn" onClick={reset}>
+              Play Again
+            </button>
           </Box>
         </Box>
       )}
 
       {/* Win overlay */}
       {g.phase === "win" && (
-        <Box sx={{
-          position: "fixed", inset: 0, bgcolor: "rgba(0,0,0,0.72)",
-          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200,
-        }}>
-          <Box sx={{ bgcolor: "background.paper", borderRadius: 4, p: 4, textAlign: "center", maxWidth: 300 }}>
+        <Box
+          sx={{
+            position: "fixed",
+            inset: 0,
+            bgcolor: "rgba(0,0,0,0.72)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 200,
+          }}>
+          <Box
+            sx={{
+              bgcolor: "background.paper",
+              borderRadius: 4,
+              p: 4,
+              textAlign: "center",
+              maxWidth: 300,
+            }}>
             <div className="cooking-stars">🏆 ⭐ 🏆</div>
-            <Typography variant="h4" sx={{ fontWeight: 900, mb: 1 }}>You Won!</Typography>
+            <Typography variant="h4" sx={{ fontWeight: 900, mb: 1 }}>
+              You Won!
+            </Typography>
             <Typography variant="body1" sx={{ mb: 3, opacity: 0.6 }}>
               All {TOTAL_WAVES} waves defeated!
             </Typography>
-            <button className="btn" onClick={reset}>Play Again</button>
+            <button className="btn" onClick={reset}>
+              Play Again
+            </button>
           </Box>
         </Box>
       )}

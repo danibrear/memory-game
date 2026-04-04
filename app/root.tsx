@@ -43,10 +43,12 @@ import {
 } from "react-router";
 import type { Route } from "./+types/root";
 import "./app.css";
+import Logo from "./components/Logo";
 import Welcome from "./components/Welcome";
 import { theme } from "./theme";
 
 export const links: Route.LinksFunction = () => [
+  { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
   {
     rel: "preconnect",
@@ -62,7 +64,15 @@ export const links: Route.LinksFunction = () => [
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Games by DaniB" },
-    { name: "description", content: "Games I made for my family!" },
+    { name: "description", content: "Free fun games made with love for the whole family!" },
+    { property: "og:title", content: "DaniB's Games" },
+    { property: "og:description", content: "Free fun games made with love for the whole family!" },
+    { property: "og:image", content: "/og-image.svg" },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+    { name: "twitter:title", content: "DaniB's Games" },
+    { name: "twitter:description", content: "Free fun games made with love for the whole family!" },
+    { name: "twitter:image", content: "/og-image.svg" },
   ];
 }
 
@@ -170,8 +180,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   mr: 2,
                   flexShrink: 0,
                   userSelect: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1.25,
                 }}>
-                🎮 DaniB's Games
+                <Logo size={32} />
+                DaniB's Games
               </Box>
               <Box sx={{ flex: 1 }} />
               {PAGES.map((page) => {
@@ -223,8 +237,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <Box
                 component="span"
                 onClick={() => navigate("/")}
-                sx={{ fontWeight: 900, fontSize: "1.1rem", color: "white", cursor: "pointer", userSelect: "none" }}>
-                🎮 DaniB's Games
+                sx={{ fontWeight: 900, fontSize: "1.1rem", color: "white", cursor: "pointer", userSelect: "none", display: "flex", alignItems: "center", gap: 1 }}>
+                <Logo size={28} />
+                DaniB's Games
               </Box>
             </Container>
 
@@ -248,9 +263,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   alignItems: "center",
                   gap: 1,
                 }}>
+                <Logo size={30} />
                 <Typography
                   sx={{ fontWeight: 900, fontSize: "1.2rem", color: "white" }}>
-                  🎮 DaniB's Games
+                  DaniB's Games
                 </Typography>
               </Box>
               <Divider sx={{ borderColor: "rgba(255,255,255,0.15)", mx: 2 }} />
