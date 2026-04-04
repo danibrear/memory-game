@@ -1,0 +1,1 @@
+This is deployed to the danib account but on (us-east-2) Ohio region. This is because the us-east-1 region has a lot of traffic and the deployment was taking a long time. The us-east-2 region is less busy and the deployment was much faster.

@@ -18,6 +18,7 @@ import {
   Button,
   Container,
   CssBaseline,
+  Divider,
   Drawer,
   IconButton,
   List,
@@ -134,76 +135,173 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <body>
-          <AppBar position="fixed" sx={{ padding: 2, mb: 4, zIndex: 1000 }}>
+          <AppBar
+            position="fixed"
+            sx={{
+              background: "linear-gradient(135deg, #1e1b4b 0%, #4a1942 100%)",
+              boxShadow: "0 4px 24px rgba(0,0,0,0.35)",
+              zIndex: 1000,
+            }}>
+            {/* Desktop nav */}
             <Container
               maxWidth="lg"
               sx={{
                 display: { xs: "none", md: "flex" },
                 alignItems: "center",
-                gap: 2,
+                py: 1,
+                gap: 0.5,
               }}>
               <Box
                 component="span"
-                sx={{ fontWeight: "bold", fontSize: "1.5rem" }}>
-                DaniB's Games
+                onClick={() => navigate("/")}
+                sx={{
+                  fontWeight: 900,
+                  fontSize: "1.25rem",
+                  color: "white",
+                  cursor: "pointer",
+                  letterSpacing: "-0.3px",
+                  mr: 2,
+                  flexShrink: 0,
+                  userSelect: "none",
+                }}>
+                🎮 DaniB's Games
               </Box>
-              {PAGES.map((page) => (
-                <Button
-                  key={page.name}
-                  variant="text"
-                  color="inherit"
-                  onClick={() => {
-                    navigate(page.path);
-                  }}>
-                  {page.name}
-                </Button>
-              ))}
+              <Box sx={{ flex: 1 }} />
+              {PAGES.map((page) => {
+                const isActive = currentRoute === page.path;
+                return (
+                  <Button
+                    key={page.name}
+                    onClick={() => navigate(page.path)}
+                    startIcon={
+                      <span style={{ fontSize: "0.85rem", lineHeight: 1 }}>
+                        {page.icon}
+                      </span>
+                    }
+                    sx={{
+                      color: "white",
+                      fontWeight: isActive ? 700 : 400,
+                      fontSize: "0.85rem",
+                      borderRadius: "50px",
+                      px: 1.75,
+                      py: 0.75,
+                      textTransform: "none",
+                      whiteSpace: "nowrap",
+                      background: isActive
+                        ? "rgba(255,255,255,0.18)"
+                        : "transparent",
+                      "&:hover": {
+                        background: "rgba(255,255,255,0.12)",
+                      },
+                    }}>
+                    {page.name}
+                  </Button>
+                );
+              })}
             </Container>
+
+            {/* Mobile nav */}
             <Container
               sx={{
                 display: { xs: "flex", md: "none" },
                 alignItems: "center",
-                gap: 2,
+                py: 1,
+                gap: 1,
               }}>
               <IconButton
-                onClick={() => {
-                  setMobileDrawerOpen(true);
-                }}>
-                <MenuIcon color="inherit" />
+                onClick={() => setMobileDrawerOpen(true)}
+                sx={{ color: "white" }}>
+                <MenuIcon />
               </IconButton>
-              <Box component="span" sx={{ fontWeight: "bold" }}>
-                DaniB's Games
+              <Box
+                component="span"
+                sx={{ fontWeight: 900, fontSize: "1.1rem", color: "white" }}>
+                🎮 DaniB's Games
               </Box>
             </Container>
+
+            {/* Mobile drawer */}
             <Drawer
               anchor="left"
               variant="temporary"
               onClose={() => setMobileDrawerOpen(false)}
-              open={mobileDrawerOpen}>
-              <List
-                style={{
-                  marginTop: 20,
+              open={mobileDrawerOpen}
+              PaperProps={{
+                sx: {
+                  background: "linear-gradient(180deg, #1e1b4b 0%, #4a1942 100%)",
+                  minWidth: 240,
+                },
+              }}>
+              <Box
+                sx={{
+                  px: 2.5,
+                  py: 3,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
                 }}>
-                {PAGES.map((page) => (
-                  <ListItem key={page.name} disablePadding>
-                    <ListItemButton
-                      onClick={() => {
-                        setMobileDrawerOpen(false);
-                        navigate(page.path);
-                      }}>
-                      <ListItemIcon>{page.icon}</ListItemIcon>
-                      <Typography
-                        variant="button"
-                        style={{
-                          padding: 0,
-                          margin: 0,
-                          color: "inherit",
+                <Typography
+                  sx={{ fontWeight: 900, fontSize: "1.2rem", color: "white" }}>
+                  🎮 DaniB's Games
+                </Typography>
+              </Box>
+              <Divider sx={{ borderColor: "rgba(255,255,255,0.15)", mx: 2 }} />
+              <List sx={{ pt: 1, px: 1 }}>
+                {PAGES.map((page, i) => {
+                  const isActive = currentRoute === page.path;
+                  const iconColors = [
+                    "#a78bfa",
+                    "#f472b6",
+                    "#fb923c",
+                    "#4ade80",
+                    "#38bdf8",
+                    "#f87171",
+                  ];
+                  const c = iconColors[i % iconColors.length];
+                  return (
+                    <ListItem key={page.name} disablePadding sx={{ mb: 0.5 }}>
+                      <ListItemButton
+                        onClick={() => {
+                          setMobileDrawerOpen(false);
+                          navigate(page.path);
+                        }}
+                        sx={{
+                          borderRadius: 3,
+                          background: isActive
+                            ? "rgba(255,255,255,0.15)"
+                            : "transparent",
+                          "&:hover": {
+                            background: "rgba(255,255,255,0.1)",
+                          },
                         }}>
-                        {page.name}
-                      </Typography>
-                    </ListItemButton>
-                  </ListItem>
-                ))}
+                        <ListItemIcon
+                          sx={{
+                            minWidth: 0,
+                            width: 36,
+                            height: 36,
+                            borderRadius: "50%",
+                            background: `${c}33`,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: c,
+                            fontSize: "1rem",
+                            mr: 1.5,
+                          }}>
+                          {page.icon}
+                        </ListItemIcon>
+                        <Typography
+                          sx={{
+                            fontWeight: isActive ? 700 : 400,
+                            color: "white",
+                            fontSize: "0.95rem",
+                          }}>
+                          {page.name}
+                        </Typography>
+                      </ListItemButton>
+                    </ListItem>
+                  );
+                })}
               </List>
             </Drawer>
           </AppBar>

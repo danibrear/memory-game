@@ -2,13 +2,9 @@ import { DragDropProvider, useDraggable, useDroppable } from "@dnd-kit/react";
 import { Box, Container, Typography } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import OpenMojiImg from "~/components/OpenMojiImg";
-import {
-  recipes,
-  type CookingAction,
-  type Ingredient,
-  type Recipe,
-} from "~/data/recipes";
+import type { CookingAction, Ingredient, Recipe } from "~/data/recipes";
 import { clearStoredData, getStoredData, setStoredData } from "~/storage";
+import { useRemoteConfig } from "~/utils/useRemoteConfig";
 import type { Route } from "./+types/cooking";
 
 export function meta({}: Route.MetaArgs) {
@@ -89,7 +85,13 @@ function shuffle<T>(array: T[]): T[] {
   return a;
 }
 
-function RecipeSelect({ onSelect }: { onSelect: (recipe: Recipe) => void }) {
+function RecipeSelect({
+  recipes,
+  onSelect,
+}: {
+  recipes: Recipe[];
+  onSelect: (recipe: Recipe) => void;
+}) {
   return (
     <Container maxWidth="sm">
       <Typography variant="h4" sx={{ textAlign: "center", mb: 3 }}>

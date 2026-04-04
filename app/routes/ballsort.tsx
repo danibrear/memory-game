@@ -1,6 +1,7 @@
 import { Box, Container, Typography } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { clearStoredData, getStoredData, setStoredData } from "~/storage";
+import { useRemoteConfig } from "~/utils/useRemoteConfig";
 import type { Route } from "./+types/ballsort";
 
 export function meta({}: Route.MetaArgs) {
@@ -11,67 +12,37 @@ export function meta({}: Route.MetaArgs) {
 }
 
 type GameState = "START" | "ACTIVE" | "WON";
-
-// Color palette — bright, kid-friendly, distinguishable
-const BALL_COLORS = [
-  { name: "Red", hsl: "hsl(0, 80%, 55%)" },
-  { name: "Blue", hsl: "hsl(220, 80%, 55%)" },
-  { name: "Green", hsl: "hsl(140, 70%, 45%)" },
-  { name: "Yellow", hsl: "hsl(50, 90%, 55%)" },
-  { name: "Purple", hsl: "hsl(280, 70%, 55%)" },
-  { name: "Orange", hsl: "hsl(25, 90%, 55%)" },
-  { name: "Pink", hsl: "hsl(330, 80%, 65%)" },
-  { name: "Cyan", hsl: "hsl(185, 80%, 45%)" },
-  { name: "Lime", hsl: "hsl(80, 75%, 50%)" },
-  { name: "Brown", hsl: "hsl(20, 50%, 40%)" },
-];
-
-const TUBE_CAPACITY = 4;
-const MIN_COLORS = 2;
-const MAX_COLORS = 10;
-const MIN_EXTRA_TUBES = 1;
-const MAX_EXTRA_TUBES = 4;
-
 type Tube = number[]; // array of color indices, index 0 = bottom
 
-function generatePuzzle(numColors: number, extraTubes: number): Tube[] {
-  // Create balls: TUBE_CAPACITY of each color
+function generatePuzzle(
+  numColors: number,
+  extraTubes: number,
+  tubeCapacity: number,
+): Tube[] {
   const balls: number[] = [];
   for (let c = 0; c < numColors; c++) {
-    for (let i = 0; i < TUBE_CAPACITY; i++) {
-      balls.push(c);
-    }
+    for (let i = 0; i < tubeCapacity; i++) balls.push(c);
   }
-
-  // Fisher-Yates shuffle
   for (let i = balls.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [balls[i], balls[j]] = [balls[j], balls[i]];
   }
-
-  // Fill tubes
   const tubes: Tube[] = [];
   for (let t = 0; t < numColors; t++) {
-    tubes.push(balls.slice(t * TUBE_CAPACITY, (t + 1) * TUBE_CAPACITY));
+    tubes.push(balls.slice(t * tubeCapacity, (t + 1) * tubeCapacity));
   }
-
-  // Add empty tubes
-  for (let t = 0; t < extraTubes; t++) {
-    tubes.push([]);
-  }
-
+  for (let t = 0; t < extraTubes; t++) tubes.push([]);
   return tubes;
 }
 
-function isSolved(tubes: Tube[]): boolean {
+function isSolved(tubes: Tube[], tubeCapacity: number): boolean {
   return tubes.every(
     (tube) =>
       tube.length === 0 ||
-      (tube.length === TUBE_CAPACITY && tube.every((b) => b === tube[0])),
+      (tube.length === tubeCapacity && tube.every((b) => b === tube[0])),
   );
 }
 
-/** Get the count of top balls that share the same color */
 function getTopGroup(tube: Tube): { color: number; count: number } {
   if (tube.length === 0) return { color: -1, count: 0 };
   const topColor = tube[tube.length - 1];
@@ -83,21 +54,23 @@ function getTopGroup(tube: Tube): { color: number; count: number } {
   return { color: topColor, count };
 }
 
-/** Calculate how many balls can move from source to dest */
-function getMovableCount(source: Tube, dest: Tube): number {
+function getMovableCount(
+  source: Tube,
+  dest: Tube,
+  tubeCapacity: number,
+): number {
   const { count } = getTopGroup(source);
   if (count === 0) return 0;
-
-  const destSpace = TUBE_CAPACITY - dest.length;
+  const destSpace = tubeCapacity - dest.length;
   if (destSpace === 0) return 0;
-
-  // Move as many of the top group as will fit
   return Math.min(count, destSpace);
 }
 
-/** BFS solver: find minimum moves using same-color-only rules */
-function solvePuzzle(initialTubes: Tube[]): number | null {
-  if (isSolved(initialTubes)) return 0;
+function solvePuzzle(
+  initialTubes: Tube[],
+  tubeCapacity: number,
+): number | null {
+  if (isSolved(initialTubes, tubeCapacity)) return 0;
 
   const MAX_VISITED = 300_000;
 
@@ -124,26 +97,18 @@ function solvePuzzle(initialTubes: Tube[]): number | null {
         if (srcTube.length === 0) continue;
 
         const { color, count } = getTopGroup(srcTube);
-
-        // Skip if source tube is already complete
-        if (count === TUBE_CAPACITY) continue;
+        if (count === tubeCapacity) continue;
 
         for (let dst = 0; dst < tubes.length; dst++) {
           if (src === dst) continue;
           const dstTube = tubes[dst];
-
-          // Only same-color or empty destination
           if (dstTube.length > 0 && dstTube[dstTube.length - 1] !== color)
             continue;
-
-          const space = TUBE_CAPACITY - dstTube.length;
+          const space = tubeCapacity - dstTube.length;
           if (space === 0) continue;
-
-          // Skip moving entire single-color stack to empty tube (pointless)
           if (dstTube.length === 0 && count === srcTube.length) continue;
 
           const movable = Math.min(count, space);
-
           const nextTubes = tubes.map((t) => [...t]);
           const balls = nextTubes[src].splice(
             nextTubes[src].length - movable,
@@ -151,7 +116,7 @@ function solvePuzzle(initialTubes: Tube[]): number | null {
           );
           nextTubes[dst].push(...balls);
 
-          if (isSolved(nextTubes)) return moves;
+          if (isSolved(nextTubes, tubeCapacity)) return moves;
 
           const key = serialize(nextTubes);
           if (!visited.has(key)) {
@@ -171,12 +136,22 @@ function solvePuzzle(initialTubes: Tube[]): number | null {
 function StartScreen({
   numColors,
   extraTubes,
+  ballColors,
+  minColors,
+  maxColors,
+  minExtraTubes,
+  maxExtraTubes,
   onStart,
   onChangeColors,
   onChangeExtra,
 }: {
   numColors: number;
   extraTubes: number;
+  ballColors: { name: string; hsl: string }[];
+  minColors: number;
+  maxColors: number;
+  minExtraTubes: number;
+  maxExtraTubes: number;
   onStart: () => void;
   onChangeColors: (n: number) => void;
   onChangeExtra: (n: number) => void;
@@ -193,7 +168,7 @@ function StartScreen({
           <div className="ballsort-config-controls">
             <button
               className="icon-btn"
-              disabled={numColors <= MIN_COLORS}
+              disabled={numColors <= minColors}
               onClick={() => onChangeColors(numColors - 1)}>
               −
             </button>
@@ -204,16 +179,15 @@ function StartScreen({
             </Typography>
             <button
               className="icon-btn"
-              disabled={numColors >= MAX_COLORS}
+              disabled={numColors >= maxColors}
               onClick={() => onChangeColors(numColors + 1)}>
               +
             </button>
           </div>
         </div>
 
-        {/* Preview colors */}
         <div className="ballsort-color-preview">
-          {BALL_COLORS.slice(0, numColors).map((c, i) => (
+          {ballColors.slice(0, numColors).map((c, i) => (
             <div
               key={i}
               className="ballsort-ball-small"
@@ -228,7 +202,7 @@ function StartScreen({
           <div className="ballsort-config-controls">
             <button
               className="icon-btn"
-              disabled={extraTubes <= MIN_EXTRA_TUBES}
+              disabled={extraTubes <= minExtraTubes}
               onClick={() => onChangeExtra(extraTubes - 1)}>
               −
             </button>
@@ -239,7 +213,7 @@ function StartScreen({
             </Typography>
             <button
               className="icon-btn"
-              disabled={extraTubes >= MAX_EXTRA_TUBES}
+              disabled={extraTubes >= maxExtraTubes}
               onClick={() => onChangeExtra(extraTubes + 1)}>
               +
             </button>
@@ -270,6 +244,8 @@ function TubeComponent({
   isSelected,
   highlightCount,
   canReceive,
+  tubeCapacity,
+  ballColors,
   onClick,
 }: {
   tube: Tube;
@@ -277,6 +253,8 @@ function TubeComponent({
   isSelected: boolean;
   highlightCount: number;
   canReceive: boolean;
+  tubeCapacity: number;
+  ballColors: { name: string; hsl: string }[];
   onClick: () => void;
 }) {
   return (
@@ -285,7 +263,7 @@ function TubeComponent({
       onClick={onClick}
       aria-label={`Tube ${index + 1}`}>
       <div className="ballsort-tube-inner">
-        {Array.from({ length: TUBE_CAPACITY }).map((_, slotIdx) => {
+        {Array.from({ length: tubeCapacity }).map((_, slotIdx) => {
           const ball = tube[slotIdx];
           const isHighlighted =
             isSelected && slotIdx >= tube.length - highlightCount;
@@ -295,7 +273,7 @@ function TubeComponent({
               className={`ballsort-slot ${ball != null ? "ballsort-ball" : ""} ${isHighlighted ? "ballsort-ball-highlighted" : ""}`}
               style={
                 ball != null
-                  ? { backgroundColor: BALL_COLORS[ball]?.hsl }
+                  ? { backgroundColor: ballColors[ball]?.hsl }
                   : undefined
               }
             />
@@ -310,6 +288,8 @@ function GameScreen({
   initialTubes,
   numColors,
   optimalMoves,
+  tubeCapacity,
+  ballColors,
   savedState,
   onWin,
   onSave,
@@ -319,6 +299,8 @@ function GameScreen({
   initialTubes: Tube[];
   numColors: number;
   optimalMoves: number | null;
+  tubeCapacity: number;
+  ballColors: { name: string; hsl: string }[];
   savedState?: { tubes: Tube[]; moveCount: number; history: Tube[][] };
   onWin: (moves: number) => void;
   onSave: (state: {
@@ -334,12 +316,11 @@ function GameScreen({
   const [moveCount, setMoveCount] = useState(savedState?.moveCount ?? 0);
   const [history, setHistory] = useState<Tube[][]>(savedState?.history ?? []);
 
-  // Check win
   useEffect(() => {
-    if (moveCount > 0 && isSolved(tubes)) {
+    if (moveCount > 0 && isSolved(tubes, tubeCapacity)) {
       onWin(moveCount);
     }
-  }, [tubes, moveCount, onWin]);
+  }, [tubes, moveCount, tubeCapacity, onWin]);
 
   const selectedGroup = useMemo(() => {
     if (selectedTube === null) return { color: -1, count: 0 };
@@ -349,15 +330,16 @@ function GameScreen({
   const handleTubeClick = useCallback(
     (index: number) => {
       if (selectedTube === null) {
-        // Select a tube (only if it has balls)
         if (tubes[index].length === 0) return;
         setSelectedTube(index);
       } else if (selectedTube === index) {
-        // Deselect
         setSelectedTube(null);
       } else {
-        // Try to move
-        const movable = getMovableCount(tubes[selectedTube], tubes[index]);
+        const movable = getMovableCount(
+          tubes[selectedTube],
+          tubes[index],
+          tubeCapacity,
+        );
         if (movable > 0) {
           const newHistory = [...history, tubes.map((t) => [...t])];
           const next = tubes.map((t) => [...t]);
@@ -379,7 +361,7 @@ function GameScreen({
         setSelectedTube(null);
       }
     },
-    [selectedTube, tubes, history, moveCount, onSave],
+    [selectedTube, tubes, history, moveCount, tubeCapacity, onSave],
   );
 
   const handleUndo = useCallback(() => {
@@ -444,7 +426,7 @@ function GameScreen({
                 const canReceive =
                   selectedTube !== null &&
                   selectedTube !== i &&
-                  getMovableCount(tubes[selectedTube], tube) > 0;
+                  getMovableCount(tubes[selectedTube], tube, tubeCapacity) > 0;
                 return (
                   <TubeComponent
                     key={i}
@@ -455,6 +437,8 @@ function GameScreen({
                       selectedTube === i ? selectedGroup.count : 0
                     }
                     canReceive={canReceive}
+                    tubeCapacity={tubeCapacity}
+                    ballColors={ballColors}
                     onClick={() => handleTubeClick(i)}
                   />
                 );
@@ -511,6 +495,10 @@ function WinScreen({
 const STORAGE_KEY = "ballsort-game-state";
 
 export default function BallSort() {
+  const config = useRemoteConfig();
+  const { colors: ballColors, tubeCapacity, minColors, maxColors, minExtraTubes, maxExtraTubes } =
+    config.ballSort;
+
   const [gameState, setGameState] = useState<GameState>("START");
   const [numColors, setNumColors] = useState(4);
   const [extraTubes, setExtraTubes] = useState(2);
@@ -553,8 +541,8 @@ export default function BallSort() {
   }, [numColors, extraTubes, gameState, isLoading]);
 
   const handleStart = useCallback(() => {
-    const puzzle = generatePuzzle(numColors, extraTubes);
-    const optimal = solvePuzzle(puzzle);
+    const puzzle = generatePuzzle(numColors, extraTubes, tubeCapacity);
+    const optimal = solvePuzzle(puzzle, tubeCapacity);
     setInitialTubes(puzzle);
     setOptimalMoves(optimal);
     setMoveCount(0);
@@ -567,7 +555,7 @@ export default function BallSort() {
       optimalMoves: optimal,
       gameState: "ACTIVE",
     });
-  }, [numColors, extraTubes]);
+  }, [numColors, extraTubes, tubeCapacity]);
 
   const handleSave = useCallback(
     (state: { tubes: Tube[]; moveCount: number; history: Tube[][] }) => {
@@ -608,6 +596,11 @@ export default function BallSort() {
         <StartScreen
           numColors={numColors}
           extraTubes={extraTubes}
+          ballColors={ballColors}
+          minColors={minColors}
+          maxColors={maxColors}
+          minExtraTubes={minExtraTubes}
+          maxExtraTubes={maxExtraTubes}
           onStart={handleStart}
           onChangeColors={setNumColors}
           onChangeExtra={setExtraTubes}
@@ -619,6 +612,8 @@ export default function BallSort() {
           initialTubes={initialTubes}
           numColors={numColors}
           optimalMoves={optimalMoves}
+          tubeCapacity={tubeCapacity}
+          ballColors={ballColors}
           savedState={savedGameState}
           onWin={handleWin}
           onSave={handleSave}
