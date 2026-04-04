@@ -402,6 +402,9 @@ function FinishedScreen({
 }
 
 export default function Cooking() {
+  const config = useRemoteConfig();
+  const recipes = config.kitchen.recipes;
+
   const [gameState, setGameState] = useState<GameState>("SELECT");
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -410,14 +413,14 @@ export default function Cooking() {
   useEffect(() => {
     const stored = getStoredData("cooking-game-state");
     if (stored?.recipeId && stored?.gameState) {
-      const recipe = recipes.find((r) => r.id === stored.recipeId);
+      const recipe = recipes.find((r: Recipe) => r.id === stored.recipeId);
       if (recipe) {
         setSelectedRecipe(recipe);
         setGameState(stored.gameState);
       }
     }
     setIsLoading(false);
-  }, []);
+  }, [recipes]);
 
   // Persist state
   useEffect(() => {
@@ -455,7 +458,9 @@ export default function Cooking() {
 
   return (
     <Box sx={{ pb: 4 }}>
-      {gameState === "SELECT" && <RecipeSelect onSelect={handleSelectRecipe} />}
+      {gameState === "SELECT" && (
+        <RecipeSelect recipes={recipes} onSelect={handleSelectRecipe} />
+      )}
       {gameState === "COOKING" && selectedRecipe && (
         <CookingScreen
           key={selectedRecipe.id + "-" + gameState}
