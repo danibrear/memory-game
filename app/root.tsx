@@ -8,6 +8,8 @@ import {
   faCubes,
   faFlask,
   faPaintBrush,
+  faCircle,
+  faShield,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import MenuIcon from "@mui/icons-material/Menu";
@@ -102,6 +104,18 @@ export const PAGES = [
     path: "/quadra",
     description: "Tetris with chain reactions!",
     icon: <FontAwesomeIcon icon={faCubes} />,
+  },
+  {
+    name: "Bubble Pop",
+    path: "/bubblepop",
+    description: "Pop the bubbles before they fly away!",
+    icon: <FontAwesomeIcon icon={faCircle} />,
+  },
+  {
+    name: "Tower Defense",
+    path: "/towerdefense",
+    description: "Place towers to stop the enemy waves!",
+    icon: <FontAwesomeIcon icon={faShield} />,
   },
 ];
 

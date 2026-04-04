@@ -1,17 +1,25 @@
+import {
+  faArrowUp,
+  faBolt,
+  faBrain,
+  faCheck,
+  faEye,
+  faMedal,
+  faQuestion,
+  faStar,
+  faTrophy,
+  faXmark,
+} from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { Box, Container, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
 import { clearStoredData, getStoredData, setStoredData } from "~/storage";
 import type { Route } from "./+types/memory";
 
-import { faCircleInfo, faHeart } from "@fortawesome/free-solid-svg-icons";
-import { faAdd } from "@fortawesome/free-solid-svg-icons/faAdd";
-import { faSubtract } from "@fortawesome/free-solid-svg-icons/faSubtract";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Typography } from "@mui/material";
-
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "Memory Game by DaniB" },
-    { name: "description", content: "Welcome to React Router!" },
+    { title: "Memory Game - Games by DaniB" },
+    { name: "description", content: "Remember the highlighted cells and find them all!" },
   ];
 }
 
@@ -22,19 +30,16 @@ export default function Memory() {
   const [correctCells, setCorrectCells] = useState<Set<number>>(new Set());
   const [incorrectCells, setIncorrectCells] = useState<Set<number>>(new Set());
   const [selectedCells, setSelectedCells] = useState<Set<number>>(new Set());
-
   const [difficulty, setDifficulty] = useState<number>(3);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const getGameStateJson = () => {
-    return {
-      gameState,
-      correctCells: Array.from(correctCells),
-      incorrectCells: Array.from(incorrectCells),
-      selectedCells: Array.from(selectedCells),
-      difficulty,
-    };
-  };
+  const getGameStateJson = () => ({
+    gameState,
+    correctCells: Array.from(correctCells),
+    incorrectCells: Array.from(incorrectCells),
+    selectedCells: Array.from(selectedCells),
+    difficulty,
+  });
 
   useEffect(() => {
     if (gameState !== "ACTIVE") return;
@@ -100,350 +105,253 @@ export default function Memory() {
     setIncorrectCells(new Set());
     setSelectedCells(newCorrectCells);
     setGameState("INTRO");
-
-    setTimeout(() => {
-      setGameState("SHOWING");
-    }, 2000);
-    setTimeout(() => {
-      setGameState("ACTIVE");
-    }, 4000);
+    setTimeout(() => setGameState("SHOWING"), 2000);
+    setTimeout(() => setGameState("ACTIVE"), 4000);
   };
 
-  const renderGameBoard = () => {
-    const cells = new Array(difficulty * difficulty).fill(0);
+  const accuracy =
+    correctCells.size + incorrectCells.size > 0
+      ? Math.round((correctCells.size / (correctCells.size + incorrectCells.size)) * 100)
+      : 100;
 
-    return (
-      <div
-        style={{
-          flexGrow: 1,
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "flex-start",
-          position: "relative",
-          flexDirection: "column",
-          width: "100%",
-        }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: `repeat(${difficulty}, 1fr)`,
-            gap: `${Math.max(5 - Math.floor(difficulty / 5), 2)}px`,
-            maxWidth: "60vh",
-            margin: "20px auto",
-            width: "90%",
-            position: "relative",
-          }}>
-          {cells.map((_, index) => {
-            const isCorrect = correctCells.has(index);
-            const isIncorrect = incorrectCells.has(index);
-            const isSelected = selectedCells.has(index);
-            const isShowing = gameState === "SHOWING" && isSelected;
-            const isActive = gameState !== "START";
-            const isCorrectClass = isCorrect && isActive ? "correct" : "";
-            const isIncorrectClass = isIncorrect && isActive ? "incorrect" : "";
-            const isShowingClass = isShowing ? "showing" : "";
-            return (
-              <div
-                key={index}
-                className={`cell ${gameState === "ACTIVE" ? "clickable" : ""} ${isCorrectClass} ${isIncorrectClass} ${isShowingClass}`}
-                onClick={() => handleClickCell(index)}
-                style={{
-                  width: "100%",
-                  paddingBottom: "100%",
-                  transform:
-                    (isCorrect || isIncorrect || isShowing) &&
-                    gameState !== "START"
-                      ? "rotateY(180deg)"
-                      : "rotateY(0deg)",
-                  border: "1px solid rgba(0,0,0,.5)",
-                  boxShadow: "0 2px 5px rgba(0,0,0,.333)",
-                  position: "relative",
-                  borderRadius: "10%",
-                  transition: "all 0.25s ease",
-                  cursor: gameState === "ACTIVE" ? "pointer" : "not-allowed",
-                }}>
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                  }}></div>
-              </div>
-            );
-          })}
-          {gameState === "INTRO" && (
-            <div
-              className="modal"
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                zIndex: 1000,
-                width: "90%",
-                maxWidth: "400px",
-                gap: "10px",
-                display: "flex",
-                flexDirection: "column",
-                padding: "20px",
-                borderRadius: "10px",
-                boxShadow: "0 2px 10px rgba(0,0,0,.8)",
-                animation: "fadeIn .333s ease forwards",
-              }}>
-              <div
-                style={{
-                  gap: "10px",
-                  display: "flex",
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}>
-                <FontAwesomeIcon
-                  icon={faCircleInfo}
-                  style={{
-                    fontSize: "2rem",
-                  }}
-                />
-                <h6
-                  style={{
-                    fontSize: "1.25rem",
-                    fontWeight: "bold",
-                    textAlign: "center",
-                  }}>
-                  Remember these cells!
-                </h6>
-              </div>
-            </div>
-          )}
-          {gameState === "START" && (
-            <div
-              className="modal"
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                zIndex: 1000,
-                width: "90%",
-                maxWidth: "400px",
-                gap: "10px",
-                display: "flex",
-                flexDirection: "column",
-                padding: "20px",
-                borderRadius: "10px",
-                boxShadow: "0 2px 10px rgba(0,0,0,.8)",
-                animation: "fadeIn .333s ease forwards",
-              }}>
-              <div
-                style={{
-                  paddingBottom: "10px",
-                  marginBottom: "10px",
-                  borderBottom: "1px solid rgba(0,0,0,.1)",
-                }}>
-                <h6
-                  style={{
-                    fontSize: "1.25rem",
-                    fontWeight: "bold",
-                    textAlign: "center",
-                    marginBottom: "10px",
-                  }}>
-                  Find all{" "}
-                  <Typography
-                    component="span"
-                    color="green"
-                    fontWeight="bold"
-                    sx={{ fontSize: "1.25rem", textTransform: "uppercase" }}>
-                    green
-                  </Typography>{" "}
-                  cells
-                </h6>
-                <p
-                  style={{
-                    marginBottom: "5px",
-                    textAlign: "center",
-                  }}>
-                  Difficulty: <strong>{difficulty}</strong>
-                </p>
-                <div>
-                  <input
-                    type="range"
-                    min={2}
-                    max={15}
-                    style={{
-                      width: "100%",
-                    }}
-                    disabled={gameState !== "START"}
-                    value={difficulty}
-                    onChange={(e) => {
-                      setGameState("START");
-                      setDifficulty(parseInt(e.target.value));
-                    }}
-                  />
-                  <div
-                    style={{
-                      display: "flex",
-
-                      gap: "5px",
-                    }}>
-                    <button
-                      className="icon-btn"
-                      onClick={() => {
-                        setDifficulty((d) => Math.max(2, d - 1));
-                      }}>
-                      <FontAwesomeIcon icon={faSubtract} />
-                    </button>
-                    <button
-                      className="icon-btn"
-                      onClick={() => {
-                        setDifficulty((d) => Math.min(15, d + 1));
-                      }}>
-                      <FontAwesomeIcon icon={faAdd} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <button
-                style={{
-                  opacity: 0,
-                  transform: "translateY(50px)",
-                  animation: "slideUp .5s 0.1s ease forwards",
-                }}
-                disabled={gameState !== "START"}
-                onClick={handleStartGame}
-                className="btn">
-                Play
-              </button>
-
-              <div
-                style={{
-                  textAlign: "center",
-                  marginTop: "10px",
-                  opacity: 0,
-                  animation: "slideUp .666s 0.5s ease forwards",
-                }}>
-                <small
-                  style={{ cursor: "pointer" }}
-                  onClick={() => {
-                    window.open("https://db.rocks", "_blank");
-                  }}>
-                  Made with{" "}
-                  <FontAwesomeIcon
-                    icon={faHeart}
-                    bounce
-                    style={{
-                      color: "red",
-                      fontSize: "1rem",
-                    }}
-                  />{" "}
-                  by{" "}
-                  <a
-                    href="https://db.rocks"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="link"
-                    style={{
-                      fontSize: ".9rem",
-                      fontWeight: "bold",
-                    }}>
-                    Dani
-                  </a>
-                </small>
-              </div>
-            </div>
-          )}
-        </div>
-        {(gameState === "ACTIVE" || gameState === "SHOWING") && (
-          <div
-            className="alert alert-info"
-            style={{ marginTop: "10px", textAlign: "center" }}>
-            <p>
-              Found:{" "}
-              <strong>
-                {correctCells.size} / {difficulty}
-              </strong>
-            </p>
-            <p style={{ marginTop: "5px" }}>
-              <strong>{incorrectCells.size}</strong>{" "}
-              {incorrectCells.size === 1 ? "mistake" : "mistakes"}
-            </p>
-            <button
-              onClick={() => setGameState("START")}
-              className="btn btn-sm mt-4">
-              Restart
-            </button>
-          </div>
-        )}
-      </div>
-    );
+  const DIFFICULTY_LABELS: Record<number, string> = {
+    2: "Tiny", 3: "Easy", 4: "Easy", 5: "Medium",
+    6: "Medium", 7: "Hard", 8: "Hard", 9: "Expert", 10: "Expert",
   };
+  const diffLabel = DIFFICULTY_LABELS[difficulty] ?? (difficulty >= 11 ? "Insane" : "Easy");
 
-  const renderGameStatus = () => {
-    if (gameState !== "ENDED") {
-      return null;
-    }
-    return (
-      <div
-        style={{
-          textAlign: "center",
-          marginTop: "10px",
-          marginBottom: "10px",
-          position: "fixed",
-          width: "100%",
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -100%)",
-          zIndex: 1000,
-        }}>
-        <p
-          className="alert alert-info mb-4"
-          style={{
-            boxShadow: "0 2px 10px rgba(0,0,0,.8)",
-            animation: "slideUp 0.333s ease-out",
-          }}>
-          You got all the correct cells and made {incorrectCells.size}{" "}
-          {incorrectCells.size === 1 ? "mistake" : "mistakes"}.
-          <br />
-          <button
-            style={{ marginTop: "5px", width: "100%" }}
-            onClick={() => {
-              setGameState("START");
-            }}
-            className="btn">
-            Play Again
-          </button>
-        </p>
-      </div>
-    );
-  };
+  const diffColor =
+    difficulty <= 4 ? "#22c55e" : difficulty <= 6 ? "#f59e0b" : difficulty <= 8 ? "#ef4444" : "#a855f7";
+
+  const endIcon = incorrectCells.size === 0 ? faTrophy : accuracy >= 80 ? faMedal : faBrain;
+  const endTitle =
+    incorrectCells.size === 0 ? "Perfect!" : accuracy >= 80 ? "Well done!" : "Nice try!";
+  const endSubtitle =
+    incorrectCells.size === 0
+      ? "Flawless memory!"
+      : accuracy >= 80
+      ? `${accuracy}% accuracy — great job!`
+      : `${accuracy}% accuracy — keep practising!`;
+
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        flexDirection: "column",
-        minHeight: "80vh",
-        position: "relative",
-      }}>
-      {renderGameStatus()}
+    <Box sx={{ minHeight: "calc(100dvh - 64px)" }}>
 
-      {renderGameBoard()}
-      {(gameState === "ENDED" ||
-        gameState === "START" ||
-        gameState === "INTRO") && (
-        <div
-          style={{
-            height: "100vh",
-            width: "100vw",
-            position: "fixed",
-            top: 0,
-            left: 0,
-            backgroundColor: "rgba(0,0,0,0.25)",
-            animation: "fadeIn 0.3s ease forwards",
-            zIndex: 999,
-          }}></div>
+      {/* ── Start screen ── */}
+      {gameState === "START" && (
+        <Container maxWidth="xs" sx={{ textAlign: "center", pt: 6, pb: 4 }}>
+          <Box sx={{ fontSize: "4rem", mb: 1, color: "#6366f1" }}>
+            <FontAwesomeIcon icon={faBrain} />
+          </Box>
+          <Typography variant="h3" sx={{ fontWeight: 900, mb: 1 }}>
+            Memory Game
+          </Typography>
+          <Typography variant="body1" sx={{ mb: 4, opacity: 0.6 }}>
+            Watch the grid, remember the glowing cells, then find them all!
+          </Typography>
+
+          <Box
+            sx={{
+              background: "rgba(99,102,241,0.08)",
+              border: "1.5px solid rgba(99,102,241,0.2)",
+              borderRadius: 4,
+              p: 3,
+              mb: 4,
+            }}>
+            <Typography variant="overline" sx={{ opacity: 0.55, letterSpacing: 2 }}>
+              Difficulty
+            </Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 2, mt: 1, mb: 2, justifyContent: "center" }}>
+              <button className="icon-btn" onClick={() => setDifficulty((d) => Math.max(2, d - 1))}>
+                −
+              </button>
+              <Box sx={{ textAlign: "center", minWidth: 80 }}>
+                <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1 }}>
+                  {difficulty}×{difficulty}
+                </Typography>
+                <Typography variant="caption" sx={{ color: diffColor, fontWeight: 700, letterSpacing: 1 }}>
+                  {diffLabel}
+                </Typography>
+              </Box>
+              <button className="icon-btn" onClick={() => setDifficulty((d) => Math.min(15, d + 1))}>
+                +
+              </button>
+            </Box>
+            <input
+              type="range"
+              min={2}
+              max={15}
+              value={difficulty}
+              onChange={(e) => setDifficulty(parseInt(e.target.value))}
+              style={{ width: "100%" }}
+            />
+            <Typography variant="caption" sx={{ opacity: 0.45, display: "block", mt: 0.5 }}>
+              Find {difficulty} cells in a {difficulty}×{difficulty} grid
+            </Typography>
+          </Box>
+
+          <button className="btn" onClick={handleStartGame} style={{ fontSize: "1.2rem", padding: "14px 48px" }}>
+            Play!&nbsp;&nbsp;<FontAwesomeIcon icon={faBrain} />
+          </button>
+        </Container>
       )}
-    </div>
+
+      {/* ── Ended screen ── */}
+      {gameState === "ENDED" && (
+        <Container maxWidth="xs" sx={{ textAlign: "center", pt: 6, pb: 4 }}>
+          <Box sx={{
+            fontSize: "3.5rem",
+            mb: 2,
+            color: incorrectCells.size === 0 ? "#f59e0b" : accuracy >= 80 ? "#6366f1" : "#64748b",
+            animation: "bounceIn 0.5s ease",
+          }}>
+            <FontAwesomeIcon icon={endIcon} />
+          </Box>
+          <Typography variant="h3" sx={{ fontWeight: 900, mb: 1 }}>
+            {endTitle}
+          </Typography>
+          <Typography variant="h5" sx={{ mb: 1, opacity: 0.7 }}>
+            Found all <strong>{difficulty}</strong> cells
+          </Typography>
+          <Box sx={{ display: "flex", justifyContent: "center", gap: 0.75, mb: 1 }}>
+            {Array.from({ length: difficulty }, (_, i) => (
+              <FontAwesomeIcon
+                key={i}
+                icon={faStar}
+                style={{
+                  color: i < correctCells.size ? "#f59e0b" : "#e2e8f0",
+                  fontSize: "1rem",
+                  transition: "color 0.2s",
+                }}
+              />
+            ))}
+          </Box>
+          <Typography variant="body2" sx={{ mb: 4, opacity: 0.5 }}>
+            {endSubtitle}
+          </Typography>
+          <Box sx={{ display: "flex", gap: 2, justifyContent: "center", flexWrap: "wrap" }}>
+            <button className="btn" onClick={handleStartGame} style={{ fontSize: "1rem", padding: "12px 32px" }}>
+              Play Again
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setDifficulty((d) => Math.min(15, d + 1));
+                setTimeout(handleStartGame, 0);
+              }}
+              style={{ fontSize: "1rem", padding: "12px 32px", background: "linear-gradient(135deg, #a855f7, #6366f1)" }}>
+              Level Up&nbsp;&nbsp;<FontAwesomeIcon icon={faArrowUp} />
+            </button>
+          </Box>
+        </Container>
+      )}
+
+      {/* ── Active / Showing / Intro ── */}
+      {(gameState === "ACTIVE" || gameState === "SHOWING" || gameState === "INTRO") && (
+        <Box>
+          {/* HUD */}
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              px: 3,
+              py: 1.5,
+              position: "sticky",
+              top: 0,
+              zIndex: 10,
+              bgcolor: "background.paper",
+              borderBottom: "1px solid",
+              borderColor: "divider",
+            }}>
+            <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "1rem", display: "flex", alignItems: "center", gap: 1 }}>
+              <FontAwesomeIcon icon={faStar} style={{ color: "#f59e0b" }} />
+              {correctCells.size} / {difficulty}
+            </Typography>
+
+            {gameState === "SHOWING" && (
+              <Box sx={{
+                px: 2, py: 0.5, borderRadius: 99,
+                background: "linear-gradient(135deg,#6366f1,#a855f7)",
+                color: "white", fontWeight: 700, fontSize: "0.85rem",
+                display: "flex", alignItems: "center", gap: 1,
+                animation: "fadeIn 0.3s ease",
+              }}>
+                <FontAwesomeIcon icon={faEye} />
+                Remember these!
+              </Box>
+            )}
+            {gameState === "INTRO" && (
+              <Box sx={{
+                px: 2, py: 0.5, borderRadius: 99,
+                background: "rgba(99,102,241,0.15)",
+                fontWeight: 700, fontSize: "0.85rem",
+                display: "flex", alignItems: "center", gap: 1,
+              }}>
+                <FontAwesomeIcon icon={faBolt} />
+                Get ready…
+              </Box>
+            )}
+
+            <Typography sx={{
+              fontWeight: 700, fontSize: "0.95rem",
+              opacity: incorrectCells.size > 0 ? 1 : 0.3,
+              display: "flex", alignItems: "center", gap: 1,
+              color: incorrectCells.size > 0 ? "#ef4444" : "inherit",
+            }}>
+              <FontAwesomeIcon icon={faXmark} />
+              {incorrectCells.size}
+            </Typography>
+          </Box>
+
+          {/* Grid */}
+          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", pt: 2, pb: 3, px: 2 }}>
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${difficulty}, 1fr)`,
+                gap: `${Math.max(6 - Math.floor(difficulty / 4), 2)}px`,
+                width: "min(90vw, 70vh)",
+              }}>
+              {Array.from({ length: difficulty * difficulty }, (_, index) => {
+                const isCorrect = correctCells.has(index);
+                const isIncorrect = incorrectCells.has(index);
+                const isShowing = gameState === "SHOWING" && selectedCells.has(index);
+                const isClickable = gameState === "ACTIVE" && !isCorrect && !isIncorrect;
+
+                const cardClass = [
+                  "memory-card",
+                  isShowing ? "memory-card--showing" : "",
+                  isCorrect ? "memory-card--correct" : "",
+                  isIncorrect ? "memory-card--incorrect" : "",
+                  isClickable ? "memory-card--clickable" : "",
+                ].filter(Boolean).join(" ");
+
+                return (
+                  <div key={index} className={cardClass} onClick={() => handleClickCell(index)}
+                    style={{ paddingBottom: "100%", position: "relative" }}>
+                    <div className="memory-card__face memory-card__back">
+                      {(isShowing || isCorrect) && <FontAwesomeIcon icon={faCheck} />}
+                      {isIncorrect && <FontAwesomeIcon icon={faXmark} />}
+                    </div>
+                    <div className="memory-card__face memory-card__front">
+                      <FontAwesomeIcon icon={faQuestion} />
+                    </div>
+                  </div>
+                );
+              })}
+            </Box>
+
+            {gameState === "ACTIVE" && (
+              <Box sx={{ mt: 3, textAlign: "center" }}>
+                <button onClick={() => setGameState("START")} className="btn btn-sm"
+                  style={{ opacity: 0.6, fontSize: "0.8rem", padding: "6px 20px" }}>
+                  Restart
+                </button>
+              </Box>
+            )}
+          </Box>
+        </Box>
+      )}
+    </Box>
   );
 }

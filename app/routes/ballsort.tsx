@@ -84,7 +84,7 @@ function solvePuzzle(
 ): number | null {
   if (isSolved(initialTubes, tubeCapacity)) return 0;
 
-  const MAX_VISITED = 300_000;
+  const MAX_VISITED = 50_000;
 
   function serialize(tubes: Tube[]): string {
     return tubes
@@ -608,38 +608,89 @@ function WinScreen({
   onPlayAgain: () => void;
   onNewGame: () => void;
 }) {
+  const isPerfect = optimalMoves != null && moveCount === optimalMoves;
   return (
-    <Container maxWidth="sm" sx={{ textAlign: "center" }}>
-      <div className="cooking-celebration">
-        <div className="cooking-stars">
-          <FontAwesomeIcon icon={faTrophy} style={{ color: "#FFD700" }} />{" "}
-          <FontAwesomeIcon icon={faStar} style={{ color: "#FFD700" }} />{" "}
-          <FontAwesomeIcon icon={faTrophy} style={{ color: "#FFD700" }} />
+    <Container
+      maxWidth="sm"
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "70vh",
+        textAlign: "center",
+      }}>
+      <div className="ballsort-win">
+        <div className="ballsort-win-confetti" aria-hidden>
+          <span
+            className="ballsort-confetti-piece"
+            style={{ "--ci": 0 } as React.CSSProperties}
+          />
+          <span
+            className="ballsort-confetti-piece"
+            style={{ "--ci": 1 } as React.CSSProperties}
+          />
+          <span
+            className="ballsort-confetti-piece"
+            style={{ "--ci": 2 } as React.CSSProperties}
+          />
+          <span
+            className="ballsort-confetti-piece"
+            style={{ "--ci": 3 } as React.CSSProperties}
+          />
+          <span
+            className="ballsort-confetti-piece"
+            style={{ "--ci": 4 } as React.CSSProperties}
+          />
+          <span
+            className="ballsort-confetti-piece"
+            style={{ "--ci": 5 } as React.CSSProperties}
+          />
+          <span
+            className="ballsort-confetti-piece"
+            style={{ "--ci": 6 } as React.CSSProperties}
+          />
+          <span
+            className="ballsort-confetti-piece"
+            style={{ "--ci": 7 } as React.CSSProperties}
+          />
         </div>
-        <Typography variant="h4" sx={{ mb: 1, fontWeight: 700 }}>
-          You solved it!
+        <div className="ballsort-win-trophy">
+          <FontAwesomeIcon icon={faTrophy} />
+        </div>
+        <Typography variant="h3" sx={{ fontWeight: 800, mb: 1 }}>
+          {isPerfect ? "Perfect!" : "You solved it!"}
         </Typography>
-        <Typography variant="h6" sx={{ mb: 1, opacity: 0.7 }}>
-          in {moveCount} moves
+        <div className="ballsort-win-stars">
+          <FontAwesomeIcon
+            icon={faStar}
+            className={isPerfect ? "ballsort-star-lit" : "ballsort-star-dim"}
+          />
+          <FontAwesomeIcon icon={faStar} className="ballsort-star-lit" />
+          <FontAwesomeIcon
+            icon={faStar}
+            className={isPerfect ? "ballsort-star-lit" : "ballsort-star-dim"}
+          />
+        </div>
+        <Typography variant="h5" sx={{ opacity: 0.75, mb: 0.5 }}>
+          {moveCount} moves
         </Typography>
-        {optimalMoves != null && (
-          <Typography variant="body1" sx={{ mb: 2, opacity: 0.6 }}>
-            {moveCount === optimalMoves ? (
-              <>
-                <FontAwesomeIcon icon={faStar} style={{ color: "#FFD700" }} />{" "}
-                Perfect score!
-              </>
-            ) : (
-              `Best possible: ${optimalMoves} moves`
-            )}
+        {optimalMoves != null && !isPerfect && (
+          <Typography variant="body2" sx={{ opacity: 0.5, mb: 2 }}>
+            Best possible: {optimalMoves} moves
           </Typography>
         )}
-        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-          <button className="btn" onClick={onPlayAgain}>
-            <FontAwesomeIcon icon={faRepeat} /> Play Again!
+        <div
+          style={{
+            display: "flex",
+            gap: 14,
+            justifyContent: "center",
+            marginTop: 20,
+          }}>
+          <button className="btn ballsort-win-btn" onClick={onPlayAgain}>
+            <FontAwesomeIcon icon={faRepeat} /> Play Again
           </button>
-          <button className="btn" onClick={onNewGame}>
-            <FontAwesomeIcon icon={faFlask} /> New Puzzle!
+          <button className="btn ballsort-win-btn" onClick={onNewGame}>
+            <FontAwesomeIcon icon={faFlask} /> New Puzzle
           </button>
         </div>
       </div>
@@ -703,9 +754,8 @@ export default function BallSort() {
 
   const handleStart = useCallback(() => {
     const puzzle = generatePuzzle(numColors, extraTubes, tubeCapacity);
-    const optimal = solvePuzzle(puzzle, tubeCapacity);
     setInitialTubes(puzzle);
-    setOptimalMoves(optimal);
+    setOptimalMoves(null);
     setMoveCount(0);
     setSavedGameState(undefined);
     setGameState("ACTIVE");
@@ -713,9 +763,21 @@ export default function BallSort() {
       numColors,
       extraTubes,
       initialTubes: puzzle,
-      optimalMoves: optimal,
+      optimalMoves: null,
       gameState: "ACTIVE",
     });
+    // Solve in background so it doesn't block the UI
+    setTimeout(() => {
+      const optimal = solvePuzzle(puzzle, tubeCapacity);
+      setOptimalMoves(optimal);
+      setStoredData(STORAGE_KEY, {
+        numColors,
+        extraTubes,
+        initialTubes: puzzle,
+        optimalMoves: optimal,
+        gameState: "ACTIVE",
+      });
+    }, 50);
   }, [numColors, extraTubes, tubeCapacity]);
 
   const handleSave = useCallback(

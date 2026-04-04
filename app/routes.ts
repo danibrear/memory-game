@@ -6,6 +6,8 @@ export default [
   route("/color", "routes/color.tsx"),
   route("/match", "routes/match.tsx"),
   route("/ballsort", "routes/ballsort.tsx"),
+  route("/bubblepop", "routes/bubblepop.tsx"),
   route("/quadra", "routes/quadra.tsx"),
+  route("/towerdefense", "routes/towerdefense.tsx"),
   route("/e", "routes/el.tsx"),
 ] satisfies RouteConfig;
