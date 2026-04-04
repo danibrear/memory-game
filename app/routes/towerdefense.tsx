@@ -17,13 +17,35 @@ const ENTRY: [number, number] = [5, 0];
 const EXIT: [number, number] = [5, 19];
 const MAX_LIVES = 20;
 const START_GOLD = 150;
-const TOTAL_WAVES = 10;
+const TOTAL_WAVES = 20;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type EnemyType = "normal" | "fast" | "tank" | "swarm" | "boss" | "healer" | "armored";
 type TowerType = "basic" | "sniper" | "splash";
 type Tool = TowerType | "sell";
 type Phase = "build" | "wave" | "gameover" | "win";
+
+interface EnemyTypeDef {
+  emoji: string;
+  color: string;
+  hpMult: number;
+  speedMult: number;
+  rewardMult: number;
+  armor: number;
+  regen: number; // fraction of maxHp per second
+  sizeMult: number;
+}
+
+const ENEMY_TYPES: Record<EnemyType, EnemyTypeDef> = {
+  normal:  { emoji: "👾", color: "#4ade80", hpMult: 1,   speedMult: 1,   rewardMult: 1,   armor: 0,  regen: 0,    sizeMult: 1   },
+  fast:    { emoji: "⚡", color: "#38bdf8", hpMult: 0.5, speedMult: 1.8, rewardMult: 0.8, armor: 0,  regen: 0,    sizeMult: 0.8 },
+  tank:    { emoji: "🛡️", color: "#a78bfa", hpMult: 3,   speedMult: 0.6, rewardMult: 2,   armor: 0,  regen: 0,    sizeMult: 1.2 },
+  swarm:   { emoji: "🐜", color: "#fb923c", hpMult: 0.3, speedMult: 1.5, rewardMult: 0.4, armor: 0,  regen: 0,    sizeMult: 0.7 },
+  boss:    { emoji: "👹", color: "#f43f5e", hpMult: 8,   speedMult: 0.5, rewardMult: 5,   armor: 15, regen: 0,    sizeMult: 1.4 },
+  healer:  { emoji: "💚", color: "#34d399", hpMult: 1.5, speedMult: 0.9, rewardMult: 1.5, armor: 0,  regen: 0.03, sizeMult: 1   },
+  armored: { emoji: "🔩", color: "#94a3b8", hpMult: 1.5, speedMult: 0.8, rewardMult: 1.5, armor: 20, regen: 0,    sizeMult: 1   },
+};
 
 interface TowerDef {
   label: string;
@@ -43,34 +65,132 @@ const DEFS: Record<TowerType, TowerDef> = {
   splash: { label: "Splash", emoji: "💣", color: "#ef4444", cost: 75,  upgCost: 60,  dmg: 20,  range: 2.5, rate: 2.0, splash: true  },
 };
 
-interface WaveDef {
+interface WaveGroup {
+  type: EnemyType;
   count: number;
-  hp: number;
-  speed: number; // path nodes/sec
-  reward: number;
-  interval: number; // sec between spawns
+  interval: number; // sec between spawns within this group
+}
+
+interface WaveDef {
+  groups: WaveGroup[];
+  baseHp: number;
+  baseSpeed: number;
+  baseReward: number;
+}
+
+interface SpawnEntry {
+  type: EnemyType;
+  delay: number; // seconds before spawning this enemy
 }
 
 const WAVES: WaveDef[] = [
-  { count: 6,  hp: 60,   speed: 2.0, reward: 8,  interval: 1.2  },
-  { count: 8,  hp: 90,   speed: 2.2, reward: 10, interval: 1.0  },
-  { count: 10, hp: 130,  speed: 2.5, reward: 12, interval: 0.9  },
-  { count: 12, hp: 190,  speed: 2.7, reward: 14, interval: 0.8  },
-  { count: 14, hp: 270,  speed: 3.0, reward: 15, interval: 0.75 },
-  { count: 15, hp: 380,  speed: 3.2, reward: 18, interval: 0.65 },
-  { count: 18, hp: 530,  speed: 3.4, reward: 20, interval: 0.6  },
-  { count: 20, hp: 750,  speed: 3.6, reward: 25, interval: 0.55 },
-  { count: 22, hp: 1050, speed: 3.8, reward: 30, interval: 0.5  },
-  { count: 25, hp: 1500, speed: 4.0, reward: 40, interval: 0.45 },
+  // 1 – Intro
+  { groups: [{ type: "normal", count: 6, interval: 1.2 }], baseHp: 60, baseSpeed: 2.0, baseReward: 8 },
+  // 2 – More normals
+  { groups: [{ type: "normal", count: 8, interval: 1.0 }], baseHp: 80, baseSpeed: 2.1, baseReward: 9 },
+  // 3 – Introduce fast
+  { groups: [
+    { type: "normal", count: 5, interval: 1.0 },
+    { type: "fast", count: 4, interval: 0.7 },
+  ], baseHp: 100, baseSpeed: 2.2, baseReward: 10 },
+  // 4 – Fast rush
+  { groups: [{ type: "fast", count: 8, interval: 0.6 }], baseHp: 90, baseSpeed: 2.3, baseReward: 10 },
+  // 5 – Introduce tanks
+  { groups: [
+    { type: "normal", count: 5, interval: 1.0 },
+    { type: "tank", count: 2, interval: 2.0 },
+  ], baseHp: 120, baseSpeed: 2.3, baseReward: 12 },
+  // 6 – Introduce swarm
+  { groups: [{ type: "swarm", count: 15, interval: 0.4 }], baseHp: 130, baseSpeed: 2.4, baseReward: 10 },
+  // 7 – Swarm + fast
+  { groups: [
+    { type: "swarm", count: 10, interval: 0.4 },
+    { type: "fast", count: 5, interval: 0.6 },
+  ], baseHp: 150, baseSpeed: 2.5, baseReward: 11 },
+  // 8 – Introduce armored
+  { groups: [
+    { type: "armored", count: 5, interval: 1.2 },
+    { type: "normal", count: 5, interval: 0.9 },
+  ], baseHp: 180, baseSpeed: 2.5, baseReward: 13 },
+  // 9 – Fast + armored
+  { groups: [
+    { type: "fast", count: 6, interval: 0.6 },
+    { type: "armored", count: 4, interval: 1.0 },
+  ], baseHp: 210, baseSpeed: 2.6, baseReward: 14 },
+  // 10 – First boss!
+  { groups: [
+    { type: "normal", count: 8, interval: 0.8 },
+    { type: "boss", count: 1, interval: 2.0 },
+  ], baseHp: 250, baseSpeed: 2.6, baseReward: 15 },
+  // 11 – Introduce healer
+  { groups: [
+    { type: "healer", count: 4, interval: 1.0 },
+    { type: "normal", count: 8, interval: 0.8 },
+  ], baseHp: 300, baseSpeed: 2.7, baseReward: 16 },
+  // 12 – Tank parade
+  { groups: [
+    { type: "tank", count: 5, interval: 1.5 },
+    { type: "healer", count: 3, interval: 1.0 },
+  ], baseHp: 350, baseSpeed: 2.7, baseReward: 18 },
+  // 13 – Big swarm
+  { groups: [
+    { type: "swarm", count: 20, interval: 0.3 },
+    { type: "fast", count: 6, interval: 0.5 },
+  ], baseHp: 380, baseSpeed: 2.8, baseReward: 15 },
+  // 14 – Armored + tank
+  { groups: [
+    { type: "armored", count: 8, interval: 1.0 },
+    { type: "tank", count: 4, interval: 1.5 },
+  ], baseHp: 420, baseSpeed: 2.8, baseReward: 20 },
+  // 15 – Boss + escort
+  { groups: [
+    { type: "armored", count: 6, interval: 0.8 },
+    { type: "boss", count: 1, interval: 2.0 },
+    { type: "healer", count: 4, interval: 0.8 },
+  ], baseHp: 480, baseSpeed: 2.9, baseReward: 22 },
+  // 16 – Mixed assault
+  { groups: [
+    { type: "fast", count: 6, interval: 0.5 },
+    { type: "normal", count: 6, interval: 0.7 },
+    { type: "armored", count: 4, interval: 1.0 },
+  ], baseHp: 550, baseSpeed: 3.0, baseReward: 22 },
+  // 17 – Healer heavy
+  { groups: [
+    { type: "healer", count: 6, interval: 0.8 },
+    { type: "tank", count: 4, interval: 1.2 },
+    { type: "healer", count: 4, interval: 0.8 },
+  ], baseHp: 620, baseSpeed: 3.0, baseReward: 25 },
+  // 18 – Swarm flood
+  { groups: [
+    { type: "swarm", count: 25, interval: 0.25 },
+    { type: "fast", count: 8, interval: 0.4 },
+  ], baseHp: 700, baseSpeed: 3.1, baseReward: 20 },
+  // 19 – Hard mixed
+  { groups: [
+    { type: "tank", count: 4, interval: 1.2 },
+    { type: "armored", count: 6, interval: 0.8 },
+    { type: "healer", count: 4, interval: 0.8 },
+    { type: "fast", count: 8, interval: 0.4 },
+  ], baseHp: 800, baseSpeed: 3.2, baseReward: 28 },
+  // 20 – Final boss rush
+  { groups: [
+    { type: "armored", count: 8, interval: 0.6 },
+    { type: "boss", count: 2, interval: 3.0 },
+    { type: "healer", count: 6, interval: 0.6 },
+    { type: "tank", count: 4, interval: 1.0 },
+  ], baseHp: 1000, baseSpeed: 3.3, baseReward: 35 },
 ];
 
 interface Enemy {
   id: number;
+  type: EnemyType;
   progress: number; // float index along path
   hp: number;
   maxHp: number;
   speed: number;
   reward: number;
+  armor: number;
+  regen: number; // fraction of maxHp per second
 }
 
 interface Tower {
@@ -91,7 +211,7 @@ interface GState {
   gold: number;
   lives: number;
   wave: number;
-  spawnLeft: number;
+  spawnQueue: SpawnEntry[];
   spawnTimer: number;
   nextEId: number;
   nextTId: number;
@@ -128,6 +248,22 @@ function enemyXY(enemy: Enemy, path: [number, number][]): [number, number] {
   return [r0 + (r1 - r0) * f, c0 + (c1 - c0) * f];
 }
 
+function buildSpawnQueue(wave: WaveDef): SpawnEntry[] {
+  const queue: SpawnEntry[] = [];
+  for (let gi = 0; gi < wave.groups.length; gi++) {
+    const group = wave.groups[gi];
+    for (let i = 0; i < group.count; i++) {
+      const isFirst = queue.length === 0;
+      const isGroupStart = i === 0 && gi > 0;
+      queue.push({
+        type: group.type,
+        delay: isFirst ? 0 : isGroupStart ? group.interval + 0.5 : group.interval,
+      });
+    }
+  }
+  return queue;
+}
+
 function initState(): GState {
   const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(false) as boolean[]);
   return {
@@ -135,7 +271,7 @@ function initState(): GState {
     towers: [], enemies: [],
     path: findPath(grid),
     gold: START_GOLD, lives: MAX_LIVES,
-    wave: 0, spawnLeft: 0, spawnTimer: 0,
+    wave: 0, spawnQueue: [], spawnTimer: 0,
     nextEId: 0, nextTId: 0,
   };
 }
@@ -143,17 +279,33 @@ function initState(): GState {
 function tickGame(g: GState, dt: number) {
   const wave = WAVES[g.wave];
 
-  // Spawn
-  if (g.spawnLeft > 0) {
+  // Spawn from queue
+  if (g.spawnQueue.length > 0) {
     g.spawnTimer -= dt;
     if (g.spawnTimer <= 0) {
+      const entry = g.spawnQueue.shift()!;
+      const typeDef = ENEMY_TYPES[entry.type];
       g.enemies.push({
-        id: g.nextEId++, progress: 0,
-        hp: wave.hp, maxHp: wave.hp,
-        speed: wave.speed, reward: wave.reward,
+        id: g.nextEId++,
+        type: entry.type,
+        progress: 0,
+        hp: Math.round(wave.baseHp * typeDef.hpMult),
+        maxHp: Math.round(wave.baseHp * typeDef.hpMult),
+        speed: wave.baseSpeed * typeDef.speedMult,
+        reward: Math.round(wave.baseReward * typeDef.rewardMult),
+        armor: typeDef.armor,
+        regen: typeDef.regen,
       });
-      g.spawnLeft--;
-      g.spawnTimer = wave.interval;
+      if (g.spawnQueue.length > 0) {
+        g.spawnTimer = g.spawnQueue[0].delay;
+      }
+    }
+  }
+
+  // Regen
+  for (const e of g.enemies) {
+    if (e.regen > 0) {
+      e.hp = Math.min(e.maxHp, e.hp + e.regen * e.maxHp * dt);
     }
   }
 
@@ -198,10 +350,12 @@ function tickGame(g: GState, dt: number) {
     if (def.splash) {
       for (const e of g.enemies) {
         const [er, ec] = enemyXY(e, g.path);
-        if (Math.hypot(ec - tower.col, er - tower.row) <= range) e.hp -= dmg;
+        if (Math.hypot(ec - tower.col, er - tower.row) <= range) {
+          e.hp -= Math.max(1, dmg - e.armor);
+        }
       }
     } else {
-      target.hp -= dmg;
+      target.hp -= Math.max(1, dmg - target.armor);
     }
 
     // Collect kills
@@ -211,7 +365,7 @@ function tickGame(g: GState, dt: number) {
   }
 
   // Wave complete?
-  if (g.spawnLeft === 0 && g.enemies.length === 0) {
+  if (g.spawnQueue.length === 0 && g.enemies.length === 0) {
     if (g.wave >= TOTAL_WAVES - 1) {
       g.phase = "win";
     } else {
@@ -307,8 +461,8 @@ export default function TowerDefense() {
     const g = gRef.current;
     if (g.phase !== "build" || !g.path) return;
     g.phase = "wave";
-    g.spawnLeft = WAVES[g.wave].count;
-    g.spawnTimer = 0;
+    g.spawnQueue = buildSpawnQueue(WAVES[g.wave]);
+    g.spawnTimer = g.spawnQueue.length > 0 ? g.spawnQueue[0].delay : 0;
     setTick(n => n + 1);
   };
 
@@ -340,6 +494,13 @@ export default function TowerDefense() {
         <Typography variant="h6" sx={{ fontWeight: 500, opacity: 0.7 }}>
           Wave {g.wave + 1} / {TOTAL_WAVES}
         </Typography>
+        {g.phase === "build" && (
+          <Typography variant="body2" sx={{ opacity: 0.6 }}>
+            {WAVES[g.wave].groups.map((gr, i) => (
+              <span key={i}>{i > 0 ? " + " : ""}{ENEMY_TYPES[gr.type].emoji}×{gr.count}</span>
+            ))}
+          </Typography>
+        )}
         <Box sx={{ flex: 1 }} />
         {g.phase === "build" && g.path && (
           <button className="btn" onClick={startWave}>
@@ -353,7 +514,7 @@ export default function TowerDefense() {
         )}
         {g.phase === "wave" && (
           <Typography variant="body2" sx={{ opacity: 0.6 }}>
-            👾 {g.enemies.length} active · {g.spawnLeft} incoming
+            👾 {g.enemies.length} active · {g.spawnQueue.length} incoming
           </Typography>
         )}
       </Box>
@@ -429,7 +590,8 @@ export default function TowerDefense() {
           {g.path && g.enemies.map(enemy => {
             const [er, ec] = enemyXY(enemy, g.path!);
             const hpPct = Math.max(0, enemy.hp / enemy.maxHp);
-            const eSize = cs * 0.68;
+            const typeDef = ENEMY_TYPES[enemy.type];
+            const eSize = cs * 0.68 * typeDef.sizeMult;
             return (
               <Box
                 key={enemy.id}
@@ -439,14 +601,17 @@ export default function TowerDefense() {
                   top:  er * cs + cs / 2 - eSize / 2,
                   width: eSize, height: eSize,
                   borderRadius: "50%",
-                  bgcolor: hpPct > 0.6 ? "#4ade80" : hpPct > 0.3 ? "#facc15" : "#f87171",
-                  border: "2px solid rgba(0,0,0,0.25)",
+                  bgcolor: typeDef.color,
+                  border: enemy.type === "boss" ? "3px solid #b91c1c"
+                    : enemy.type === "armored" ? "2px solid #64748b"
+                    : "2px solid rgba(0,0,0,0.25)",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontSize: eSize * 0.5,
                   pointerEvents: "none",
                   zIndex: 5,
+                  opacity: hpPct > 0.3 ? 1 : 0.7,
                 }}>
-                👾
+                {typeDef.emoji}
                 <Box sx={{
                   position: "absolute", bottom: -3, left: 0, right: 0,
                   height: 3, bgcolor: "rgba(0,0,0,0.2)", borderRadius: 1, overflow: "hidden",
