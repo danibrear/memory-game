@@ -417,6 +417,45 @@ interface GState {
   nextTId: number;
 }
 
+interface ShotHit {
+  row: number;
+  col: number;
+  dmg: number;
+}
+
+interface ShotEvent {
+  fromRow: number;
+  fromCol: number;
+  toRow: number;
+  toCol: number;
+  type: TowerType;
+  splash: boolean;
+  hits: ShotHit[];
+}
+
+interface VisProjectile {
+  id: number;
+  fromRow: number;
+  fromCol: number;
+  toRow: number;
+  toCol: number;
+  type: TowerType;
+  splash: boolean;
+  born: number;
+  duration: number;
+}
+
+interface VisDamageNum {
+  id: number;
+  row: number;
+  col: number;
+  dmg: number;
+  born: number;
+  color: string;
+}
+
+let visId = 0;
+
 // ─── Pure helpers (defined outside component) ─────────────────────────────────
 
 function findPath(grid: boolean[][]): [number, number][] | null {
@@ -500,7 +539,7 @@ function initState(): GState {
   };
 }
 
-function tickGame(g: GState, dt: number) {
+function tickGame(g: GState, dt: number, shots: ShotEvent[]) {
   const wave = WAVES[g.wave];
 
   // Spawn from queue
@@ -575,16 +614,33 @@ function tickGame(g: GState, dt: number) {
 
     tower.cooldown = 1 / (def.rate * lm);
 
+    const [ter, tec] = enemyXY(target, g.path);
+    const shotHits: ShotHit[] = [];
+
     if (def.splash) {
       for (const e of g.enemies) {
         const [er, ec] = enemyXY(e, g.path);
         if (Math.hypot(ec - tower.col, er - tower.row) <= range) {
-          e.hp -= Math.max(1, dmg - e.armor);
+          const d = Math.max(1, dmg - e.armor);
+          e.hp -= d;
+          shotHits.push({ row: er, col: ec, dmg: d });
         }
       }
     } else {
-      target.hp -= Math.max(1, dmg - target.armor);
+      const d = Math.max(1, dmg - target.armor);
+      target.hp -= d;
+      shotHits.push({ row: ter, col: tec, dmg: d });
     }
+
+    shots.push({
+      fromRow: tower.row,
+      fromCol: tower.col,
+      toRow: ter,
+      toCol: tec,
+      type: tower.type,
+      splash: def.splash,
+      hits: shotHits,
+    });
 
     // Collect kills
     const dead = g.enemies.filter((e) => e.hp <= 0);
@@ -614,6 +670,8 @@ export default function TowerDefense() {
   const lastT = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(40);
+  const projRef = useRef<VisProjectile[]>([]);
+  const dmgRef = useRef<VisDamageNum[]>([]);
 
   // Responsive cell size
   useEffect(() => {
@@ -632,7 +690,41 @@ export default function TowerDefense() {
       const dt = Math.min((t - lastT.current) / 1000, 0.1);
       lastT.current = t;
       if (gRef.current.phase === "wave") {
-        tickGame(gRef.current, dt);
+        const shots: ShotEvent[] = [];
+        tickGame(gRef.current, dt, shots);
+
+        const now = performance.now();
+
+        // Convert shot events → visual projectiles + damage numbers
+        for (const s of shots) {
+          const duration = s.type === "sniper" ? 0.12 : s.type === "splash" ? 0.35 : 0.18;
+          projRef.current.push({
+            id: visId++,
+            fromRow: s.fromRow,
+            fromCol: s.fromCol,
+            toRow: s.toRow,
+            toCol: s.toCol,
+            type: s.type,
+            splash: s.splash,
+            born: now,
+            duration,
+          });
+          for (const h of s.hits) {
+            dmgRef.current.push({
+              id: visId++,
+              row: h.row,
+              col: h.col,
+              dmg: h.dmg,
+              born: now,
+              color: s.type === "sniper" ? "#a78bfa" : s.type === "splash" ? "#ef4444" : "#60a5fa",
+            });
+          }
+        }
+
+        // Expire old visuals
+        projRef.current = projRef.current.filter((p) => now - p.born < p.duration * 1000);
+        dmgRef.current = dmgRef.current.filter((d) => now - d.born < 900);
+
         setTick((n) => n + 1);
       }
       rafRef.current = requestAnimationFrame(loop);
@@ -871,6 +963,96 @@ export default function TowerDefense() {
               }),
             )}
           </Box>
+
+          {/* Projectile SVG overlay */}
+          <svg
+            style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 6, overflow: "visible" }}
+            width={gridW}
+            height={gridH}>
+            {projRef.current.map((p) => {
+              const now = performance.now();
+              const t = Math.min(1, (now - p.born) / (p.duration * 1000));
+              const x1 = (p.fromCol + 0.5) * cs;
+              const y1 = (p.fromRow + 0.5) * cs;
+              const x2 = (p.toCol + 0.5) * cs;
+              const y2 = (p.toRow + 0.5) * cs;
+
+              if (p.type === "sniper") {
+                // Laser beam: full line, fades out
+                return (
+                  <line
+                    key={p.id}
+                    x1={x1} y1={y1} x2={x2} y2={y2}
+                    stroke="#a78bfa"
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                    opacity={1 - t}
+                  />
+                );
+              }
+
+              if (p.type === "splash") {
+                // Arc bomb: circle travels along parabolic arc, then ring explosion
+                const bx = x1 + (x2 - x1) * t;
+                const by = y1 + (y2 - y1) * t - Math.sin(t * Math.PI) * cs * 1.2;
+                if (t < 0.85) {
+                  return (
+                    <g key={p.id}>
+                      <circle cx={bx} cy={by} r={cs * 0.18} fill="#ef4444" opacity={0.9} />
+                      <circle cx={bx} cy={by} r={cs * 0.10} fill="#fbbf24" opacity={0.95} />
+                    </g>
+                  );
+                }
+                // Impact ring
+                const boom = (t - 0.85) / 0.15;
+                return (
+                  <g key={p.id}>
+                    <circle cx={x2} cy={y2} r={cs * 0.8 * boom} fill="none" stroke="#ef4444" strokeWidth={3} opacity={1 - boom} />
+                    <circle cx={x2} cy={y2} r={cs * 0.4 * boom} fill="#fbbf24" opacity={(1 - boom) * 0.5} />
+                  </g>
+                );
+              }
+
+              // Basic: bullet dot travelling from tower to enemy
+              const bx = x1 + (x2 - x1) * t;
+              const by = y1 + (y2 - y1) * t;
+              return (
+                <g key={p.id}>
+                  <circle cx={bx} cy={by} r={cs * 0.14} fill="#60a5fa" opacity={0.95} />
+                  <circle cx={bx} cy={by} r={cs * 0.07} fill="white" opacity={0.9} />
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Damage numbers */}
+          {dmgRef.current.map((d) => {
+            const now = performance.now();
+            const t = Math.min(1, (now - d.born) / 900);
+            const x = (d.col + 0.5) * cs;
+            const y = (d.row + 0.5) * cs - t * cs * 1.4;
+            return (
+              <div
+                key={d.id}
+                style={{
+                  position: "absolute",
+                  left: x,
+                  top: y,
+                  transform: "translate(-50%, -50%)",
+                  pointerEvents: "none",
+                  zIndex: 8,
+                  fontWeight: 900,
+                  fontSize: Math.max(10, cs * 0.38),
+                  color: d.color,
+                  opacity: t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4,
+                  textShadow: "0 1px 3px rgba(0,0,0,0.7)",
+                  whiteSpace: "nowrap",
+                  userSelect: "none",
+                }}>
+                -{d.dmg}
+              </div>
+            );
+          })}
 
           {/* Enemies */}
           {g.path &&
