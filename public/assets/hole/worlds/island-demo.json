@@ -1,0 +1,47 @@
+{
+  "name": "island-demo",
+  "props": [
+    { "x": -0.7, "y": -0.55, "type": "tree", "size": "l" },
+    { "x": -0.55, "y": -0.48, "type": "food", "size": "m" },
+    { "x": -0.4, "y": -0.6, "type": "tree", "size": "m" },
+    { "x": -0.24, "y": -0.5, "type": "food", "size": "s" },
+    { "x": -0.1, "y": -0.62, "type": "crate", "size": "m" },
+    { "x": 0.08, "y": -0.56, "type": "tree", "size": "l" },
+    { "x": 0.22, "y": -0.48, "type": "food", "size": "m" },
+    { "x": 0.38, "y": -0.6, "type": "tree", "size": "m" },
+    { "x": 0.56, "y": -0.48, "type": "food", "size": "s" },
+    { "x": 0.72, "y": -0.56, "type": "tree", "size": "l" },
+
+    { "x": -0.74, "y": -0.2, "type": "food", "size": "m" },
+    { "x": -0.58, "y": -0.12, "type": "crate", "size": "m" },
+    { "x": -0.42, "y": -0.18, "type": "tree", "size": "m" },
+    { "x": -0.24, "y": -0.08, "type": "food", "size": "s" },
+    { "x": -0.08, "y": -0.18, "type": "crate", "size": "m" },
+    { "x": 0.08, "y": -0.08, "type": "food", "size": "s" },
+    { "x": 0.25, "y": -0.16, "type": "tree", "size": "m" },
+    { "x": 0.42, "y": -0.1, "type": "food", "size": "m" },
+    { "x": 0.58, "y": -0.18, "type": "crate", "size": "m" },
+    { "x": 0.74, "y": -0.12, "type": "tree", "size": "l" },
+
+    { "x": -0.68, "y": 0.18, "type": "food", "size": "m" },
+    { "x": -0.52, "y": 0.08, "type": "tree", "size": "m" },
+    { "x": -0.34, "y": 0.18, "type": "food", "size": "s" },
+    { "x": -0.18, "y": 0.1, "type": "crate", "size": "m" },
+    { "x": 0.0, "y": 0.18, "type": "tree", "size": "l" },
+    { "x": 0.18, "y": 0.1, "type": "food", "size": "s" },
+    { "x": 0.34, "y": 0.2, "type": "crate", "size": "m" },
+    { "x": 0.52, "y": 0.1, "type": "tree", "size": "m" },
+    { "x": 0.68, "y": 0.18, "type": "food", "size": "m" },
+
+    { "x": -0.5, "y": 0.45, "type": "tree", "size": "l" },
+    { "x": -0.3, "y": 0.52, "type": "food", "size": "m" },
+    { "x": -0.12, "y": 0.46, "type": "crate", "size": "m" },
+    { "x": 0.1, "y": 0.54, "type": "food", "size": "s" },
+    { "x": 0.3, "y": 0.46, "type": "tree", "size": "m" },
+    { "x": 0.48, "y": 0.52, "type": "food", "size": "m" },
+
+    { "x": -0.02, "y": 0.0, "type": "building", "size": "xl" },
+    { "x": -0.26, "y": 0.0, "type": "car", "size": "m" },
+    { "x": 0.24, "y": 0.02, "type": "car", "size": "m" }
+  ]
+}

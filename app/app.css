@@ -759,6 +759,110 @@ input[type="range"]::-ms-thumb {
   @apply border-green-400 dark:border-green-500;
   box-shadow: 0 4px 16px rgba(74, 222, 128, 0.2);
 }
+
+/* ========== Hole Drop ========== */
+
+.hole-wrap {
+  min-height: calc(100dvh - 64px);
+  background:
+    radial-gradient(
+      circle at 18% 20%,
+      rgba(14, 165, 233, 0.2),
+      transparent 35%
+    ),
+    radial-gradient(
+      circle at 88% 80%,
+      rgba(16, 185, 129, 0.18),
+      transparent 42%
+    ),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(5, 10, 22, 0.98));
+}
+
+.hole-panel {
+  border-radius: 22px;
+  padding: 28px 20px;
+  background: linear-gradient(
+    145deg,
+    rgba(18, 28, 55, 0.86),
+    rgba(6, 10, 24, 0.82)
+  );
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  box-shadow: 0 20px 42px rgba(0, 0, 0, 0.28);
+}
+
+.hole-panel-icon {
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 10px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 2.1rem;
+  color: #c7f9ff;
+  background: radial-gradient(circle at 35% 30%, #06b6d4, #1d4ed8);
+  box-shadow: 0 10px 22px rgba(6, 182, 212, 0.4);
+}
+
+.hole-mode-toggle {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.hole-toggle-active {
+  outline: 2px solid #22d3ee;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(34, 211, 238, 0.18);
+}
+
+.hole-hud {
+  margin: 0 auto 12px;
+  border-radius: 14px;
+  padding: 9px 12px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  text-align: center;
+  gap: 4px;
+  background: rgba(10, 18, 38, 0.75);
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  backdrop-filter: blur(6px);
+}
+
+.hole-arena {
+  position: relative;
+  width: 100%;
+  height: min(82dvh, 760px);
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(56, 189, 248, 0.32);
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      rgba(30, 41, 59, 0.82),
+      rgba(2, 6, 23, 0.96)
+    ),
+    linear-gradient(165deg, rgba(125, 211, 252, 0.08), rgba(14, 116, 144, 0.03));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 18px 44px rgba(0, 0, 0, 0.35);
+  touch-action: none;
+}
+
+.hole-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+@media (max-width: 680px) {
+  .hole-hud {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hole-arena {
+    height: min(72dvh, 560px);
+  }
+}
 .ballsort-tube-receivable::before {
   @apply border-green-400 dark:border-green-500;
 }

@@ -9,7 +9,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Box, Container, Typography, useMediaQuery } from "@mui/material";
-import { shuffle } from "lodash";
+import shuffle from "lodash/shuffle";
 import { useEffect, useState } from "react";
 import { getStoredData, setStoredData } from "~/storage";
 import type { Route } from "./+types/memory";

@@ -1,0 +1,52 @@
+{
+  "name": "city-demo",
+  "props": [
+    { "x": -0.72, "y": -0.58, "type": "building", "size": "xl" },
+    { "x": -0.48, "y": -0.58, "type": "building", "size": "l" },
+    { "x": -0.24, "y": -0.58, "type": "building", "size": "l" },
+    { "x": 0.02, "y": -0.58, "type": "building", "size": "xl" },
+    { "x": 0.28, "y": -0.58, "type": "building", "size": "l" },
+    { "x": 0.52, "y": -0.58, "type": "building", "size": "l" },
+    { "x": 0.74, "y": -0.58, "type": "building", "size": "xl" },
+
+    { "x": -0.7, "y": -0.3, "type": "car", "size": "m" },
+    { "x": -0.56, "y": -0.3, "type": "car", "size": "m" },
+    { "x": -0.42, "y": -0.3, "type": "food", "size": "s" },
+    { "x": -0.28, "y": -0.3, "type": "car", "size": "m" },
+    { "x": -0.14, "y": -0.3, "type": "crate", "size": "m" },
+    { "x": 0.0, "y": -0.3, "type": "car", "size": "m" },
+    { "x": 0.14, "y": -0.3, "type": "food", "size": "s" },
+    { "x": 0.28, "y": -0.3, "type": "car", "size": "m" },
+    { "x": 0.42, "y": -0.3, "type": "crate", "size": "m" },
+    { "x": 0.56, "y": -0.3, "type": "car", "size": "m" },
+    { "x": 0.7, "y": -0.3, "type": "car", "size": "m" },
+
+    { "x": -0.72, "y": -0.02, "type": "building", "size": "l" },
+    { "x": -0.5, "y": -0.02, "type": "tree", "size": "m" },
+    { "x": -0.34, "y": -0.02, "type": "building", "size": "l" },
+    { "x": -0.14, "y": -0.02, "type": "food", "size": "m" },
+    { "x": 0.06, "y": -0.02, "type": "building", "size": "xl" },
+    { "x": 0.28, "y": -0.02, "type": "tree", "size": "m" },
+    { "x": 0.44, "y": -0.02, "type": "building", "size": "l" },
+    { "x": 0.66, "y": -0.02, "type": "building", "size": "l" },
+
+    { "x": -0.7, "y": 0.26, "type": "car", "size": "m" },
+    { "x": -0.56, "y": 0.26, "type": "food", "size": "s" },
+    { "x": -0.42, "y": 0.26, "type": "car", "size": "m" },
+    { "x": -0.28, "y": 0.26, "type": "car", "size": "m" },
+    { "x": -0.14, "y": 0.26, "type": "crate", "size": "m" },
+    { "x": 0.0, "y": 0.26, "type": "car", "size": "m" },
+    { "x": 0.14, "y": 0.26, "type": "food", "size": "s" },
+    { "x": 0.28, "y": 0.26, "type": "car", "size": "m" },
+    { "x": 0.42, "y": 0.26, "type": "car", "size": "m" },
+    { "x": 0.56, "y": 0.26, "type": "food", "size": "s" },
+    { "x": 0.7, "y": 0.26, "type": "car", "size": "m" },
+
+    { "x": -0.64, "y": 0.54, "type": "building", "size": "l" },
+    { "x": -0.36, "y": 0.54, "type": "building", "size": "xl" },
+    { "x": -0.08, "y": 0.54, "type": "building", "size": "l" },
+    { "x": 0.2, "y": 0.54, "type": "building", "size": "l" },
+    { "x": 0.48, "y": 0.54, "type": "building", "size": "xl" },
+    { "x": 0.72, "y": 0.54, "type": "building", "size": "l" }
+  ]
+}

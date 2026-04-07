@@ -4,11 +4,12 @@ import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 import {
   faBrain,
+  faCircle,
+  faCircleDot,
   faCopy,
   faCubes,
   faFlask,
   faPaintBrush,
-  faCircle,
   faShield,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -64,9 +65,15 @@ export const links: Route.LinksFunction = () => [
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Games by DaniB" },
-    { name: "description", content: "Free fun games made with love for the whole family!" },
+    {
+      name: "description",
+      content: "Free fun games made with love for the whole family!",
+    },
     { property: "og:title", content: "DaniB's Games" },
-    { property: "og:description", content: "Free fun games made with love for the whole family!" },
+    {
+      property: "og:description",
+      content: "Free fun games made with love for the whole family!",
+    },
     { property: "og:url", content: "https://games.db.rocks" },
     { property: "og:image", content: "https://games.db.rocks/og-image.png" },
     { property: "og:image:width", content: "1200" },
@@ -74,7 +81,10 @@ export function meta({}: Route.MetaArgs) {
     { property: "og:type", content: "website" },
     { name: "twitter:card", content: "summary_large_image" },
     { name: "twitter:title", content: "DaniB's Games" },
-    { name: "twitter:description", content: "Free fun games made with love for the whole family!" },
+    {
+      name: "twitter:description",
+      content: "Free fun games made with love for the whole family!",
+    },
     { name: "twitter:image", content: "https://games.db.rocks/og-image.png" },
   ];
 }
@@ -105,6 +115,12 @@ export const PAGES = [
     path: "/match",
     description: "Match pairs of colors in this exciting game!",
     icon: <FontAwesomeIcon icon={faCopy} />,
+  },
+  {
+    name: "Hole Drop",
+    path: "/hole",
+    description: "Move the hole to swallow stacks or random block shapes!",
+    icon: <FontAwesomeIcon icon={faCircleDot} />,
   },
   {
     name: "Ball Sort",
@@ -240,7 +256,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <Box
                 component="span"
                 onClick={() => navigate("/")}
-                sx={{ fontWeight: 900, fontSize: "1.1rem", color: "white", cursor: "pointer", userSelect: "none", display: "flex", alignItems: "center", gap: 1 }}>
+                sx={{
+                  fontWeight: 900,
+                  fontSize: "1.1rem",
+                  color: "white",
+                  cursor: "pointer",
+                  userSelect: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                }}>
                 <Logo size={28} />
                 DaniB's Games
               </Box>
@@ -254,7 +279,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
               open={mobileDrawerOpen}
               PaperProps={{
                 sx: {
-                  background: "linear-gradient(180deg, #1e1b4b 0%, #4a1942 100%)",
+                  background:
+                    "linear-gradient(180deg, #1e1b4b 0%, #4a1942 100%)",
                   minWidth: 240,
                 },
               }}>

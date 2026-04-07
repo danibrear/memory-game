@@ -5,6 +5,7 @@ export default [
   route("/memory", "routes/memory.tsx"),
   route("/color", "routes/color.tsx"),
   route("/match", "routes/match.tsx"),
+  route("/hole", "routes/hole.tsx"),
   route("/ballsort", "routes/ballsort.tsx"),
   route("/bubblepop", "routes/bubblepop.tsx"),
   route("/quadra", "routes/quadra.tsx"),
