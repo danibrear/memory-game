@@ -11,4 +11,5 @@ export default [
   route("/quadra", "routes/quadra.tsx"),
   route("/towerdefense", "routes/towerdefense.tsx"),
   route("/e", "routes/el.tsx"),
+  route("/arrows", "routes/arrows.tsx"),
 ] satisfies RouteConfig;

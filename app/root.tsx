@@ -3,6 +3,7 @@ import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
 import "@fontsource/roboto/700.css";
 import {
+  faArrowRight,
   faBrain,
   faCircle,
   faCircleDot,
@@ -145,6 +146,12 @@ export const PAGES = [
     path: "/towerdefense",
     description: "Place towers to stop the enemy waves!",
     icon: <FontAwesomeIcon icon={faShield} />,
+  },
+  {
+    name: "Arrow Escape",
+    path: "/arrows",
+    description: "Tap arrows that can escape to the outside. Clear the board!",
+    icon: <FontAwesomeIcon icon={faArrowRight} />,
   },
 ];
 
