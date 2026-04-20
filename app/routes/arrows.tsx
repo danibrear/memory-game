@@ -18,12 +18,8 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Constants & metrics ──────────────────────────────────────────────────────
 
-const CELL_SIZE = 50;
-const GAP = 3;
-const STRIDE = CELL_SIZE + GAP;
-const STROKE_W = 40;
 const STORAGE_KEY = "arrows-best-v2";
 
 const COLORS = [
@@ -32,32 +28,41 @@ const COLORS = [
   "#3b82f6", "#f43f5e",
 ];
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
+interface Metrics { cellSize: number; gap: number; stride: number; strokeW: number }
+
+// Shrinks cells so the board always fits ~340 px (mobile-first)
+function computeMetrics(gridSize: number): Metrics {
+  const gap = 2;
+  const target = 340;
+  const cellSize = Math.max(14, Math.floor((target - (gridSize - 1) * gap) / gridSize));
+  return { cellSize, gap, stride: cellSize + gap, strokeW: Math.floor(cellSize * 0.76) };
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Direction = "up" | "down" | "left" | "right";
 type GameState  = "START" | "PLAYING" | "WON";
 type Difficulty = "easy" | "medium" | "hard";
 type AnimKind   = "escaping" | "bouncing" | "blocked";
 
-// seq increments each trigger so the same kind can re-fire
 interface AnimEntry { kind: AnimKind; seq: number }
 
 interface Arrow {
   id: string;
-  cells: [number, number][]; // [row,col][], tail-first, head-last
+  cells: [number, number][]; // tail-first, head-last
   direction: Direction;
   color: string;
 }
 
 interface BestScores { easy?: number; medium?: number; hard?: number }
 
-const CONFIGS: Record<Difficulty, { gridSize: number; count: number; label: string }> = {
-  easy:   { gridSize: 5, count: 5,  label: "Easy"   },
-  medium: { gridSize: 6, count: 8,  label: "Medium"  },
-  hard:   { gridSize: 7, count: 11, label: "Hard"    },
+const CONFIGS: Record<Difficulty, { gridSize: number; count: number; label: string; maxLen: number }> = {
+  easy:   { gridSize: 10, count: 25,  label: "Easy",   maxLen: 4 },
+  medium: { gridSize: 14, count: 50,  label: "Medium",  maxLen: 3 },
+  hard:   { gridSize: 18, count: 100, label: "Hard",    maxLen: 3 },
 };
 
-// ─── Direction helpers ─────────────────────────────────────────────────────────
+// ─── Direction helpers ────────────────────────────────────────────────────────
 
 const DELTA: Record<Direction, [number, number]> = {
   up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1],
@@ -86,11 +91,10 @@ function getExitDir(cells: [number, number][]): Direction {
   return "left";
 }
 
-// ─── Easing ────────────────────────────────────────────────────────────────────
+// ─── Easing ───────────────────────────────────────────────────────────────────
 
 function easeInCubic(t: number) { return t * t * t; }
 
-// spring: 0→1→1→slight-overshoot→0
 function springOut(t: number): number {
   if (t < 0.35) return t / 0.35;
   if (t < 0.65) return 1;
@@ -98,7 +102,7 @@ function springOut(t: number): number {
   return -0.18 + ((t - 0.82) / 0.18) * 0.18;
 }
 
-// ─── Game logic ────────────────────────────────────────────────────────────────
+// ─── Game logic ───────────────────────────────────────────────────────────────
 
 function canEscape(arrow: Arrow, all: Arrow[], gridSize: number): boolean {
   const occupied = new Set<string>();
@@ -133,6 +137,7 @@ function getBlocker(arrow: Arrow, all: Arrow[], gridSize: number): Arrow | null 
   return null;
 }
 
+// Only used for small puzzles — large ones always use the guaranteed builder
 function isSolvable(arrows: Arrow[], gridSize: number): boolean {
   let calls = 0;
   function solve(rem: Arrow[]): boolean | null {
@@ -150,16 +155,17 @@ function isSolvable(arrows: Arrow[], gridSize: number): boolean {
   return solve(arrows) === true;
 }
 
-// ─── Puzzle generation ─────────────────────────────────────────────────────────
+// ─── Puzzle generation ────────────────────────────────────────────────────────
 
 function randomWalk(
   sr: number, sc: number,
   occupied: Set<string>,
   gridSize: number,
+  maxLen: number,
 ): [number, number][] {
   const cells: [number, number][] = [[sr, sc]];
   const cellSet = new Set<string>([`${sr},${sc}`]);
-  const target = 3 + Math.floor(Math.random() * (Math.min(6, gridSize) - 2));
+  const target = 2 + Math.floor(Math.random() * (maxLen - 1));
   let curDir: Direction = ALL_DIRS[Math.floor(Math.random() * 4)];
 
   while (cells.length < target) {
@@ -188,7 +194,10 @@ function randomWalk(
 }
 
 function generatePuzzle(difficulty: Difficulty): Arrow[] {
-  const { gridSize, count } = CONFIGS[difficulty];
+  const { gridSize, count, maxLen } = CONFIGS[difficulty];
+
+  // For large puzzles the DFS is intractable — jump straight to guaranteed builder
+  if (count > 15) return buildGuaranteedPuzzle(difficulty);
 
   for (let attempt = 0; attempt < 80; attempt++) {
     const occupied = new Set<string>();
@@ -197,11 +206,10 @@ function generatePuzzle(difficulty: Difficulty): Arrow[] {
       Array.from({ length: gridSize * gridSize }, (_, i) =>
         [Math.floor(i / gridSize), i % gridSize] as [number, number])
     );
-
     for (const [sr, sc] of starts) {
       if (arrows.length >= count) break;
       if (occupied.has(`${sr},${sc}`)) continue;
-      const cells = randomWalk(sr, sc, occupied, gridSize);
+      const cells = randomWalk(sr, sc, occupied, gridSize, maxLen);
       if (cells.length < 2) continue;
       const arrow: Arrow = {
         id: `a${arrows.length}`,
@@ -212,25 +220,24 @@ function generatePuzzle(difficulty: Difficulty): Arrow[] {
       arrows.push(arrow);
       cells.forEach(([r, c]) => occupied.add(`${r},${c}`));
     }
-
     if (arrows.length >= count && isSolvable(arrows, gridSize)) return arrows;
   }
 
   return buildGuaranteedPuzzle(difficulty);
 }
 
-// Reverse construction: each arrow is escapable when placed, so
-// removing in reverse-insertion order is always a valid solution.
+// Reverse construction: each arrow is escapable when placed, so removing in
+// reverse-insertion order is always a valid solution.
 function buildGuaranteedPuzzle(difficulty: Difficulty): Arrow[] {
-  const { gridSize, count } = CONFIGS[difficulty];
+  const { gridSize, count, maxLen } = CONFIGS[difficulty];
   const placed: Arrow[] = [];
   const occupied = new Set<string>();
 
-  for (let i = 0; i < count * 8 && placed.length < count; i++) {
+  for (let i = 0; i < count * 20 && placed.length < count; i++) {
     const sr = Math.floor(Math.random() * gridSize);
     const sc = Math.floor(Math.random() * gridSize);
     if (occupied.has(`${sr},${sc}`)) continue;
-    const cells = randomWalk(sr, sc, occupied, gridSize);
+    const cells = randomWalk(sr, sc, occupied, gridSize, maxLen);
     if (cells.length < 2) continue;
     const arrow: Arrow = {
       id: `a${placed.length}`,
@@ -246,47 +253,52 @@ function buildGuaranteedPuzzle(difficulty: Difficulty): Arrow[] {
   return placed;
 }
 
-// ─── SVG helpers ───────────────────────────────────────────────────────────────
+// ─── SVG helpers (metrics-aware) ─────────────────────────────────────────────
 
-function cx(col: number) { return col * STRIDE + CELL_SIZE / 2; }
-function cy(row: number) { return row * STRIDE + CELL_SIZE / 2; }
-
-function buildSvgPath(cells: [number, number][]): string {
+function buildSvgPath(cells: [number, number][], m: Metrics): string {
+  const cx = (c: number) => c * m.stride + m.cellSize / 2;
+  const cy = (r: number) => r * m.stride + m.cellSize / 2;
   const [[r0, c0], ...rest] = cells;
   let d = `M ${cx(c0)},${cy(r0)}`;
   for (const [r, c] of rest) d += ` L ${cx(c)},${cy(r)}`;
   return d;
 }
 
-function buildArrowhead(cells: [number, number][], dir: Direction): string {
+function buildArrowhead(cells: [number, number][], dir: Direction, m: Metrics): string {
   const [hr, hc] = cells[cells.length - 1];
-  const x = cx(hc), y = cy(hr);
-  const s = STROKE_W * 0.5;
+  const x = hc * m.stride + m.cellSize / 2;
+  const y = hr * m.stride + m.cellSize / 2;
+  const s = m.strokeW * 0.5;
   switch (dir) {
-    case "right": return `${x + s},${y} ${x - s * 0.55},${y - s * 0.72} ${x - s * 0.55},${y + s * 0.72}`;
-    case "left":  return `${x - s},${y} ${x + s * 0.55},${y - s * 0.72} ${x + s * 0.55},${y + s * 0.72}`;
-    case "down":  return `${x},${y + s} ${x - s * 0.72},${y - s * 0.55} ${x + s * 0.72},${y - s * 0.55}`;
-    case "up":    return `${x},${y - s} ${x - s * 0.72},${y + s * 0.55} ${x + s * 0.72},${y + s * 0.55}`;
+    case "right": return `${x+s},${y} ${x-s*.55},${y-s*.72} ${x-s*.55},${y+s*.72}`;
+    case "left":  return `${x-s},${y} ${x+s*.55},${y-s*.72} ${x+s*.55},${y+s*.72}`;
+    case "down":  return `${x},${y+s} ${x-s*.72},${y-s*.55} ${x+s*.72},${y-s*.55}`;
+    case "up":    return `${x},${y-s} ${x-s*.72},${y+s*.55} ${x+s*.72},${y+s*.55}`;
   }
 }
 
-// ─── ArrowG component — animates via direct DOM refs + rAF ────────────────────
+// ─── ArrowG ───────────────────────────────────────────────────────────────────
 
 interface ArrowGProps {
   arrow: Arrow;
   anim: AnimEntry | null;
-  gridSize: number;
+  metrics: Metrics;
   onAnimEnd: (id: string) => void;
   onClick: () => void;
 }
 
-function ArrowG({ arrow, anim, gridSize, onAnimEnd, onClick }: ArrowGProps) {
+function ArrowG({ arrow, anim, metrics: m, onAnimEnd, onClick }: ArrowGProps) {
   const { id, cells, direction, color } = arrow;
-  const pathD   = buildSvgPath(cells);
-  const headPts = buildArrowhead(cells, direction);
+  const pathD   = buildSvgPath(cells, m);
+  const headPts = buildArrowhead(cells, direction, m);
+  const pathLen = (cells.length - 1) * m.stride;
 
-  const groupRef = useRef<SVGGElement>(null);
-  const rafRef   = useRef<number>(0);
+  const groupRef  = useRef<SVGGElement>(null);
+  const shadowRef = useRef<SVGPathElement>(null);
+  const bodyRef   = useRef<SVGPathElement>(null);
+  const hlRef     = useRef<SVGPathElement>(null);
+  const headRef   = useRef<SVGPolygonElement>(null);
+  const rafRef    = useRef<number>(0);
 
   useEffect(() => {
     cancelAnimationFrame(rafRef.current);
@@ -294,6 +306,16 @@ function ArrowG({ arrow, anim, gridSize, onAnimEnd, onClick }: ArrowGProps) {
     if (groupRef.current) {
       groupRef.current.style.transform = "";
       groupRef.current.style.filter    = "";
+    }
+    [shadowRef, bodyRef, hlRef].forEach(ref => {
+      if (ref.current) {
+        ref.current.style.strokeDasharray  = "";
+        ref.current.style.strokeDashoffset = "";
+      }
+    });
+    if (headRef.current) {
+      headRef.current.style.transform = "";
+      headRef.current.style.opacity   = "";
     }
 
     if (!anim) return;
@@ -303,19 +325,26 @@ function ArrowG({ arrow, anim, gridSize, onAnimEnd, onClick }: ArrowGProps) {
     const start    = performance.now();
 
     if (kind === "escaping") {
-      // Translate the entire group in the exit direction.
-      // A clipPath on the parent SVG clips the tail as it exits, making the whole
-      // arrow look like it slides out — arrowhead naturally leads the way.
-      const TOTAL = 460;
-      const dist  = (gridSize + 1) * STRIDE; // enough to clear any arrow off the board
+      const TOTAL = 520;
+      [shadowRef, bodyRef, hlRef].forEach(ref => {
+        if (ref.current) ref.current.style.strokeDasharray = `${pathLen}`;
+      });
 
       const tick = (now: number) => {
         const t    = Math.min((now - start) / TOTAL, 1);
         const ease = easeInCubic(t);
-        if (groupRef.current) {
-          groupRef.current.style.transform =
-            `translate(${dc * ease * dist}px,${dr * ease * dist}px)`;
+
+        const offset = `${-ease * pathLen}`;
+        [shadowRef, bodyRef, hlRef].forEach(ref => {
+          if (ref.current) ref.current.style.strokeDashoffset = offset;
+        });
+
+        if (headRef.current) {
+          headRef.current.style.transform =
+            `translate(${dc * ease * m.stride * 1.8}px,${dr * ease * m.stride * 1.8}px)`;
+          headRef.current.style.opacity = `${1 - ease}`;
         }
+
         if (t < 1) {
           rafRef.current = requestAnimationFrame(tick);
         } else {
@@ -327,7 +356,6 @@ function ArrowG({ arrow, anim, gridSize, onAnimEnd, onClick }: ArrowGProps) {
 
     if (kind === "bouncing") {
       const DUR = 540;
-
       const tick = (now: number) => {
         const t      = Math.min((now - start) / DUR, 1);
         const factor = springOut(t);
@@ -347,15 +375,12 @@ function ArrowG({ arrow, anim, gridSize, onAnimEnd, onClick }: ArrowGProps) {
 
     if (kind === "blocked") {
       const DUR = 460;
-
       const tick = (now: number) => {
         const t     = Math.min((now - start) / DUR, 1);
         const pulse = Math.sin(t * Math.PI);
         if (groupRef.current) {
-          const bright = 1 + pulse * 1.1;
-          const glow   = pulse * 14;
           groupRef.current.style.filter =
-            `brightness(${bright}) drop-shadow(0 0 ${glow}px white)`;
+            `brightness(${1 + pulse * 1.1}) drop-shadow(0 0 ${pulse * 14}px white)`;
         }
         if (t < 1) {
           rafRef.current = requestAnimationFrame(tick);
@@ -373,27 +398,28 @@ function ArrowG({ arrow, anim, gridSize, onAnimEnd, onClick }: ArrowGProps) {
 
   return (
     <g ref={groupRef} onClick={onClick} style={{ cursor: "pointer" }}>
-      <path d={pathD} fill="none" stroke="rgba(0,0,0,0.32)"
-        strokeWidth={STROKE_W + 4} strokeLinecap="round" strokeLinejoin="round"
+      <path ref={shadowRef} d={pathD} fill="none" stroke="rgba(0,0,0,0.32)"
+        strokeWidth={m.strokeW + 4} strokeLinecap="round" strokeLinejoin="round"
         transform="translate(2,3)" />
-      <path d={pathD} fill="none" stroke={color}
-        strokeWidth={STROKE_W} strokeLinecap="round" strokeLinejoin="round" />
-      <path d={pathD} fill="none" stroke="rgba(255,255,255,0.2)"
-        strokeWidth={STROKE_W * 0.42} strokeLinecap="round" strokeLinejoin="round" />
-      <polygon points={headPts} fill="rgba(0,0,0,0.38)" />
+      <path ref={bodyRef} d={pathD} fill="none" stroke={color}
+        strokeWidth={m.strokeW} strokeLinecap="round" strokeLinejoin="round" />
+      <path ref={hlRef} d={pathD} fill="none" stroke="rgba(255,255,255,0.2)"
+        strokeWidth={m.strokeW * 0.42} strokeLinecap="round" strokeLinejoin="round" />
+      <polygon ref={headRef} points={headPts} fill="rgba(0,0,0,0.38)" />
       <path d={pathD} fill="none" stroke="transparent"
-        strokeWidth={STROKE_W + 18} strokeLinecap="round" strokeLinejoin="round" />
+        strokeWidth={m.strokeW + 18} strokeLinecap="round" strokeLinejoin="round" />
     </g>
   );
 }
 
-// ─── Main component ────────────────────────────────────────────────────────────
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ArrowsGame() {
   const [gameState, setGameState]   = useState<GameState>("START");
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [arrows, setArrows]         = useState<Arrow[]>([]);
-  const [gridSize, setGridSize]     = useState(6);
+  const [gridSize, setGridSize]     = useState(14);
+  const [metrics, setMetrics]       = useState<Metrics>(() => computeMetrics(14));
   const [moves, setMoves]           = useState(0);
   const [bestScores, setBestScores] = useState<BestScores>({});
   const [animMap, setAnimMap]       = useState<Map<string, AnimEntry>>(new Map());
@@ -404,9 +430,12 @@ export default function ArrowsGame() {
   }, []);
 
   const startGame = useCallback((diff: Difficulty) => {
+    const cfg = CONFIGS[diff];
+    const m   = computeMetrics(cfg.gridSize);
     const puzzle = generatePuzzle(diff);
     setArrows(puzzle);
-    setGridSize(CONFIGS[diff].gridSize);
+    setGridSize(cfg.gridSize);
+    setMetrics(m);
     setMoves(0);
     setAnimMap(new Map());
     setGameState("PLAYING");
@@ -418,21 +447,20 @@ export default function ArrowsGame() {
       const m = new Map(prev);
       const entry = m.get(arrowId);
       if (entry?.kind === "escaping") {
-        // Remove arrow from state; check win
         setArrows((prev) => {
           const next = prev.filter((a) => a.id !== arrowId);
           if (next.length === 0) {
             setGameState("WON");
-            setMoves((m) => {
+            setMoves((mv) => {
               setBestScores((bs) => {
                 const updated = { ...bs };
-                if (updated[difficulty] === undefined || m < updated[difficulty]!) {
-                  updated[difficulty] = m;
+                if (updated[difficulty] === undefined || mv < updated[difficulty]!) {
+                  updated[difficulty] = mv;
                   setStoredData(STORAGE_KEY, updated);
                 }
                 return updated;
               });
-              return m;
+              return mv;
             });
           }
           return next;
@@ -444,9 +472,7 @@ export default function ArrowsGame() {
   }, [difficulty]);
 
   const handleArrowClick = useCallback((arrow: Arrow) => {
-    // Ignore clicks while this arrow is already animating
     if (animMap.has(arrow.id)) return;
-
     const nextSeq = (animMap.get(arrow.id)?.seq ?? 0) + 1;
 
     if (canEscape(arrow, arrows, gridSize)) {
@@ -458,7 +484,6 @@ export default function ArrowsGame() {
       setAnimMap((prev) =>
         new Map(prev).set(arrow.id, { kind: "bouncing", seq: nextSeq })
       );
-
       const blocker = getBlocker(arrow, arrows, gridSize);
       if (blocker && !animMap.has(blocker.id)) {
         const bSeq = (animMap.get(blocker.id)?.seq ?? 0) + 1;
@@ -469,7 +494,7 @@ export default function ArrowsGame() {
     }
   }, [animMap, arrows, gridSize]);
 
-  const svgSize = gridSize * STRIDE - GAP;
+  const svgSize = gridSize * metrics.stride - metrics.gap;
 
   return (
     <Container maxWidth="sm" sx={{ py: 3, textAlign: "center" }}>
@@ -556,42 +581,44 @@ export default function ArrowsGame() {
             </Box>
           </Box>
 
-          <Box sx={{ display: "flex", justifyContent: "center", mb: 2 }}>
+          <Box sx={{ display: "flex", justifyContent: "center", mb: 2, overflowX: "auto" }}>
             <Box sx={{
               background: "rgba(255,255,255,0.04)",
               border: "2px solid rgba(255,255,255,0.1)",
               borderRadius: 2,
-              p: `${GAP}px`,
+              p: `${metrics.gap}px`,
               overflow: "hidden",
+              flexShrink: 0,
             }}>
               <svg width={svgSize} height={svgSize} style={{ display: "block", overflow: "visible" }}>
                 <defs>
-                  {/* Clips escaping arrows at the board boundary so the tail disappears as it follows the head out */}
                   <clipPath id="board-clip">
-                    <rect x={-STROKE_W} y={-STROKE_W} width={svgSize + STROKE_W * 2} height={svgSize + STROKE_W * 2} />
+                    <rect
+                      x={-metrics.strokeW} y={-metrics.strokeW}
+                      width={svgSize + metrics.strokeW * 2}
+                      height={svgSize + metrics.strokeW * 2}
+                    />
                   </clipPath>
                 </defs>
-                {/* Grid cells */}
                 {Array.from({ length: gridSize }).map((_, r) =>
                   Array.from({ length: gridSize }).map((_, c) => (
                     <rect
                       key={`${r}-${c}`}
-                      x={c * STRIDE} y={r * STRIDE}
-                      width={CELL_SIZE} height={CELL_SIZE}
-                      rx={5}
+                      x={c * metrics.stride} y={r * metrics.stride}
+                      width={metrics.cellSize} height={metrics.cellSize}
+                      rx={3}
                       fill="rgba(255,255,255,0.04)"
                       stroke="rgba(255,255,255,0.07)" strokeWidth={1}
                     />
                   ))
                 )}
-                {/* Arrows clipped to board so escaping tails vanish at the boundary */}
                 <g clipPath="url(#board-clip)">
                   {arrows.map((arrow) => (
                     <ArrowG
                       key={arrow.id}
                       arrow={arrow}
                       anim={animMap.get(arrow.id) ?? null}
-                      gridSize={gridSize}
+                      metrics={metrics}
                       onAnimEnd={handleAnimEnd}
                       onClick={() => handleArrowClick(arrow)}
                     />
@@ -616,17 +643,13 @@ export default function ArrowsGame() {
           }}>🎉</Box>
           <Typography variant="h4" sx={{ fontWeight: 900 }}>Board Cleared!</Typography>
           <Box sx={{ display: "flex", gap: 2 }}>
-            <Chip
-              icon={<FontAwesomeIcon icon={faStar} />}
+            <Chip icon={<FontAwesomeIcon icon={faStar} />}
               label={`${moves} moves`} color="primary"
-              sx={{ fontWeight: 700, fontSize: "1rem", py: 2.5, px: 1 }}
-            />
+              sx={{ fontWeight: 700, fontSize: "1rem", py: 2.5, px: 1 }} />
             {bestScores[difficulty] !== undefined && (
-              <Chip
-                icon={<FontAwesomeIcon icon={faTrophy} />}
+              <Chip icon={<FontAwesomeIcon icon={faTrophy} />}
                 label={`Best: ${bestScores[difficulty]}`} color="success"
-                sx={{ fontWeight: 700, fontSize: "1rem", py: 2.5, px: 1 }}
-              />
+                sx={{ fontWeight: 700, fontSize: "1rem", py: 2.5, px: 1 }} />
             )}
           </Box>
           {bestScores[difficulty] === moves && (
