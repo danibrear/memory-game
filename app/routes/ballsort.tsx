@@ -14,7 +14,12 @@ import { Box, Container, Typography } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearStoredData, getStoredData, setStoredData } from "~/storage";
 import { useRemoteConfig } from "~/utils/useRemoteConfig";
+import ballsortStyles from "~/styles/ballsort.css?url";
 import type { Route } from "./+types/ballsort";
+
+export const links: Route.LinksFunction = () => [
+  { rel: "stylesheet", href: ballsortStyles },
+];
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -145,6 +150,21 @@ function solvePuzzle(
   return null;
 }
 
+type BallColor = { name: string; hsl: string };
+
+function ballStyle(color: BallColor | undefined): React.CSSProperties {
+  return { "--ball": color?.hsl ?? "#888" } as React.CSSProperties;
+}
+
+const SPARKLES = [
+  { sx: "-26px", sy: "-30px" },
+  { sx: "24px", sy: "-34px" },
+  { sx: "-32px", sy: "-6px" },
+  { sx: "30px", sy: "-10px" },
+  { sx: "0px", sy: "-42px" },
+  { sx: "-14px", sy: "-44px" },
+];
+
 function StartScreen({
   numColors,
   extraTubes,
@@ -159,7 +179,7 @@ function StartScreen({
 }: {
   numColors: number;
   extraTubes: number;
-  ballColors: { name: string; hsl: string }[];
+  ballColors: BallColor[];
   minColors: number;
   maxColors: number;
   minExtraTubes: number;
@@ -170,28 +190,33 @@ function StartScreen({
 }) {
   return (
     <Container maxWidth="sm">
-      <Typography variant="h4" sx={{ textAlign: "center", mb: 3 }}>
-        <FontAwesomeIcon icon={faFlask} /> Ball Sort Puzzle
+      <Typography
+        variant="h3"
+        component="h1"
+        className="ballsort-title"
+        sx={{ textAlign: "center", mt: 2, mb: 3 }}>
+        <span className="ballsort-title-icon">
+          <FontAwesomeIcon icon={faFlask} />
+        </span>
+        Ball Sort
       </Typography>
 
-      <div className="ballsort-config">
+      <div className="ballsort-panel">
         <div className="ballsort-config-row">
-          <Typography variant="h6">Colors</Typography>
+          <span className="ballsort-config-label">Colors</span>
           <div className="ballsort-config-controls">
             <button
-              className="icon-btn"
+              className="ballsort-btn ballsort-btn-round"
               disabled={numColors <= minColors}
+              aria-label="Fewer colors"
               onClick={() => onChangeColors(numColors - 1)}>
               −
             </button>
-            <Typography
-              variant="h5"
-              sx={{ minWidth: 40, textAlign: "center", fontWeight: 700 }}>
-              {numColors}
-            </Typography>
+            <span className="ballsort-config-value">{numColors}</span>
             <button
-              className="icon-btn"
+              className="ballsort-btn ballsort-btn-round"
               disabled={numColors >= maxColors}
+              aria-label="More colors"
               onClick={() => onChangeColors(numColors + 1)}>
               +
             </button>
@@ -201,49 +226,49 @@ function StartScreen({
         <div className="ballsort-color-preview">
           {ballColors.slice(0, numColors).map((c, i) => (
             <div
-              key={i}
-              className="ballsort-ball-small"
-              style={{ backgroundColor: c.hsl }}
+              key={c.name}
+              className="ballsort-ball ballsort-ball-small"
+              style={{
+                ...ballStyle(c),
+                animationDelay: `${i * 30}ms`,
+              }}
               title={c.name}
             />
           ))}
         </div>
 
-        <div className="ballsort-config-row" style={{ marginTop: 16 }}>
-          <Typography variant="h6">Extra Tubes</Typography>
+        <div className="ballsort-divider" />
+
+        <div className="ballsort-config-row">
+          <span className="ballsort-config-label">Empty Tubes</span>
           <div className="ballsort-config-controls">
             <button
-              className="icon-btn"
+              className="ballsort-btn ballsort-btn-round"
               disabled={extraTubes <= minExtraTubes}
+              aria-label="Fewer empty tubes"
               onClick={() => onChangeExtra(extraTubes - 1)}>
               −
             </button>
-            <Typography
-              variant="h5"
-              sx={{ minWidth: 40, textAlign: "center", fontWeight: 700 }}>
-              {extraTubes}
-            </Typography>
+            <span className="ballsort-config-value">{extraTubes}</span>
             <button
-              className="icon-btn"
+              className="ballsort-btn ballsort-btn-round"
               disabled={extraTubes >= maxExtraTubes}
+              aria-label="More empty tubes"
               onClick={() => onChangeExtra(extraTubes + 1)}>
               +
             </button>
           </div>
         </div>
 
-        <Typography
-          variant="body2"
-          sx={{ opacity: 0.6, textAlign: "center", mt: 1 }}>
-          {numColors} filled tubes + {extraTubes} empty ={" "}
-          {numColors + extraTubes} total
-        </Typography>
+        <div className="ballsort-hint">
+          {numColors + extraTubes} tubes · fewer empty tubes = harder
+        </div>
 
         <button
-          className="btn"
-          style={{ marginTop: 24, width: "100%" }}
+          className="ballsort-btn ballsort-btn-primary"
+          style={{ marginTop: 22, width: "100%" }}
           onClick={onStart}>
-          <FontAwesomeIcon icon={faPlay} /> Start!
+          <FontAwesomeIcon icon={faPlay} /> Play
         </button>
       </div>
     </Container>
@@ -256,6 +281,10 @@ function TubeComponent({
   isSelected,
   highlightCount,
   canReceive,
+  isComplete,
+  isShaking,
+  landedCount,
+  landedKey,
   tubeCapacity,
   ballColors,
   hiddenTopCount,
@@ -267,35 +296,72 @@ function TubeComponent({
   isSelected: boolean;
   highlightCount: number;
   canReceive: boolean;
+  isComplete: boolean;
+  isShaking: boolean;
+  landedCount: number;
+  landedKey: number;
   tubeCapacity: number;
-  ballColors: { name: string; hsl: string }[];
+  ballColors: BallColor[];
   hiddenTopCount: number;
   tubeRef: (el: HTMLButtonElement | null) => void;
   onClick: () => void;
 }) {
   const visibleCount = tube.length - hiddenTopCount;
+  const classes = [
+    "ballsort-tube",
+    isSelected && "ballsort-tube-selected",
+    canReceive && "ballsort-tube-receivable",
+    isComplete && "ballsort-tube-complete",
+    isShaking && "ballsort-tube-shake",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <button
       ref={tubeRef}
-      className={`ballsort-tube ${isSelected ? "ballsort-tube-selected" : ""} ${canReceive ? "ballsort-tube-receivable" : ""}`}
+      className={classes}
       onClick={onClick}
-      aria-label={`Tube ${index + 1}`}>
+      aria-label={`Tube ${index + 1}${isComplete ? ", complete" : ""}`}
+      aria-pressed={isSelected}>
+      {isComplete && (
+        <>
+          <span className="ballsort-cap" aria-hidden />
+          {SPARKLES.map((s, si) => (
+            <span
+              key={si}
+              className="ballsort-sparkle"
+              aria-hidden
+              style={
+                { "--si": si, "--sx": s.sx, "--sy": s.sy } as React.CSSProperties
+              }
+            />
+          ))}
+        </>
+      )}
       <div className="ballsort-tube-inner">
         {Array.from({ length: tubeCapacity }).map((_, slotIdx) => {
           const ball = slotIdx < visibleCount ? tube[slotIdx] : undefined;
-          const isHighlighted =
+          const isLifted =
             isSelected &&
             ball != null &&
             slotIdx >= visibleCount - highlightCount;
+          const isLanded =
+            ball != null &&
+            landedCount > 0 &&
+            slotIdx >= tube.length - landedCount;
+          const classes = [
+            "ballsort-slot",
+            ball != null && "ballsort-ball",
+            isLifted && "ballsort-ball-lifted",
+            isLanded && "ballsort-ball-landed",
+          ]
+            .filter(Boolean)
+            .join(" ");
           return (
             <div
-              key={slotIdx}
-              className={`ballsort-slot ${ball != null ? "ballsort-ball" : ""} ${isHighlighted ? "ballsort-ball-highlighted" : ""}`}
-              style={
-                ball != null
-                  ? { backgroundColor: ballColors[ball]?.hsl }
-                  : undefined
-              }
+              key={isLanded ? `${slotIdx}-${landedKey}` : slotIdx}
+              className={classes}
+              style={ball != null ? ballStyle(ballColors[ball]) : undefined}
             />
           );
         })}
@@ -320,7 +386,7 @@ function GameScreen({
   numColors: number;
   optimalMoves: number | null;
   tubeCapacity: number;
-  ballColors: { name: string; hsl: string }[];
+  ballColors: BallColor[];
   savedState?: { tubes: Tube[]; moveCount: number; history: Tube[][] };
   onWin: (moves: number) => void;
   onSave: (state: {
@@ -352,14 +418,37 @@ function GameScreen({
     startY: number;
     endX: number;
     endY: number;
+    peakY: number;
     size: number;
   };
   const [flyingBalls, setFlyingBalls] = useState<FlyingBall[]>([]);
   const [animSrc, setAnimSrc] = useState<number | null>(null);
   const [animCount, setAnimCount] = useState(0);
+  const [landed, setLanded] = useState<{ tube: number; count: number }>({
+    tube: -1,
+    count: 0,
+  });
+  const [shakeTube, setShakeTube] = useState<number | null>(null);
+  const shakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animating = flyingBalls.length > 0;
   const tubeRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const gridRef = useRef<HTMLDivElement>(null);
+
+  const FLY_MS = 420;
+  const FLY_STAGGER_MS = 45;
+
+  useEffect(
+    () => () => {
+      if (shakeTimer.current) clearTimeout(shakeTimer.current);
+    },
+    [],
+  );
+
+  const triggerShake = useCallback((index: number) => {
+    if (shakeTimer.current) clearTimeout(shakeTimer.current);
+    setShakeTube(index);
+    shakeTimer.current = setTimeout(() => setShakeTube(null), 360);
+  }, []);
 
   useEffect(() => {
     if (moveCount > 0 && isSolved(tubes, tubeCapacity)) {
@@ -376,7 +465,10 @@ function GameScreen({
     (index: number) => {
       if (animating) return;
       if (selectedTube === null) {
-        if (tubes[index].length === 0) return;
+        if (tubes[index].length === 0) {
+          triggerShake(index);
+          return;
+        }
         setSelectedTube(index);
       } else if (selectedTube === index) {
         setSelectedTube(null);
@@ -411,12 +503,20 @@ function GameScreen({
               if (srcSlot && dstSlot) {
                 const sr = srcSlot.getBoundingClientRect();
                 const dr = dstSlot.getBoundingClientRect();
+                const startY = sr.top - gridRect.top;
+                const endY = dr.top - gridRect.top;
+                // Arc over the top of whichever tube is taller on screen
+                const srcTop = srcEl.getBoundingClientRect().top - gridRect.top;
+                const dstTop = dstEl.getBoundingClientRect().top - gridRect.top;
+                const peakY =
+                  Math.min(startY, srcTop, dstTop) - ballSize * 0.5;
                 balls.push({
                   color: tubes[selectedTube][srcSlotIdx],
                   startX: sr.left - gridRect.left,
-                  startY: sr.top - gridRect.top,
+                  startY,
                   endX: dr.left - gridRect.left,
-                  endY: dr.top - gridRect.top,
+                  endY,
+                  peakY,
                   size: ballSize,
                 });
               }
@@ -443,12 +543,13 @@ function GameScreen({
                 setFlyingBalls([]);
                 setAnimSrc(null);
                 setAnimCount(0);
+                setLanded({ tube: index, count: movable });
                 onSave({
                   tubes: next,
                   moveCount: newMoveCount,
                   history: newHistory,
                 });
-              }, 350);
+              }, FLY_MS + FLY_STAGGER_MS * (balls.length - 1));
               setSelectedTube(null);
               return;
             }
@@ -471,11 +572,23 @@ function GameScreen({
             moveCount: newMoveCount,
             history: newHistory,
           });
+          setLanded({ tube: index, count: movable });
+        } else {
+          triggerShake(index);
         }
         setSelectedTube(null);
       }
     },
-    [selectedTube, tubes, history, moveCount, tubeCapacity, onSave, animating],
+    [
+      selectedTube,
+      tubes,
+      history,
+      moveCount,
+      tubeCapacity,
+      onSave,
+      animating,
+      triggerShake,
+    ],
   );
 
   const handleUndo = useCallback(() => {
@@ -487,45 +600,68 @@ function GameScreen({
     setHistory(newHistory);
     setMoveCount(newMoveCount);
     setSelectedTube(null);
+    setLanded({ tube: -1, count: 0 });
     onSave({ tubes: prevTubes, moveCount: newMoveCount, history: newHistory });
   }, [history, moveCount, onSave]);
+
+  const completedCount = useMemo(
+    () =>
+      tubes.filter(
+        (t) => t.length === tubeCapacity && t.every((b) => b === t[0]),
+      ).length,
+    [tubes, tubeCapacity],
+  );
 
   return (
     <Container maxWidth="md" sx={{ textAlign: "center" }}>
       <div className="ballsort-header">
-        <Typography variant="h5" sx={{ fontWeight: 600 }}>
-          <FontAwesomeIcon icon={faFlask} /> Ball Sort
+        <Typography
+          variant="h4"
+          component="h1"
+          className="ballsort-title"
+          sx={{ mt: 1 }}>
+          <span className="ballsort-title-icon">
+            <FontAwesomeIcon icon={faFlask} />
+          </span>
+          Ball Sort
         </Typography>
-        <Typography variant="body2" sx={{ opacity: 0.6 }}>
-          Moves: {moveCount}
-          {optimalMoves != null && ` · Best: ${optimalMoves}`}
-        </Typography>
+        <div className="ballsort-hud">
+          <span className="ballsort-pill">
+            <span className="ballsort-pill-label">Moves</span>
+            <span className="ballsort-pill-value">{moveCount}</span>
+          </span>
+          <span className="ballsort-pill">
+            <span className="ballsort-pill-label">Sorted</span>
+            <span className="ballsort-pill-value">
+              {completedCount}/{numColors}
+            </span>
+          </span>
+          <span className="ballsort-pill">
+            <span className="ballsort-pill-label">Best</span>
+            <span
+              className={`ballsort-pill-value ${optimalMoves == null ? "ballsort-pill-pending" : ""}`}>
+              {optimalMoves ?? "—"}
+            </span>
+          </span>
+        </div>
       </div>
 
       <div className="ballsort-actions">
         <button
-          className="btn"
+          className="ballsort-btn"
           onClick={handleUndo}
-          disabled={history.length === 0}
-          style={{ fontSize: "0.85rem" }}>
+          disabled={history.length === 0 || animating}>
           <FontAwesomeIcon icon={faRotateLeft} /> Undo
         </button>
-        <button
-          className="btn"
-          onClick={onRestart}
-          style={{ fontSize: "0.85rem" }}>
+        <button className="ballsort-btn" onClick={onRestart}>
           <FontAwesomeIcon icon={faArrowsRotate} /> Restart
         </button>
-        <button
-          className="btn"
-          onClick={onNewGame}
-          style={{ fontSize: "0.85rem" }}>
+        <button className="ballsort-btn" onClick={onNewGame}>
           <FontAwesomeIcon icon={faShuffle} /> New Game
         </button>
         <button
-          className="btn"
-          onClick={() => setSizeIdx((s) => (s + 1) % sizeLabels.length)}
-          style={{ fontSize: "0.85rem" }}>
+          className="ballsort-btn"
+          onClick={() => setSizeIdx((s) => (s + 1) % sizeLabels.length)}>
           <FontAwesomeIcon icon={faMagnifyingGlassPlus} /> {sizeLabels[sizeIdx]}
         </button>
       </div>
@@ -533,23 +669,29 @@ function GameScreen({
       <div
         ref={gridRef}
         className={`ballsort-grid ${sizeClass} ${tubes.length > 7 ? "ballsort-grid-compact" : ""}`}
-        style={{ position: "relative" }}>
+        style={
+          {
+            position: "relative",
+            "--bs-cols":
+              tubes.length <= 7 ? tubes.length : Math.ceil(tubes.length / 2),
+          } as React.CSSProperties
+        }>
         {flyingBalls.map((fb, i) => (
           <div
             key={i}
             className="ballsort-ball ballsort-flying-ball"
             style={
               {
-                position: "absolute",
+                ...ballStyle(ballColors[fb.color]),
                 width: fb.size,
                 height: fb.size,
-                borderRadius: "50%",
-                backgroundColor: ballColors[fb.color]?.hsl,
                 left: fb.startX,
                 top: fb.startY,
-                zIndex: 10,
                 "--fly-end-x": `${fb.endX - fb.startX}px`,
                 "--fly-end-y": `${fb.endY - fb.startY}px`,
+                "--fly-peak-y": `${fb.peakY - fb.startY}px`,
+                "--fly-ms": `${FLY_MS}ms`,
+                "--fly-delay": `${i * FLY_STAGGER_MS}ms`,
               } as React.CSSProperties
             }
           />
@@ -579,6 +721,13 @@ function GameScreen({
                       selectedTube === i ? selectedGroup.count : 0
                     }
                     canReceive={canReceive}
+                    isComplete={
+                      tube.length === tubeCapacity &&
+                      tube.every((b) => b === tube[0])
+                    }
+                    isShaking={shakeTube === i}
+                    landedCount={landed.tube === i ? landed.count : 0}
+                    landedKey={moveCount}
                     tubeCapacity={tubeCapacity}
                     ballColors={ballColors}
                     hiddenTopCount={animSrc === i ? animCount : 0}
@@ -609,6 +758,12 @@ function WinScreen({
   onNewGame: () => void;
 }) {
   const isPerfect = optimalMoves != null && moveCount === optimalMoves;
+  const stars = isPerfect
+    ? 3
+    : optimalMoves != null && moveCount <= Math.ceil(optimalMoves * 1.5)
+      ? 2
+      : 1;
+  const headline = isPerfect ? "Perfect!" : stars === 2 ? "Great job!" : "You did it!";
   return (
     <Container
       maxWidth="sm"
@@ -617,80 +772,51 @@ function WinScreen({
         alignItems: "center",
         justifyContent: "center",
         minHeight: "70vh",
-        textAlign: "center",
       }}>
-      <div className="ballsort-win">
+      <div className="ballsort-panel ballsort-win">
         <div className="ballsort-win-confetti" aria-hidden>
-          <span
-            className="ballsort-confetti-piece"
-            style={{ "--ci": 0 } as React.CSSProperties}
-          />
-          <span
-            className="ballsort-confetti-piece"
-            style={{ "--ci": 1 } as React.CSSProperties}
-          />
-          <span
-            className="ballsort-confetti-piece"
-            style={{ "--ci": 2 } as React.CSSProperties}
-          />
-          <span
-            className="ballsort-confetti-piece"
-            style={{ "--ci": 3 } as React.CSSProperties}
-          />
-          <span
-            className="ballsort-confetti-piece"
-            style={{ "--ci": 4 } as React.CSSProperties}
-          />
-          <span
-            className="ballsort-confetti-piece"
-            style={{ "--ci": 5 } as React.CSSProperties}
-          />
-          <span
-            className="ballsort-confetti-piece"
-            style={{ "--ci": 6 } as React.CSSProperties}
-          />
-          <span
-            className="ballsort-confetti-piece"
-            style={{ "--ci": 7 } as React.CSSProperties}
-          />
+          {Array.from({ length: 8 }).map((_, ci) => (
+            <span
+              key={ci}
+              className="ballsort-confetti-piece"
+              style={{ "--ci": ci } as React.CSSProperties}
+            />
+          ))}
         </div>
         <div className="ballsort-win-trophy">
           <FontAwesomeIcon icon={faTrophy} />
         </div>
-        <Typography variant="h3" sx={{ fontWeight: 800, mb: 1 }}>
-          {isPerfect ? "Perfect!" : "You solved it!"}
+        <Typography variant="h3" className="ballsort-title" sx={{ mb: 1 }}>
+          {headline}
         </Typography>
-        <div className="ballsort-win-stars">
-          <FontAwesomeIcon
-            icon={faStar}
-            className={isPerfect ? "ballsort-star-lit" : "ballsort-star-dim"}
-          />
-          <FontAwesomeIcon icon={faStar} className="ballsort-star-lit" />
-          <FontAwesomeIcon
-            icon={faStar}
-            className={isPerfect ? "ballsort-star-lit" : "ballsort-star-dim"}
-          />
+        <div className="ballsort-win-stars" aria-label={`${stars} of 3 stars`}>
+          {[0, 1, 2].map((si) => (
+            <FontAwesomeIcon
+              key={si}
+              icon={faStar}
+              className={si < stars ? "ballsort-star-lit" : "ballsort-star-dim"}
+            />
+          ))}
         </div>
-        <Typography variant="h5" sx={{ opacity: 0.75, mb: 0.5 }}>
+        <Typography
+          variant="h5"
+          className="ballsort-title"
+          sx={{ opacity: 0.9, mb: 0.5 }}>
           {moveCount} moves
         </Typography>
         {optimalMoves != null && !isPerfect && (
-          <Typography variant="body2" sx={{ opacity: 0.5, mb: 2 }}>
-            Best possible: {optimalMoves} moves
+          <Typography variant="body2" sx={{ opacity: 0.65 }}>
+            Can you do it in {optimalMoves}?
           </Typography>
         )}
-        <div
-          style={{
-            display: "flex",
-            gap: 14,
-            justifyContent: "center",
-            marginTop: 20,
-          }}>
-          <button className="btn ballsort-win-btn" onClick={onPlayAgain}>
+        <div className="ballsort-win-buttons">
+          <button
+            className="ballsort-btn ballsort-btn-primary"
+            onClick={onPlayAgain}>
             <FontAwesomeIcon icon={faRepeat} /> Play Again
           </button>
-          <button className="btn ballsort-win-btn" onClick={onNewGame}>
-            <FontAwesomeIcon icon={faFlask} /> New Puzzle
+          <button className="ballsort-btn" onClick={onNewGame}>
+            <FontAwesomeIcon icon={faFlask} /> Change Setup
           </button>
         </div>
       </div>
@@ -814,7 +940,7 @@ export default function BallSort() {
   if (isLoading) return null;
 
   return (
-    <Box sx={{ pb: 4 }}>
+    <Box className="ballsort-wrap">
       {gameState === "START" && (
         <StartScreen
           numColors={numColors}

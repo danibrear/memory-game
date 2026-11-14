@@ -16,6 +16,7 @@ import {
 } from "react-router";
 import type { Route } from "./+types/root";
 import "./app.css";
+import "./game-kit.css";
 import NavBar, { NAV_HEIGHT } from "./components/NavBar";
 import Welcome from "./components/Welcome";
 import { theme } from "./theme";

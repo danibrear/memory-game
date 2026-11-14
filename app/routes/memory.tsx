@@ -1,18 +1,31 @@
 import {
-  faArrowUp,
-  faBolt,
+  faArrowRight,
+  faArrowsRotate,
   faBrain,
   faCheck,
+  faCrown,
   faEye,
+  faHandPointer,
   faMedal,
-  faQuestion,
+  faPlay,
   faStar,
   faTrophy,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Box, Container, Typography } from "@mui/material";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  Banner,
+  GameShell,
+  getGame,
+  KitButton,
+  Panel,
+  StartScreen,
+  StatPill,
+  Stars,
+  Stepper,
+  WinScreen,
+} from "~/components/game/GameKit";
 import { clearStoredData, getStoredData, setStoredData } from "~/storage";
 import type { Route } from "./+types/memory";
 
@@ -21,461 +34,348 @@ export function meta({}: Route.MetaArgs) {
     { title: "Memory Game - Games by DaniB" },
     {
       name: "description",
-      content: "Remember the highlighted cells and find them all!",
+      content: "Watch the tiles light up, remember them, then find them all!",
     },
   ];
 }
 
+const STORAGE_KEY = "memory-game-state";
+const BEST_KEY = "memory-game-best";
+const MIN_SIZE = 2;
+const MAX_SIZE = 15;
+const COUNT_STEP_MS = 700;
+
+type Phase = "START" | "COUNTDOWN" | "SHOWING" | "ACTIVE" | "ENDED";
+
+const LEVELS: { max: number; label: string; color: string }[] = [
+  { max: 2, label: "Tiny", color: "#0ea5e9" },
+  { max: 4, label: "Easy", color: "#16a34a" },
+  { max: 6, label: "Medium", color: "#d97706" },
+  { max: 8, label: "Hard", color: "#dc2626" },
+  { max: 10, label: "Expert", color: "#9333ea" },
+  { max: Infinity, label: "Genius", color: "#db2777" },
+];
+const levelFor = (size: number) => LEVELS.find((l) => size <= l.max)!;
+
+/** How long the tiles stay lit, scaled to the board. */
+const showTimeFor = (size: number) =>
+  Math.min(4500, Math.max(1600, 1300 + size * 230));
+
+function pickTargets(size: number): number[] {
+  const picks = new Set<number>();
+  while (picks.size < size) picks.add(Math.floor(Math.random() * size * size));
+  return [...picks];
+}
+
+function starsFor(size: number, mistakes: number): number {
+  if (mistakes === 0) return 3;
+  if (mistakes <= Math.max(1, Math.floor(size / 3))) return 2;
+  return 1;
+}
+
 export default function Memory() {
-  const [gameState, setGameState] = useState<
-    "START" | "ACTIVE" | "INTRO" | "SHOWING" | "ENDED"
-  >("START");
-  const [correctCells, setCorrectCells] = useState<Set<number>>(new Set());
-  const [incorrectCells, setIncorrectCells] = useState<Set<number>>(new Set());
-  const [selectedCells, setSelectedCells] = useState<Set<number>>(new Set());
-  const [difficulty, setDifficulty] = useState<number>(3);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const game = getGame("memory");
 
-  const getGameStateJson = () => ({
-    gameState,
-    correctCells: Array.from(correctCells),
-    incorrectCells: Array.from(incorrectCells),
-    selectedCells: Array.from(selectedCells),
-    difficulty,
-  });
+  const [phase, setPhase] = useState<Phase>("START");
+  const [size, setSize] = useState(3);
+  const [targets, setTargets] = useState<number[]>([]);
+  const [found, setFound] = useState<number[]>([]);
+  const [wrong, setWrong] = useState<number[]>([]);
+  const [count, setCount] = useState(3);
+  const [best, setBest] = useState(0);
+  const [loaded, setLoaded] = useState(false);
 
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const later = (fn: () => void, ms: number) => {
+    timers.current.push(setTimeout(fn, ms));
+  };
+  const clearTimers = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+  };
+  useEffect(() => clearTimers, []);
+
+  /** Countdown → light up the tiles → hand over to the player. */
+  const playReveal = (boardSize: number) => {
+    clearTimers();
+    setCount(3);
+    setPhase("COUNTDOWN");
+    later(() => setCount(2), COUNT_STEP_MS);
+    later(() => setCount(1), COUNT_STEP_MS * 2);
+    later(() => setPhase("SHOWING"), COUNT_STEP_MS * 3);
+    later(() => setPhase("ACTIVE"), COUNT_STEP_MS * 3 + showTimeFor(boardSize));
+  };
+
+  const startRound = (boardSize = size) => {
+    setSize(boardSize);
+    setTargets(pickTargets(boardSize));
+    setFound([]);
+    setWrong([]);
+    playReveal(boardSize);
+  };
+
+  // Restore (understands the older save format too)
   useEffect(() => {
-    if (gameState !== "ACTIVE") return;
-    if (correctCells.size === selectedCells.size && correctCells.size > 0) {
-      setGameState("ENDED");
-      clearStoredData("memory-game-state");
-    } else {
-      setStoredData("memory-game-state", getGameStateJson());
-    }
-  }, [correctCells, gameState, selectedCells, incorrectCells]);
+    const savedBest = getStoredData(BEST_KEY);
+    if (typeof savedBest === "number") setBest(savedBest);
 
-  useEffect(() => {
-    setIsLoading(true);
-    const storedData = getStoredData("memory-game-state");
-    if (storedData) {
-      setGameState(storedData.gameState);
-      setCorrectCells(new Set(storedData.correctCells));
-      setIncorrectCells(new Set(storedData.incorrectCells));
-      setSelectedCells(new Set(storedData.selectedCells));
-      setDifficulty(storedData.difficulty);
+    const s = getStoredData(STORAGE_KEY);
+    const savedTargets: number[] | undefined = s?.selectedCells;
+    if (s && Array.isArray(savedTargets) && savedTargets.length > 0) {
+      const d = Number(s.difficulty) || 3;
+      setSize(d);
+      setTargets(savedTargets);
+      setFound(s.correctCells ?? []);
+      setWrong(s.incorrectCells ?? []);
+      if (s.gameState === "ACTIVE") setPhase("ACTIVE");
+      else if (["INTRO", "COUNTDOWN", "SHOWING"].includes(s.gameState)) {
+        // Interrupted while memorising — show the tiles again
+        setFound([]);
+        setWrong([]);
+        playReveal(d);
+      }
     }
-    setIsLoading(false);
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
-    if (gameState === "ENDED") {
-      clearStoredData("memory-game-state");
-    } else if (!isLoading) {
-      setStoredData("memory-game-state", getGameStateJson());
+    if (!loaded) return;
+    if (phase === "START" || phase === "ENDED") {
+      clearStoredData(STORAGE_KEY);
+      return;
     }
-  }, [gameState, isLoading]);
+    setStoredData(STORAGE_KEY, {
+      gameState: phase,
+      difficulty: size,
+      selectedCells: targets,
+      correctCells: found,
+      incorrectCells: wrong,
+    });
+  }, [loaded, phase, size, targets, found, wrong]);
 
-  useEffect(() => {
-    if (gameState !== "START" || isLoading) return;
-    setCorrectCells(new Set());
-    setIncorrectCells(new Set());
-    setSelectedCells(new Set());
-  }, [difficulty, isLoading]);
+  const handleTap = (index: number) => {
+    if (phase !== "ACTIVE") return;
+    if (found.includes(index) || wrong.includes(index)) return;
 
-  const handleClickCell = (index: number) => {
-    if (gameState !== "ACTIVE") return;
-    if (selectedCells.has(index)) {
-      setCorrectCells((s) => {
-        s.add(index);
-        return new Set(s);
-      });
+    if (targets.includes(index)) {
+      const nextFound = [...found, index];
+      setFound(nextFound);
+      if (nextFound.length === targets.length) {
+        if (size > best) {
+          setBest(size);
+          setStoredData(BEST_KEY, size);
+        }
+        later(() => setPhase("ENDED"), 700);
+      }
     } else {
-      setIncorrectCells((s) => {
-        s.add(index);
-        return new Set(s);
-      });
+      setWrong((w) => [...w, index]);
     }
   };
 
-  const handleStartGame = (d = difficulty) => {
-    const newCorrectCells = new Set<number>();
-    const totalCells = d * d;
-    while (newCorrectCells.size < d) {
-      const randomIndex = Math.floor(Math.random() * totalCells);
-      newCorrectCells.add(randomIndex);
-    }
-    setCorrectCells(new Set());
-    setIncorrectCells(new Set());
-    setSelectedCells(newCorrectCells);
-    setGameState("INTRO");
-    setTimeout(() => setGameState("SHOWING"), 2000);
-    setTimeout(() => setGameState("ACTIVE"), 4000);
-  };
+  const level = levelFor(size);
 
-  const accuracy =
-    correctCells.size + incorrectCells.size > 0
-      ? Math.round(
-          (correctCells.size / (correctCells.size + incorrectCells.size)) * 100,
-        )
-      : 100;
-
-  const DIFFICULTY_LABELS: Record<number, string> = {
-    2: "Tiny",
-    3: "Easy",
-    4: "Easy",
-    5: "Medium",
-    6: "Medium",
-    7: "Hard",
-    8: "Hard",
-    9: "Expert",
-    10: "Expert",
-  };
-  const diffLabel =
-    DIFFICULTY_LABELS[difficulty] ?? (difficulty >= 11 ? "Insane" : "Easy");
-
-  const diffColor =
-    difficulty <= 4
-      ? "#22c55e"
-      : difficulty <= 6
-        ? "#f59e0b"
-        : difficulty <= 8
-          ? "#ef4444"
-          : "#a855f7";
-
-  const endIcon =
-    incorrectCells.size === 0 ? faTrophy : accuracy >= 80 ? faMedal : faBrain;
-  const endTitle =
-    incorrectCells.size === 0
-      ? "Perfect!"
-      : accuracy >= 80
-        ? "Well done!"
-        : "Nice try!";
-  const endSubtitle =
-    incorrectCells.size === 0
-      ? "Flawless memory!"
-      : accuracy >= 80
-        ? `${accuracy}% accuracy — great job!`
-        : `${accuracy}% accuracy — keep practising!`;
-
-  return (
-    <Box sx={{ minHeight: "calc(100dvh - 64px)" }}>
-      {/* ── Start screen ── */}
-      {gameState === "START" && (
-        <Container maxWidth="xs" sx={{ textAlign: "center", pt: 6, pb: 4 }}>
-          <Box sx={{ fontSize: "4rem", mb: 1, color: "#6366f1" }}>
-            <FontAwesomeIcon icon={faBrain} />
-          </Box>
-          <Typography variant="h3" sx={{ fontWeight: 900, mb: 1 }}>
-            Memory Game
-          </Typography>
-          <Typography variant="body1" sx={{ mb: 4, opacity: 0.6 }}>
-            Watch the grid, remember the glowing cells, then find them all!
-          </Typography>
-
-          <Box
-            sx={{
-              background: "rgba(99,102,241,0.08)",
-              border: "1.5px solid rgba(99,102,241,0.2)",
-              borderRadius: 4,
-              p: 3,
-              mb: 4,
-            }}>
-            <Typography
-              variant="overline"
-              sx={{ opacity: 0.55, letterSpacing: 2 }}>
-              Difficulty
-            </Typography>
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 2,
-                mt: 1,
-                mb: 2,
-                justifyContent: "center",
-              }}>
-              <button
-                className="icon-btn"
-                onClick={() => setDifficulty((d) => Math.max(2, d - 1))}>
-                −
-              </button>
-              <Box sx={{ textAlign: "center", minWidth: 80 }}>
-                <Typography
-                  variant="h4"
-                  sx={{ fontWeight: 900, lineHeight: 1 }}>
-                  {difficulty}×{difficulty}
-                </Typography>
-                <Typography
-                  variant="caption"
-                  sx={{ color: diffColor, fontWeight: 700, letterSpacing: 1 }}>
-                  {diffLabel}
-                </Typography>
-              </Box>
-              <button
-                className="icon-btn"
-                onClick={() => setDifficulty((d) => Math.min(15, d + 1))}>
-                +
-              </button>
-            </Box>
+  // ── Start ──
+  if (phase === "START") {
+    return (
+      <GameShell game={game}>
+        <StartScreen
+          game={game}
+          subtitle="Watch the tiles light up, remember where they were, then tap them all!">
+          <Panel label="Board size">
+            <Stepper
+              label="board size"
+              value={size}
+              min={MIN_SIZE}
+              max={MAX_SIZE}
+              onChange={setSize}>
+              {size}×{size}
+              <span
+                className="dg-label"
+                style={{ color: level.color, letterSpacing: "0.1em" }}>
+                {level.label}
+              </span>
+            </Stepper>
             <input
               type="range"
-              min={2}
-              max={15}
-              value={difficulty}
-              onChange={(e) => setDifficulty(parseInt(e.target.value))}
-              style={{ width: "100%" }}
+              min={MIN_SIZE}
+              max={MAX_SIZE}
+              value={size}
+              aria-label="Board size"
+              onChange={(e) => setSize(parseInt(e.target.value, 10))}
+              style={{ accentColor: game.colors.to }}
             />
-            <Typography
-              variant="caption"
-              sx={{ opacity: 0.45, display: "block", mt: 0.5 }}>
-              Find {difficulty} cells in a {difficulty}×{difficulty} grid
-            </Typography>
-          </Box>
+            <span className="dg-caption">
+              Remember <strong>{size}</strong> glowing tiles
+            </span>
+          </Panel>
+          {best > 0 && (
+            <StatPill icon={faCrown} color="#f59e0b">
+              Best: {best}×{best}
+            </StatPill>
+          )}
+          <KitButton size="lg" icon={faPlay} onClick={() => startRound()}>
+            Play!
+          </KitButton>
+        </StartScreen>
+      </GameShell>
+    );
+  }
 
-          <button
-            className="btn"
-            onClick={() => handleStartGame()}
-            style={{ fontSize: "1.2rem", padding: "14px 48px" }}>
-            Play!&nbsp;&nbsp;
-            <FontAwesomeIcon icon={faBrain} />
-          </button>
-        </Container>
-      )}
-
-      {/* ── Ended screen ── */}
-      {gameState === "ENDED" && (
-        <Container maxWidth="xs" sx={{ textAlign: "center", pt: 6, pb: 4 }}>
-          <Box
-            sx={{
-              fontSize: "3.5rem",
-              mb: 2,
-              color:
-                incorrectCells.size === 0
-                  ? "#f59e0b"
-                  : accuracy >= 80
-                    ? "#6366f1"
-                    : "#64748b",
-              animation: "bounceIn 0.5s ease",
-            }}>
-            <FontAwesomeIcon icon={endIcon} />
-          </Box>
-          <Typography variant="h3" sx={{ fontWeight: 900, mb: 1 }}>
-            {endTitle}
-          </Typography>
-          <Typography variant="h5" sx={{ mb: 1, opacity: 0.7 }}>
-            Found all <strong>{difficulty}</strong> cells
-          </Typography>
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "center",
-              gap: 0.75,
-              mb: 1,
-            }}>
-            {Array.from({ length: difficulty }, (_, i) => (
-              <FontAwesomeIcon
-                key={i}
-                icon={faStar}
-                style={{
-                  color: i < correctCells.size ? "#f59e0b" : "#e2e8f0",
-                  fontSize: "1rem",
-                  transition: "color 0.2s",
-                }}
-              />
-            ))}
-          </Box>
-          <Typography variant="body2" sx={{ mb: 4, opacity: 0.5 }}>
-            {endSubtitle}
-          </Typography>
-          <Box
-            sx={{
-              display: "flex",
-              gap: 2,
-              justifyContent: "center",
-              flexWrap: "wrap",
-            }}>
-            <button
-              className="btn"
-              onClick={() => handleStartGame()}
-              style={{ fontSize: "1rem", padding: "12px 32px" }}>
+  // ── Ended ──
+  if (phase === "ENDED") {
+    const mistakes = wrong.length;
+    const stars = starsFor(size, mistakes);
+    const accuracy = Math.round((found.length / (found.length + mistakes)) * 100);
+    const title = stars === 3 ? "Perfect!" : stars === 2 ? "Great job!" : "You did it!";
+    return (
+      <GameShell game={game}>
+        <WinScreen
+          icon={stars === 3 ? faTrophy : stars === 2 ? faMedal : faBrain}
+          iconColor={stars === 1 ? game.colors.to : undefined}
+          title={title}
+          subtitle={
+            <>
+              Found all <strong>{size}</strong> tiles on the {size}×{size} board.
+            </>
+          }>
+          <Stars count={stars} />
+          <div className="dg-row">
+            <StatPill
+              icon={faXmark}
+              color="#dc2626"
+              dim={mistakes === 0}
+              label="Mistakes">
+              {mistakes} {mistakes === 1 ? "miss" : "misses"}
+            </StatPill>
+            <StatPill icon={faCheck} color="#16a34a" label="Accuracy">
+              {accuracy}%
+            </StatPill>
+          </div>
+          <div className="dg-row" style={{ marginTop: 8 }}>
+            <KitButton
+              variant="neutral"
+              icon={faArrowsRotate}
+              onClick={() => startRound()}>
               Play Again
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                const next = Math.min(15, difficulty + 1);
-                setDifficulty(next);
-                handleStartGame(next);
-              }}
-              style={{
-                fontSize: "1rem",
-                padding: "12px 32px",
-                background: "linear-gradient(135deg, #a855f7, #6366f1)",
-              }}>
-              Level Up&nbsp;&nbsp;
-              <FontAwesomeIcon icon={faArrowUp} />
-            </button>
-          </Box>
-        </Container>
-      )}
-
-      {/* ── Active / Showing / Intro ── */}
-      {(gameState === "ACTIVE" ||
-        gameState === "SHOWING" ||
-        gameState === "INTRO") && (
-        <Box>
-          {/* HUD */}
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              px: 3,
-              py: 1.5,
-              position: "sticky",
-              top: 0,
-              zIndex: 10,
-              bgcolor: "background.paper",
-              borderBottom: "1px solid",
-              borderColor: "divider",
-            }}>
-            <Typography
-              variant="h6"
-              sx={{
-                fontWeight: 700,
-                fontSize: "1rem",
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
-              }}>
-              <FontAwesomeIcon icon={faStar} style={{ color: "#f59e0b" }} />
-              {correctCells.size} / {difficulty}
-            </Typography>
-
-            {gameState === "SHOWING" && (
-              <Box
-                sx={{
-                  px: 2,
-                  py: 0.5,
-                  borderRadius: 99,
-                  background: "linear-gradient(135deg,#6366f1,#a855f7)",
-                  color: "white",
-                  fontWeight: 700,
-                  fontSize: "0.85rem",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1,
-                  animation: "fadeIn 0.3s ease",
-                }}>
-                <FontAwesomeIcon icon={faEye} />
-                Remember these!
-              </Box>
+            </KitButton>
+            {size < MAX_SIZE && (
+              <KitButton iconEnd={faArrowRight} onClick={() => startRound(size + 1)}>
+                Next Level
+              </KitButton>
             )}
-            {gameState === "INTRO" && (
-              <Box
-                sx={{
-                  px: 2,
-                  py: 0.5,
-                  borderRadius: 99,
-                  background: "rgba(99,102,241,0.15)",
-                  fontWeight: 700,
-                  fontSize: "0.85rem",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1,
-                }}>
-                <FontAwesomeIcon icon={faBolt} />
-                Get ready…
-              </Box>
-            )}
+          </div>
+        </WinScreen>
+      </GameShell>
+    );
+  }
 
-            <Typography
-              sx={{
-                fontWeight: 700,
-                fontSize: "0.95rem",
-                opacity: incorrectCells.size > 0 ? 1 : 0.3,
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
-                color: incorrectCells.size > 0 ? "#ef4444" : "inherit",
-              }}>
-              <FontAwesomeIcon icon={faXmark} />
-              {incorrectCells.size}
-            </Typography>
-          </Box>
+  // ── Playing ──
+  const gap = size <= 5 ? 9 : size <= 8 ? 6 : size <= 11 ? 4 : 3;
+  const iconSize = `calc(min(92vw, 60vh, 600px) / ${size} * 0.4)`;
+  const showMs = showTimeFor(size);
 
-          {/* Grid */}
-          <Box
-            sx={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              pt: 2,
-              pb: 3,
-              px: 2,
-            }}>
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: `repeat(${difficulty}, 1fr)`,
-                gap: `${Math.max(6 - Math.floor(difficulty / 4), 2)}px`,
-                width: "min(90vw, 70vh)",
-              }}>
-              {Array.from({ length: difficulty * difficulty }, (_, index) => {
-                const isCorrect = correctCells.has(index);
-                const isIncorrect = incorrectCells.has(index);
-                const isShowing =
-                  gameState === "SHOWING" && selectedCells.has(index);
-                const isClickable =
-                  gameState === "ACTIVE" && !isCorrect && !isIncorrect;
+  return (
+    <GameShell game={game}>
+      <div className="dg-hud" style={{ maxWidth: 600 }}>
+        <StatPill icon={faStar} color="#f59e0b" label="Tiles found">
+          {found.length} / {size}
+        </StatPill>
+        {phase === "COUNTDOWN" && (
+          <Banner tone="soft" key="ready">
+            Get ready…
+          </Banner>
+        )}
+        {phase === "SHOWING" && (
+          <Banner tone="gold" icon={faEye} key="show">
+            Remember!
+          </Banner>
+        )}
+        {phase === "ACTIVE" && (
+          <Banner icon={faHandPointer} key="go">
+            Your turn!
+          </Banner>
+        )}
+        <StatPill
+          icon={faXmark}
+          color="#dc2626"
+          dim={wrong.length === 0}
+          label="Mistakes">
+          {wrong.length}
+        </StatPill>
+      </div>
 
-                const cardClass = [
-                  "memory-card",
-                  isShowing ? "memory-card--showing" : "",
-                  isCorrect ? "memory-card--correct" : "",
-                  isIncorrect ? "memory-card--incorrect" : "",
-                  isClickable ? "memory-card--clickable" : "",
+      <div className={`mm-timer ${phase === "SHOWING" ? "is-on" : ""}`}>
+        {phase === "SHOWING" && (
+          <i style={{ "--ms": `${showMs}ms` } as CSSProperties} />
+        )}
+      </div>
+
+      <div className="dg-tray">
+        {phase === "COUNTDOWN" && (
+          <div className="mm-countdown" aria-live="assertive">
+            <span key={count}>{count}</span>
+          </div>
+        )}
+        <div
+          className="mm-grid"
+          style={
+            {
+              gridTemplateColumns: `repeat(${size}, 1fr)`,
+              gap: `${gap}px`,
+              "--mm-icon": iconSize,
+            } as CSSProperties
+          }>
+          {Array.from({ length: size * size }, (_, index) => {
+            const isFound = found.includes(index);
+            const isWrong = wrong.includes(index);
+            const isLit = phase === "SHOWING" && targets.includes(index);
+            const clickable = phase === "ACTIVE" && !isFound && !isWrong;
+            return (
+              <button
+                key={index}
+                type="button"
+                className={[
+                  "mm-tile",
+                  (isFound || isWrong) && "is-flipped",
+                  isFound && "is-good",
+                  isWrong && "is-bad",
+                  isLit && "is-lit",
+                  clickable && "is-clickable",
                 ]
                   .filter(Boolean)
-                  .join(" ");
+                  .join(" ")}
+                tabIndex={clickable ? 0 : -1}
+                aria-label={
+                  isFound ? "Found" : isWrong ? "Miss" : isLit ? "Lit tile" : "Tile"
+                }
+                onClick={() => handleTap(index)}>
+                <span className="mm-tile-inner">
+                  <span className="mm-face mm-down">
+                    <FontAwesomeIcon icon={faStar} />
+                  </span>
+                  <span
+                    className={`mm-face mm-up ${isWrong ? "mm-up--bad" : "mm-up--good"}`}>
+                    <FontAwesomeIcon icon={isWrong ? faXmark : faCheck} />
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-                return (
-                  <div
-                    key={index}
-                    className={cardClass}
-                    onClick={() => handleClickCell(index)}
-                    style={{ paddingBottom: "100%", position: "relative" }}>
-                    <div className="memory-card__face memory-card__back">
-                      {(isShowing || isCorrect) && (
-                        <FontAwesomeIcon icon={faCheck} />
-                      )}
-                      {isIncorrect && <FontAwesomeIcon icon={faXmark} />}
-                    </div>
-                    <div className="memory-card__face memory-card__front">
-                      <FontAwesomeIcon icon={faQuestion} />
-                    </div>
-                  </div>
-                );
-              })}
-            </Box>
-
-            {gameState === "ACTIVE" && (
-              <Box sx={{ mt: 3, textAlign: "center" }}>
-                <button
-                  onClick={() => setGameState("START")}
-                  className="btn btn-sm"
-                  style={{
-                    opacity: 0.6,
-                    fontSize: "0.8rem",
-                    padding: "6px 20px",
-                  }}>
-                  Restart
-                </button>
-              </Box>
-            )}
-          </Box>
-        </Box>
-      )}
-    </Box>
+      <div className="dg-row" style={{ marginTop: 22 }}>
+        <KitButton
+          variant="neutral"
+          size="sm"
+          icon={faArrowsRotate}
+          onClick={() => {
+            clearTimers();
+            setPhase("START");
+          }}>
+          Quit
+        </KitButton>
+      </div>
+    </GameShell>
   );
 }

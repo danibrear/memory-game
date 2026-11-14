@@ -1,18 +1,55 @@
+import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import {
+  faAppleWhole,
   faArrowsRotate,
-  faCopy,
+  faBolt,
+  faCarrot,
+  faCat,
+  faCrown,
+  faDog,
+  faDove,
+  faDragon,
+  faFeather,
+  faFish,
+  faFrog,
+  faGem,
+  faGhost,
   faGrip,
+  faHandshake,
+  faHeart,
+  faHippo,
+  faIceCream,
+  faLeaf,
+  faMoon,
+  faMusic,
   faPlay,
-  faRepeat,
+  faRocket,
+  faSnowflake,
   faStar,
+  faSun,
   faTrophy,
+  faUser,
+  faUserGroup,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Box, Container, Typography, useMediaQuery } from "@mui/material";
 import shuffle from "lodash/shuffle";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  Banner,
+  ChoiceGroup,
+  GameShell,
+  getGame,
+  KitButton,
+  Panel,
+  StartScreen,
+  StatPill,
+  Stars,
+  Stepper,
+  WinScreen,
+  type BannerTone,
+} from "~/components/game/GameKit";
 import { getStoredData, setStoredData } from "~/storage";
-import type { Route } from "./+types/memory";
+import type { Route } from "./+types/match";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -20,386 +57,412 @@ export function meta({}: Route.MetaArgs) {
     {
       name: "description",
       content:
-        "Take turns finding matching pairs! The player with the most matches wins.",
+        "Flip cards to find matching pairs. Play solo or take turns with a friend!",
     },
   ];
 }
 
-const storageKey = "match-game-state";
+/** 24 pictures — enough for the largest (7×7) board. */
+const CARDS: { icon: IconDefinition; color: string }[] = [
+  { icon: faStar, color: "#f59e0b" },
+  { icon: faHeart, color: "#e11d48" },
+  { icon: faRocket, color: "#2563eb" },
+  { icon: faCat, color: "#ea580c" },
+  { icon: faFrog, color: "#16a34a" },
+  { icon: faMoon, color: "#7c3aed" },
+  { icon: faSun, color: "#eab308" },
+  { icon: faFish, color: "#0891b2" },
+  { icon: faDragon, color: "#dc2626" },
+  { icon: faGhost, color: "#64748b" },
+  { icon: faIceCream, color: "#db2777" },
+  { icon: faCrown, color: "#ca8a04" },
+  { icon: faDog, color: "#a16207" },
+  { icon: faSnowflake, color: "#0ea5e9" },
+  { icon: faLeaf, color: "#65a30d" },
+  { icon: faGem, color: "#9333ea" },
+  { icon: faMusic, color: "#4f46e5" },
+  { icon: faBolt, color: "#f97316" },
+  { icon: faDove, color: "#0284c7" },
+  { icon: faAppleWhole, color: "#b91c1c" },
+  { icon: faHippo, color: "#6d28d9" },
+  { icon: faCarrot, color: "#ea580c" },
+  { icon: faFeather, color: "#0d9488" },
+  { icon: faHandshake, color: "#c2410c" },
+];
 
+const PLAYER_ICONS = { 1: faCat, 2: faDog } as const;
+
+const STORAGE_KEY = "match-game-state";
 const EMPTY_CELL_VALUE = -1;
+const MIN_SIZE = 2;
+const MAX_SIZE = 7;
+
+type Phase = "START" | "ACTIVE" | "FINISHED";
+type PlayerId = 1 | 2;
+/** 0 = matched before player tracking existed (older saves) */
+type Owner = 0 | PlayerId;
+
+function buildBoard(size: number): number[] {
+  const pairs = Math.floor((size * size) / 2);
+  const pieces = shuffle(Array.from({ length: pairs }, (_, i) => i + 1));
+  const deck = shuffle([...pieces, ...pieces]);
+  if (size % 2 === 1) {
+    // keep the spare square in the very middle
+    const mid = Math.floor((size * size) / 2);
+    deck.splice(mid, 0, EMPTY_CELL_VALUE);
+  }
+  return deck;
+}
+
+function soloStars(pairs: number, tries: number): number {
+  if (tries <= Math.ceil(pairs * 1.5)) return 3;
+  if (tries <= Math.ceil(pairs * 2.3)) return 2;
+  return 1;
+}
 
 export default function Match() {
-  const [gameState, setGameState] = useState<
-    "START" | "ACTIVE" | "RESTORED" | "FINISHED"
-  >("START");
+  const game = getGame("match");
 
+  const [phase, setPhase] = useState<Phase>("START");
+  const [size, setSize] = useState(4);
+  const [players, setPlayers] = useState<1 | 2>(2);
   const [cellValues, setCellValues] = useState<number[]>([]);
-  const [difficulty, setDifficulty] = useState<number>(4);
-  const [restoring, setRestoring] = useState<boolean>(true);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [matchedBy, setMatchedBy] = useState<Record<number, Owner>>({});
+  const [scores, setScores] = useState<{ 1: number; 2: number }>({ 1: 0, 2: 0 });
+  const [turn, setTurn] = useState<PlayerId>(1);
+  const [tries, setTries] = useState(0);
+  const [shaking, setShaking] = useState<number[]>([]);
+  const [flash, setFlash] = useState<{ id: number; text: string; tone: BannerTone } | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
-  const [player1Score, setPlayer1Score] = useState<number>(0);
-  const [player2Score, setPlayer2Score] = useState<number>(0);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const later = (fn: () => void, ms: number) => {
+    timers.current.push(setTimeout(fn, ms));
+  };
+  const clearTimers = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+  };
+  useEffect(() => clearTimers, []);
 
-  const [turn, setTurn] = useState<1 | 2>(1);
-  const [selectedCells, setSelectedCells] = useState<number[]>([]);
-  const [revealedCells, setRevealedCells] = useState<number[]>([]);
-  const isDark = useMediaQuery("(prefers-color-scheme: dark)");
-
-  const getGameStateJson = () => ({
-    gameState,
-    cells: difficulty,
-    cellValues,
-    player1Score,
-    player2Score,
-    turn,
-    revealedCells,
-    selectedCells,
-  });
-
-  const resetState = () => {
-    setRevealedCells([]);
-    setSelectedCells([]);
-    setTurn(1);
-    setRestoring(false);
-    setPlayer1Score(0);
-    setPlayer2Score(0);
+  const showFlash = (text: string, tone: BannerTone) => {
+    const id = Date.now();
+    setFlash({ id, text, tone });
+    later(() => setFlash((f) => (f?.id === id ? null : f)), 1300);
   };
 
-  const buildBoard = (size: number) => {
-    const newSize = Math.floor((size * size) / 2);
-    const pieces = new Array(newSize).fill(0).map((_, i) => i + 1);
-    const doublePieces = pieces.concat(pieces);
-    let shuffled = shuffle(doublePieces);
-    for (let i = 0; i < 5; i++) {
-      shuffled = shuffle(shuffled);
-    }
-    const odd = size % 2 === 1 ? [EMPTY_CELL_VALUE] : [];
-    const half1 = shuffled.slice(0, Math.floor(shuffled.length / 2));
-    const half2 = shuffled.slice(Math.floor(shuffled.length / 2));
-    return [...shuffle(half1), ...odd, ...shuffle(half2)];
-  };
-
+  // Restore an in-progress game (also understands the older save format)
   useEffect(() => {
-    const state = getStoredData(storageKey);
-    if (state && state.gameState === "ACTIVE") {
-      setGameState(state.gameState);
-      setDifficulty(state.cells);
-      setCellValues(state.cellValues);
-      setPlayer1Score(state.player1Score);
-      setPlayer2Score(state.player2Score);
-      setTurn(state.turn);
-      setRevealedCells(state.revealedCells);
-      setSelectedCells(state.selectedCells);
-      setRestoring(false);
+    const s = getStoredData(STORAGE_KEY);
+    if (s && s.gameState === "ACTIVE" && Array.isArray(s.cellValues)) {
+      setSize(s.cells);
+      setCellValues(s.cellValues);
+      setPlayers(s.players === 1 ? 1 : 2);
+      setScores({ 1: s.player1Score ?? 0, 2: s.player2Score ?? 0 });
+      setTurn(s.turn === 2 ? 2 : 1);
+      setTries(s.tries ?? 0);
+      const owners: Record<number, Owner> = {};
+      if (s.matchedBy && typeof s.matchedBy === "object") {
+        Object.assign(owners, s.matchedBy);
+      } else if (Array.isArray(s.revealedCells)) {
+        s.revealedCells.forEach((i: number) => (owners[i] = 0));
+      }
+      setMatchedBy(owners);
+      // A half-finished turn can't be resumed mid-animation — keep only a single pick
+      setSelected(Array.isArray(s.selectedCells) && s.selectedCells.length === 1 ? s.selectedCells : []);
+      setPhase("ACTIVE");
     }
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
-    if (restoring) return;
-    setStoredData(storageKey, getGameStateJson());
-  }, [
-    cellValues,
-    restoring,
-    revealedCells,
-    selectedCells,
-    player1Score,
-    player2Score,
-    turn,
-    gameState,
-  ]);
+    if (!loaded) return;
+    setStoredData(STORAGE_KEY, {
+      gameState: phase,
+      cells: size,
+      cellValues,
+      players,
+      player1Score: scores[1],
+      player2Score: scores[2],
+      turn,
+      tries,
+      matchedBy,
+      revealedCells: Object.keys(matchedBy).map(Number),
+      selectedCells: selected.length === 1 ? selected : [],
+    });
+  }, [loaded, phase, size, cellValues, players, scores, turn, tries, matchedBy, selected]);
 
-  const handleClickCell = (index: number) => {
-    if (gameState !== "ACTIVE") return;
-    if (
-      selectedCells.length < 2 &&
-      !selectedCells.includes(index) &&
-      !revealedCells.includes(index)
-    ) {
-      const newSelected = [...selectedCells, index];
-      setSelectedCells(newSelected);
-      if (newSelected.length === 2) {
-        const [firstIndex, secondIndex] = newSelected;
-        if (cellValues[firstIndex] === cellValues[secondIndex]) {
-          setRevealedCells((revealed) => [
-            ...revealed,
-            firstIndex,
-            secondIndex,
-          ]);
-          if (
-            (difficulty % 2 === 1 &&
-              revealedCells.length + 3 === cellValues.length) ||
-            (difficulty % 2 === 0 &&
-              revealedCells.length + 2 === cellValues.length)
-          ) {
-            setGameState("FINISHED");
-          }
-          if (turn === 1) {
-            setPlayer1Score((score) => score + 1);
-          } else {
-            setPlayer2Score((score) => score + 1);
-          }
-          setSelectedCells([]);
+  const totalPairs = Math.floor((size * size) / 2);
+  const matchedPairs = Object.keys(matchedBy).length / 2;
+  const busy = selected.length >= 2;
+
+  const startGame = (newSize = size) => {
+    clearTimers();
+    setSize(newSize);
+    setCellValues(buildBoard(newSize));
+    setSelected([]);
+    setMatchedBy({});
+    setScores({ 1: 0, 2: 0 });
+    setTurn(1);
+    setTries(0);
+    setShaking([]);
+    setFlash(null);
+    setPhase("ACTIVE");
+  };
+
+  const handleFlip = (index: number) => {
+    if (phase !== "ACTIVE" || busy) return;
+    if (selected.includes(index) || index in matchedBy) return;
+    if (cellValues[index] === EMPTY_CELL_VALUE) return;
+
+    const next = [...selected, index];
+    setSelected(next);
+    if (next.length < 2) return;
+
+    const [a, b] = next;
+    const who = turn;
+    setTries((t) => t + 1);
+
+    if (cellValues[a] === cellValues[b]) {
+      later(() => {
+        setMatchedBy((m) => ({ ...m, [a]: who, [b]: who }));
+        setScores((s) => ({ ...s, [who]: s[who] + 1 }));
+        setSelected([]);
+        const done = matchedPairs + 1 >= totalPairs;
+        if (done) {
+          later(() => setPhase("FINISHED"), 900);
         } else {
-          setTurn(turn === 1 ? 2 : 1);
-          setTimeout(() => {
-            setSelectedCells([]);
-          }, 1000);
+          showFlash(players === 2 ? "Match! Go again!" : "Match!", "good");
         }
-      }
-      setStoredData(storageKey, getGameStateJson());
+      }, 450);
+    } else {
+      later(() => setShaking([a, b]), 650);
+      later(() => {
+        setShaking([]);
+        setSelected([]);
+        if (players === 2) {
+          const other: PlayerId = who === 1 ? 2 : 1;
+          setTurn(other);
+          showFlash(`Player ${other}'s turn`, other === 1 ? "p1" : "p2");
+        }
+      }, 1250);
     }
   };
 
-  const handleSetDifficulty = (newDifficulty: number) => {
-    setDifficulty(newDifficulty);
-    setGameState("ACTIVE");
-    setCellValues(buildBoard(newDifficulty));
-    resetState();
-  };
-
-  const handleRestart = () => {
-    setCellValues(buildBoard(difficulty));
-    resetState();
-    setGameState("ACTIVE");
-  };
-
-  // ── Start screen ──
-  if (gameState === "START") {
+  // ── Start ──
+  if (phase === "START") {
     return (
-      <Box sx={{ minHeight: "calc(100dvh - 64px)" }}>
-        <Container maxWidth="xs" sx={{ textAlign: "center", pt: 6, pb: 4 }}>
-          <Box sx={{ fontSize: "4rem", mb: 1, color: "#6366f1" }}>
-            <FontAwesomeIcon icon={faCopy} />
-          </Box>
-          <Typography variant="h3" sx={{ fontWeight: 900, mb: 1 }}>
-            Match Game
-          </Typography>
-          <Typography variant="body1" sx={{ mb: 4, opacity: 0.6 }}>
-            Take turns finding matching pairs of cells. The player with the most
-            matches wins!
-          </Typography>
-
-          <Box
-            sx={{
-              background: "rgba(99,102,241,0.08)",
-              border: "1.5px solid rgba(99,102,241,0.2)",
-              borderRadius: 4,
-              p: 3,
-              mb: 4,
-            }}>
-            <Typography
-              variant="overline"
-              sx={{ opacity: 0.55, letterSpacing: 2 }}>
-              Grid Size
-            </Typography>
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 2,
-                mt: 1,
-                mb: 1,
-                justifyContent: "center",
-              }}>
-              <button
-                className="icon-btn"
-                onClick={() => setDifficulty((d) => Math.max(2, d - 1))}>
-                −
-              </button>
-              <Typography variant="h4" sx={{ fontWeight: 700, minWidth: 80 }}>
-                {difficulty}×{difficulty}
-              </Typography>
-              <button
-                className="icon-btn"
-                onClick={() => setDifficulty((d) => Math.min(7, d + 1))}>
-                +
-              </button>
-            </Box>
-            <Typography variant="caption" sx={{ opacity: 0.45 }}>
-              {Math.floor((difficulty * difficulty) / 2)} pairs to find
-            </Typography>
-          </Box>
-
-          <button
-            className="btn"
-            onClick={() => handleSetDifficulty(difficulty)}
-            style={{ fontSize: "1.2rem", padding: "14px 48px" }}>
-            <FontAwesomeIcon icon={faPlay} /> Start!
-          </button>
-        </Container>
-      </Box>
-    );
-  }
-
-  // ── Finished screen ──
-  if (gameState === "FINISHED") {
-    const isTie = player1Score === player2Score;
-    const winner = player1Score > player2Score ? 1 : 2;
-    return (
-      <Box sx={{ minHeight: "calc(100dvh - 64px)" }}>
-        <Container
-          maxWidth="sm"
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minHeight: "70vh",
-            textAlign: "center",
-          }}>
-          <div className="match-win">
-            <div className="match-win-icon">
-              <FontAwesomeIcon icon={isTie ? faStar : faTrophy} />
-            </div>
-            <Typography variant="h3" sx={{ fontWeight: 800, mb: 1 }}>
-              {isTie ? "It's a Tie!" : `Player ${winner} Wins!`}
-            </Typography>
-
-            <div className="match-scores-final">
-              <div
-                className={`match-score-card match-p1 ${!isTie && winner === 1 ? "match-score-winner" : ""}`}>
-                <Typography variant="overline" sx={{ opacity: 0.6 }}>
-                  Player 1
-                </Typography>
-                <Typography variant="h3" sx={{ fontWeight: 800 }}>
-                  {player1Score}
-                </Typography>
-              </div>
-              <Typography
-                variant="h5"
-                sx={{ opacity: 0.3, alignSelf: "center" }}>
-                vs
-              </Typography>
-              <div
-                className={`match-score-card match-p2 ${!isTie && winner === 2 ? "match-score-winner" : ""}`}>
-                <Typography variant="overline" sx={{ opacity: 0.6 }}>
-                  Player 2
-                </Typography>
-                <Typography variant="h3" sx={{ fontWeight: 800 }}>
-                  {player2Score}
-                </Typography>
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                gap: 14,
-                justifyContent: "center",
-                marginTop: 24,
-              }}>
-              <button className="btn" onClick={handleRestart}>
-                <FontAwesomeIcon icon={faRepeat} /> Play Again
-              </button>
-              <button className="btn" onClick={() => setGameState("START")}>
-                <FontAwesomeIcon icon={faGrip} /> Change Size
-              </button>
-            </div>
-          </div>
-        </Container>
-      </Box>
-    );
-  }
-
-  // ── Active game ──
-  return (
-    <Box sx={{ minHeight: "calc(100dvh - 64px)" }}>
-      <Container maxWidth="md" sx={{ textAlign: "center", py: 2 }}>
-        {/* Header */}
-        <div className="match-header">
-          <Typography variant="h5" sx={{ fontWeight: 600 }}>
-            <FontAwesomeIcon icon={faCopy} /> Match Game
-          </Typography>
-        </div>
-
-        {/* Scores */}
-        <div className="match-scoreboard">
-          <div
-            className={`match-player match-p1 ${turn === 1 ? "match-player-active" : ""}`}>
-            <Typography variant="overline" sx={{ opacity: 0.7, lineHeight: 1 }}>
-              Player 1
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 800 }}>
-              {player1Score}
-            </Typography>
-          </div>
-          <div className="match-turn-indicator">
-            <Typography variant="caption" sx={{ opacity: 0.5 }}>
-              Turn
-            </Typography>
-            <div
-              className={`match-turn-dot ${turn === 1 ? "match-p1" : "match-p2"}`}
+      <GameShell game={game}>
+        <StartScreen
+          game={game}
+          subtitle="Flip two cards at a time and find all the matching pairs!">
+          <Panel label="Players">
+            <ChoiceGroup
+              label="Number of players"
+              value={players}
+              onChange={setPlayers}
+              options={[
+                { value: 1, label: "Solo", icon: faUser },
+                { value: 2, label: "2 Players", icon: faUserGroup },
+              ]}
             />
-          </div>
-          <div
-            className={`match-player match-p2 ${turn === 2 ? "match-player-active" : ""}`}>
-            <Typography variant="overline" sx={{ opacity: 0.7, lineHeight: 1 }}>
-              Player 2
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 800 }}>
-              {player2Score}
-            </Typography>
+            <span className="dg-label" style={{ marginTop: 6 }}>
+              Board size
+            </span>
+            <Stepper
+              label="board size"
+              value={size}
+              min={MIN_SIZE}
+              max={MAX_SIZE}
+              onChange={setSize}>
+              {size}×{size}
+            </Stepper>
+            <span className="dg-caption">
+              {totalPairs} {totalPairs === 1 ? "pair" : "pairs"} to find
+            </span>
+          </Panel>
+          <KitButton size="lg" icon={faPlay} onClick={() => startGame()}>
+            Play!
+          </KitButton>
+        </StartScreen>
+      </GameShell>
+    );
+  }
+
+  // ── Finished ──
+  if (phase === "FINISHED") {
+    const tie = scores[1] === scores[2];
+    const winner: PlayerId = scores[1] > scores[2] ? 1 : 2;
+    return (
+      <GameShell game={game}>
+        {players === 2 ? (
+          <WinScreen
+            icon={tie ? faHandshake : faTrophy}
+            title={tie ? "It's a tie!" : `Player ${winner} wins!`}
+            subtitle={tie ? "Great teamwork — nobody beat anybody!" : "What a memory!"}>
+            <div className="mg-final">
+              {([1, 2] as const).map((p) => (
+                <div
+                  key={p}
+                  className={`mg-player mg-player--p${p} ${!tie && winner === p ? "is-winner" : ""}`}>
+                  <span className="mg-avatar">
+                    <FontAwesomeIcon icon={!tie && winner === p ? faCrown : PLAYER_ICONS[p]} />
+                  </span>
+                  <span className="mg-player-name">Player {p}</span>
+                  <span className="mg-player-score">{scores[p]}</span>
+                </div>
+              ))}
+            </div>
+            <Actions onAgain={() => startGame()} onMenu={() => setPhase("START")} />
+          </WinScreen>
+        ) : (
+          <WinScreen
+            icon={faTrophy}
+            title="You did it!"
+            subtitle={
+              <>
+                Found all <strong>{totalPairs}</strong> pairs in{" "}
+                <strong>{tries}</strong> tries.
+              </>
+            }>
+            <Stars count={soloStars(totalPairs, tries)} />
+            <Actions onAgain={() => startGame()} onMenu={() => setPhase("START")} />
+          </WinScreen>
+        )}
+      </GameShell>
+    );
+  }
+
+  // ── Playing ──
+  const iconSize = `calc(min(92vw, 58vh, 600px) / ${size} * 0.42)`;
+  const gap = size <= 4 ? 10 : size <= 5 ? 8 : 6;
+
+  return (
+    <GameShell game={game}>
+      {players === 2 ? (
+        <div className="mg-score">
+          {([1, 2] as const).map((p) => (
+            <div
+              key={p}
+              className={`mg-player mg-player--p${p} ${turn === p ? "is-turn" : ""}`}
+              style={{ gridColumn: p === 1 ? 1 : 3, gridRow: 1 }}>
+              <span className="mg-avatar">
+                <FontAwesomeIcon icon={PLAYER_ICONS[p]} />
+              </span>
+              <span>
+                <div className="mg-player-name">Player {p}</div>
+                <div className="mg-player-score">{scores[p]}</div>
+              </span>
+            </div>
+          ))}
+          <div className="mg-mid" style={{ gridColumn: 2, gridRow: 1 }}>
+            {totalPairs - matchedPairs}
+            <small>left</small>
           </div>
         </div>
-
-        {/* Actions */}
-        <div className="match-actions">
-          <button
-            className="btn"
-            onClick={handleRestart}
-            style={{ fontSize: "0.85rem" }}>
-            <FontAwesomeIcon icon={faArrowsRotate} /> Restart
-          </button>
-          <button
-            className="btn"
-            onClick={() => setGameState("START")}
-            style={{ fontSize: "0.85rem" }}>
-            <FontAwesomeIcon icon={faGrip} /> Change Size
-          </button>
+      ) : (
+        <div className="dg-hud" style={{ maxWidth: 600 }}>
+          <StatPill icon={faStar} color="#f59e0b" label="Pairs found">
+            {matchedPairs} / {totalPairs}
+          </StatPill>
+          <StatPill icon={faArrowsRotate} label="Tries">
+            {tries} tries
+          </StatPill>
         </div>
+      )}
 
-        {/* Board */}
+      <div className="mg-status">
+        {flash ? (
+          <Banner key={flash.id} tone={flash.tone}>
+            {flash.text}
+          </Banner>
+        ) : players === 2 ? (
+          <Banner key={`turn-${turn}`} tone={turn === 1 ? "p1" : "p2"} icon={PLAYER_ICONS[turn]}>
+            Player {turn}, pick two cards
+          </Banner>
+        ) : (
+          <Banner tone="soft">Find the pairs!</Banner>
+        )}
+      </div>
+
+      <div className="dg-tray">
         <div
-          className="match-board"
-          style={{
-            gridTemplateColumns: `repeat(${difficulty}, 1fr)`,
-            gap: `${Math.max(6 - Math.floor(difficulty / 3), 3)}px`,
-          }}>
+          className="mg-board"
+          style={
+            {
+              gridTemplateColumns: `repeat(${size}, 1fr)`,
+              gap: `${gap}px`,
+              "--mg-icon": iconSize,
+            } as CSSProperties
+          }>
           {cellValues.map((value, index) => {
             if (value === EMPTY_CELL_VALUE) {
-              return (
-                <div key={index} className="match-cell match-cell-empty" />
-              );
+              return <div key={index} className="mg-card mg-card--empty" aria-hidden />;
             }
-            const isRevealed =
-              selectedCells.includes(index) || revealedCells.includes(index);
-            const isMatched = revealedCells.includes(index);
+            const card = CARDS[(value - 1) % CARDS.length];
+            const owner = matchedBy[index];
+            const isMatched = owner !== undefined;
+            const isUp = isMatched || selected.includes(index);
+            const ownerColor =
+              owner === 1 ? "var(--dg-p1)" : owner === 2 ? "var(--dg-p2)" : undefined;
             return (
               <button
                 key={index}
-                className={`match-cell ${isRevealed ? "match-cell-revealed" : "match-cell-hidden"} ${isMatched ? "match-cell-matched" : ""}`}
-                onClick={() => handleClickCell(index)}
+                type="button"
+                className={[
+                  "mg-card",
+                  isUp && "is-up",
+                  isMatched && "is-matched",
+                  shaking.includes(index) && "is-shake",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                disabled={isUp || busy}
+                onClick={() => handleFlip(index)}
+                aria-label={isUp ? "Card face up" : "Face-down card"}
                 style={
-                  isRevealed
-                    ? {
-                        backgroundColor: isDark
-                          ? `hsl(${(value * 137.5) % 360}, 55%, 35%)`
-                          : `hsl(${(value * 137.5) % 360}, 65%, 75%)`,
-                        borderColor: isDark
-                          ? `hsl(${(value * 137.5) % 360}, 50%, 50%)`
-                          : `hsl(${(value * 137.5) % 360}, 55%, 55%)`,
-                      }
-                    : undefined
+                  {
+                    "--card-c": card.color,
+                    ...(ownerColor ? { "--owner": ownerColor } : {}),
+                  } as CSSProperties
                 }>
-                <span
-                  className={`match-cell-face ${isRevealed ? "match-face-show" : ""}`}>
-                  {isRevealed ? value : "?"}
+                <span className="mg-card-inner">
+                  <span className="mg-face mg-back">
+                    <FontAwesomeIcon icon={faStar} />
+                  </span>
+                  <span className="mg-face mg-front">
+                    <FontAwesomeIcon icon={card.icon} />
+                    {isMatched && players === 2 && ownerColor && <span className="mg-owner" />}
+                  </span>
                 </span>
               </button>
             );
           })}
         </div>
-      </Container>
-    </Box>
+      </div>
+
+      <div className="dg-row" style={{ marginTop: 22 }}>
+        <KitButton variant="neutral" size="sm" icon={faArrowsRotate} onClick={() => startGame()}>
+          Restart
+        </KitButton>
+        <KitButton variant="neutral" size="sm" icon={faGrip} onClick={() => { clearTimers(); setPhase("START"); }}>
+          Change Setup
+        </KitButton>
+      </div>
+    </GameShell>
+  );
+}
+
+function Actions({ onAgain, onMenu }: { onAgain: () => void; onMenu: () => void }) {
+  return (
+    <div className="dg-row" style={{ marginTop: 8 }}>
+      <KitButton variant="neutral" icon={faGrip} onClick={onMenu}>
+        Change Setup
+      </KitButton>
+      <KitButton icon={faArrowsRotate} onClick={onAgain}>
+        Play Again
+      </KitButton>
+    </div>
   );
 }

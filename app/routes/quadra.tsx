@@ -1,12 +1,23 @@
-import { Box, Container, Typography } from "@mui/material";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Box } from "@mui/material";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type TouchEvent as ReactTouchEvent,
+} from "react";
 import { clearStoredData, getStoredData, setStoredData } from "~/storage";
 import type { Route } from "./+types/quadra";
 
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Cascade - Games by DaniB" },
-    { name: "description", content: "Tetris with chain reactions!" },
+    {
+      name: "description",
+      content: "Drop blocks, clear lines, and set off chain reactions!",
+    },
   ];
 }
 
@@ -17,21 +28,48 @@ const TICK_MS_START = 800;
 const TICK_MS_MIN = 150;
 const TICK_SPEEDUP = 40; // ms faster per level
 const LINES_PER_LEVEL = 5;
-const CASCADE_DELAY = 200; // ms between cascade steps
+
+/** Grace period after a piece touches down before it locks. */
+const LOCK_DELAY_MS = 500;
+/** How many times moving/rotating can extend the lock delay. */
+const MAX_LOCK_RESETS = 15;
+
+/** Must match the `cascade-clear` animation duration in app.css. */
+const CLEAR_ANIM_MS = 280;
+/** Time between each one-row gravity step during a cascade. */
+const FALL_STEP_MS = 45;
+/** Pause after blocks settle before checking for the next chain link. */
+const CHAIN_PAUSE_MS = 140;
+
+/** Hold-to-repeat timing for on-screen buttons. */
+const DAS_MS = 170;
+const ARR_MS = 55;
+
+const QUEUE_PREVIEW = 3;
+const SPAWN_COL = 4;
+const DANGER_ROWS = 4;
 
 type Cell = { color: number; pieceId: number } | null;
 type Board = Cell[][];
 
-// 7 standard tetrominoes – each rotation is a list of [row, col] offsets
-const COLORS = [
-  "hsl(185, 90%, 50%)", // I - cyan
-  "hsl(50, 95%, 55%)", // O - yellow
-  "hsl(280, 70%, 55%)", // T - purple
-  "hsl(140, 70%, 50%)", // S - green
-  "hsl(0, 80%, 55%)", // Z - red
-  "hsl(220, 80%, 55%)", // J - blue
-  "hsl(25, 90%, 55%)", // L - orange
+interface PieceColor {
+  base: string;
+  light: string;
+  dark: string;
+}
+
+// I, O, T, S, Z, J, L
+const PIECE_COLORS: PieceColor[] = [
+  { base: "#22d3ee", light: "#a5f3fc", dark: "#0e7490" },
+  { base: "#facc15", light: "#fef08a", dark: "#a16207" },
+  { base: "#a855f7", light: "#e9d5ff", dark: "#6b21a8" },
+  { base: "#4ade80", light: "#bbf7d0", dark: "#15803d" },
+  { base: "#f43f5e", light: "#fecdd3", dark: "#9f1239" },
+  { base: "#3b82f6", light: "#bfdbfe", dark: "#1e40af" },
+  { base: "#fb923c", light: "#fed7aa", dark: "#c2410c" },
 ];
+
+const CLEAR_LABELS = ["", "Single", "Double", "Triple", "Quad!", "Mega!"];
 
 // Shapes: offsets from pivot [row, col], 4 rotations each
 type Shape = [number, number][][];
@@ -237,17 +275,24 @@ interface Piece {
 
 let nextPieceId = 1;
 
+// --- Pure game logic ---
+
 function emptyBoard(): Board {
   return Array.from({ length: ROWS }, () => Array<Cell>(COLS).fill(null));
 }
 
-function randomPiece(): Piece {
-  return {
-    shape: Math.floor(Math.random() * SHAPES.length),
-    rotation: 0,
-    row: 0,
-    col: Math.floor(COLS / 2),
-  };
+function spawnPiece(shape: number): Piece {
+  return { shape, rotation: 0, row: 0, col: SPAWN_COL };
+}
+
+/** 7-bag randomizer: every piece shows up once per bag, so no long droughts. */
+function shuffledBag(): number[] {
+  const bag = SHAPES.map((_, i) => i);
+  for (let i = bag.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [bag[i], bag[j]] = [bag[j], bag[i]];
+  }
+  return bag;
 }
 
 function getCells(p: Piece): [number, number][] {
@@ -264,7 +309,11 @@ function isValid(board: Board, p: Piece): boolean {
   );
 }
 
-function lockPiece(board: Board, p: Piece): Board {
+function isGrounded(board: Board, p: Piece): boolean {
+  return !isValid(board, { ...p, row: p.row + 1 });
+}
+
+function lockPiece(board: Board, p: Piece): [Board, number] {
   const next = board.map((row) => [...row]);
   const pieceId = nextPieceId++;
   for (const [r, c] of getCells(p)) {
@@ -272,17 +321,23 @@ function lockPiece(board: Board, p: Piece): Board {
       next[r][c] = { color: p.shape, pieceId };
     }
   }
-  return next;
+  return [next, pieceId];
 }
 
-/** Clear full lines and return [newBoard, linesCleared] */
-function clearLines(board: Board): [Board, number] {
-  const kept = board.filter((row) => row.some((c) => c === null));
-  const cleared = ROWS - kept.length;
-  const empties = Array.from({ length: cleared }, () =>
-    Array<Cell>(COLS).fill(null),
+function findFullRows(board: Board): number[] {
+  const rows: number[] = [];
+  board.forEach((row, i) => {
+    if (row.every((c) => c !== null)) rows.push(i);
+  });
+  return rows;
+}
+
+/** Empty the given rows without shifting anything — gravity does the rest. */
+function clearRowsInPlace(board: Board, rows: number[]): Board {
+  const set = new Set(rows);
+  return board.map((row, i) =>
+    set.has(i) ? Array<Cell>(COLS).fill(null) : [...row],
   );
-  return [[...empties, ...kept], cleared];
 }
 
 /** Find connected groups by piece ID using flood fill */
@@ -329,67 +384,38 @@ function findGroups(board: Board): [number, number][][] {
   return groups;
 }
 
-/** Quadra gravity: connected piece groups fall as rigid units */
-function applyGravity(board: Board): Board {
+/**
+ * Quadra gravity, one row at a time: every connected piece group that has
+ * room underneath drops by one. Called repeatedly so the cascade is visible.
+ */
+function gravityStep(board: Board): [Board, boolean] {
   const next = board.map((row) => [...row]);
-  let changed = true;
+  const groups = findGroups(next).sort(
+    (a, b) =>
+      Math.max(...b.map(([r]) => r)) - Math.max(...a.map(([r]) => r)),
+  );
+  let moved = false;
 
-  while (changed) {
-    changed = false;
-    const groups = findGroups(next);
+  for (const group of groups) {
+    const inGroup = new Set(group.map(([r, c]) => r * COLS + c));
+    const canFall = group.every(
+      ([r, c]) =>
+        r + 1 < ROWS &&
+        (next[r + 1][c] === null || inGroup.has((r + 1) * COLS + c)),
+    );
+    if (!canFall) continue;
 
-    for (const group of groups) {
-      // Check if every cell in the group can move down by 1
-      const canFall = group.every(([r, c]) => {
-        const below = r + 1;
-        if (below >= ROWS) return false;
-        if (next[below][c] === null) return true;
-        // Cell below is occupied — but is it part of the same group?
-        return group.some(([gr, gc]) => gr === below && gc === c);
-      });
-
-      if (canFall) {
-        // Capture cell data before clearing
-        const cells = group.map(
-          ([r, c]) => [r, c, next[r][c]!] as [number, number, Cell],
-        );
-        const sorted = [...cells].sort((a, b) => b[0] - a[0]); // bottom first
-        for (const [r, c] of sorted) {
-          next[r][c] = null;
-        }
-        // Place group one row down
-        for (const [r, c, cell] of sorted) {
-          next[r + 1][c] = cell;
-        }
-        changed = true;
-        break; // restart since board changed
-      }
-    }
+    const cells = group.map(([r, c]) => [r, c, next[r][c]] as const);
+    for (const [r, c] of cells) next[r][c] = null;
+    for (const [r, c, cell] of cells) next[r + 1][c] = cell;
+    moved = true;
   }
 
-  return next;
-}
-
-/** Run cascade: clear lines → gravity → repeat. Returns [board, totalLines, chainLength] */
-function cascade(board: Board): [Board, number, number] {
-  let totalLines = 0;
-  let chain = 0;
-  let current = board;
-
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const [cleared, lines] = clearLines(current);
-    if (lines === 0) break;
-    totalLines += lines;
-    chain++;
-    current = applyGravity(cleared);
-  }
-
-  return [current, totalLines, chain];
+  return [next, moved];
 }
 
 function getGhostRow(board: Board, piece: Piece): number {
-  let ghost = { ...piece };
+  const ghost = { ...piece };
   while (isValid(board, { ...ghost, row: ghost.row + 1 })) {
     ghost.row++;
   }
@@ -397,7 +423,7 @@ function getGhostRow(board: Board, piece: Piece): number {
 }
 
 // --- Scoring ---
-function scoreLines(lines: number, chain: number, level: number): number {
+function scoreFor(lines: number, chain: number, level: number): number {
   const base = [0, 100, 300, 500, 800][Math.min(lines, 4)];
   const chainBonus = chain > 1 ? chain * 200 : 0;
   return (base + chainBonus) * (level + 1);
@@ -407,6 +433,7 @@ function scoreLines(lines: number, chain: number, level: number): number {
 type GameState = "START" | "ACTIVE" | "PAUSED" | "CASCADING" | "OVER";
 
 const STORAGE_KEY = "quadra-game-state";
+const BEST_KEY = "quadra-best-score";
 
 interface SavedState {
   board: Board;
@@ -415,99 +442,136 @@ interface SavedState {
   level: number;
   totalLines: number;
   currentPiece: Piece;
-  nextPiece: Piece;
+  nextPiece?: Piece;
+  queue?: number[];
+  hold?: number | null;
+  canHold?: boolean;
+  bestChain?: number;
 }
 
-// --- Components ---
+interface Popup {
+  id: number;
+  text: string;
+  sub?: string;
+  tone: "score" | "chain" | "level";
+}
 
-function BoardDisplay({
-  board,
-  piece,
-  ghostRow,
-  cascading,
+/** useState + a ref that is updated synchronously, for timer/event logic. */
+function useStateRef<T>(initial: T) {
+  const [value, setValue] = useState<T>(initial);
+  const ref = useRef<T>(value);
+  const set = useCallback((next: T) => {
+    ref.current = next;
+    setValue(next);
+  }, []);
+  return [value, set, ref] as const;
+}
+
+// --- Rendering ---
+
+interface DisplayCell {
+  shape: number;
+  id: number;
+  kind: "block" | "ghost";
+}
+
+const ACTIVE_ID = -2;
+const GHOST_ID = -3;
+
+function blockStyle(
+  cell: DisplayCell,
+  up: boolean,
+  right: boolean,
+  down: boolean,
+  left: boolean,
+): CSSProperties {
+  const G = "var(--gap)";
+  const R = "var(--radius)";
+  const color = PIECE_COLORS[cell.shape];
+  const shape: CSSProperties = {
+    top: up ? 0 : G,
+    right: right ? 0 : G,
+    bottom: down ? 0 : G,
+    left: left ? 0 : G,
+    borderRadius: `${up || left ? 0 : R} ${up || right ? 0 : R} ${down || right ? 0 : R} ${down || left ? 0 : R}`,
+  };
+
+  if (cell.kind === "ghost") {
+    const w = "2px";
+    return {
+      ...shape,
+      background: `${color.base}22`,
+      borderColor: color.base,
+      borderTopWidth: up ? 0 : w,
+      borderRightWidth: right ? 0 : w,
+      borderBottomWidth: down ? 0 : w,
+      borderLeftWidth: left ? 0 : w,
+    };
+  }
+
+  // Bevel only on the outside edges so a piece reads as one chunky shape.
+  const shadows = [
+    !up && "inset 0 var(--bevel) 0 rgba(255,255,255,0.45)",
+    !down && `inset 0 calc(var(--bevel) * -1) 0 ${color.dark}`,
+    !left && "inset var(--bevel) 0 0 rgba(255,255,255,0.2)",
+    !right && "inset calc(var(--bevel) * -1) 0 0 rgba(0,0,0,0.18)",
+  ].filter(Boolean);
+
+  return {
+    ...shape,
+    "--c": color.base,
+    "--cl": color.light,
+    background: color.base,
+    boxShadow: shadows.length ? shadows.join(", ") : "none",
+  } as CSSProperties;
+}
+
+function BlockGrid({
+  cells,
+  className = "",
+  clearingRows,
+  lockedId,
 }: {
-  board: Board;
-  piece: Piece | null;
-  ghostRow: number | null;
-  cascading: boolean;
+  cells: (DisplayCell | null)[][];
+  className?: string;
+  clearingRows?: number[];
+  lockedId?: number | null;
 }) {
-  // Build display grid — map to color index for rendering
-  const display: (number | null)[][] = board.map((row) =>
-    row.map((cell) => (cell !== null ? cell.color : null)),
-  );
+  const rows = cells.length;
+  const cols = cells[0]?.length ?? 0;
+  const clearing = new Set(clearingRows ?? []);
 
-  // Build piece ID grid for connectivity
-  const pieceIds: (number | null)[][] = board.map((row) =>
-    row.map((cell) => (cell !== null ? cell.pieceId : null)),
-  );
-
-  // Use negative IDs for active piece and ghost
-  const ACTIVE_ID = -2;
-  const GHOST_ID = -3;
-
-  // Ghost piece
-  if (piece && ghostRow !== null && !cascading) {
-    const ghostCells = getCells({ ...piece, row: ghostRow });
-    for (const [r, c] of ghostCells) {
-      if (r >= 0 && r < ROWS && c >= 0 && c < COLS && display[r][c] === null) {
-        display[r][c] = -1; // ghost marker
-        pieceIds[r][c] = GHOST_ID;
-      }
-    }
-  }
-
-  // Active piece
-  if (piece && !cascading) {
-    for (const [r, c] of getCells(piece)) {
-      if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
-        display[r][c] = piece.shape;
-        pieceIds[r][c] = ACTIVE_ID;
-      }
-    }
-  }
-
-  const ghostColor = piece ? COLORS[piece.shape] : undefined;
+  const same = (r: number, c: number, cell: DisplayCell) => {
+    if (r < 0 || r >= rows || c < 0 || c >= cols) return false;
+    const other = cells[r][c];
+    return other !== null && other.id === cell.id && other.kind === cell.kind;
+  };
 
   return (
-    <div className="quadra-board">
-      {display.map((row, ri) => (
-        <div key={ri} className="quadra-row">
+    <div className={`cascade-grid ${className}`}>
+      {cells.map((row, ri) => (
+        <div
+          key={ri}
+          className={`cascade-row${clearing.has(ri) ? " is-clearing" : ""}`}>
           {row.map((cell, ci) => {
-            const pid = pieceIds[ri][ci];
-            const filled = cell !== null && cell >= 0;
-            const ghost = cell === -1;
-
-            // Check neighbors for same piece
-            const sameUp =
-              pid !== null && ri > 0 && pieceIds[ri - 1][ci] === pid;
-            const sameDown =
-              pid !== null && ri < ROWS - 1 && pieceIds[ri + 1][ci] === pid;
-            const sameLeft =
-              pid !== null && ci > 0 && pieceIds[ri][ci - 1] === pid;
-            const sameRight =
-              pid !== null && ci < COLS - 1 && pieceIds[ri][ci + 1] === pid;
-
-            const r = 4; // border radius
-            const borderRadius =
-              filled || ghost
-                ? `${sameUp || sameLeft ? 0 : r}px ${sameUp || sameRight ? 0 : r}px ${sameDown || sameRight ? 0 : r}px ${sameDown || sameLeft ? 0 : r}px`
-                : undefined;
-
+            if (!cell) return <div key={ci} className="cascade-cell" />;
+            const up = same(ri - 1, ci, cell);
+            const right = same(ri, ci + 1, cell);
+            const down = same(ri + 1, ci, cell);
+            const left = same(ri, ci - 1, cell);
+            const classes =
+              cell.kind === "ghost"
+                ? "cascade-ghost"
+                : `cascade-block${cell.id === ACTIVE_ID ? " is-active" : ""}${
+                    lockedId != null && cell.id === lockedId ? " is-locked" : ""
+                  }`;
             return (
-              <div
-                key={ci}
-                className={`quadra-cell ${filled ? "quadra-cell-filled" : ""} ${ghost ? "quadra-cell-ghost" : ""} ${sameUp ? "quadra-join-up" : ""} ${sameLeft ? "quadra-join-left" : ""}`}
-                style={
-                  filled
-                    ? { backgroundColor: COLORS[cell], borderRadius }
-                    : ghost && ghostColor
-                      ? ({
-                          "--ghost-color": ghostColor,
-                          borderRadius,
-                        } as React.CSSProperties)
-                      : undefined
-                }
-              />
+              <div key={ci} className="cascade-cell">
+                <div
+                  className={classes}
+                  style={blockStyle(cell, up, right, down, left)}
+                />
+              </div>
             );
           })}
         </div>
@@ -516,540 +580,873 @@ function BoardDisplay({
   );
 }
 
-function NextPieceDisplay({ piece }: { piece: Piece }) {
-  const cells = SHAPES[piece.shape][0];
-  // Find bounding box
-  const minR = Math.min(...cells.map(([r]) => r));
-  const maxR = Math.max(...cells.map(([r]) => r));
-  const minC = Math.min(...cells.map(([, c]) => c));
-  const maxC = Math.max(...cells.map(([, c]) => c));
-  const h = maxR - minR + 1;
-  const w = maxC - minC + 1;
-
-  const grid: (number | null)[][] = Array.from({ length: h }, () =>
-    Array<number | null>(w).fill(null),
+function MiniPiece({ shape }: { shape: number }) {
+  const offsets = SHAPES[shape][0];
+  const minR = Math.min(...offsets.map(([r]) => r));
+  const maxR = Math.max(...offsets.map(([r]) => r));
+  const minC = Math.min(...offsets.map(([, c]) => c));
+  const maxC = Math.max(...offsets.map(([, c]) => c));
+  const grid: (DisplayCell | null)[][] = Array.from(
+    { length: maxR - minR + 1 },
+    () => Array<DisplayCell | null>(maxC - minC + 1).fill(null),
   );
-  for (const [r, c] of cells) {
-    grid[r - minR][c - minC] = piece.shape;
+  for (const [r, c] of offsets) {
+    grid[r - minR][c - minC] = { shape, id: 1, kind: "block" };
   }
+  return <BlockGrid cells={grid} className="cascade-mini" />;
+}
+
+/** On-screen button with hold-to-repeat, using pointer events (no double fires). */
+function CtrlButton({
+  onPress,
+  repeat = false,
+  className = "",
+  label,
+  children,
+}: {
+  onPress: () => void;
+  repeat?: boolean;
+  className?: string;
+  label: string;
+  children: ReactNode;
+}) {
+  const timers = useRef<{
+    delay?: ReturnType<typeof setTimeout>;
+    interval?: ReturnType<typeof setInterval>;
+  }>({});
+  const stop = useCallback(() => {
+    clearTimeout(timers.current.delay);
+    clearInterval(timers.current.interval);
+    timers.current = {};
+  }, []);
+  useEffect(() => stop, [stop]);
 
   return (
-    <div className="quadra-next">
-      <Typography variant="body2" sx={{ mb: 0.5, opacity: 0.6 }}>
-        Next
-      </Typography>
-      <div className="quadra-next-grid">
-        {grid.map((row, ri) => (
-          <div key={ri} className="quadra-row">
-            {row.map((cell, ci) => {
-              const filled = cell !== null;
-              const sameUp = filled && ri > 0 && grid[ri - 1][ci] !== null;
-              const sameDown =
-                filled && ri < h - 1 && grid[ri + 1][ci] !== null;
-              const sameLeft = filled && ci > 0 && grid[ri][ci - 1] !== null;
-              const sameRight =
-                filled && ci < w - 1 && grid[ri][ci + 1] !== null;
-              const rad = 4;
-              const borderRadius = filled
-                ? `${sameUp || sameLeft ? 0 : rad}px ${sameUp || sameRight ? 0 : rad}px ${sameDown || sameRight ? 0 : rad}px ${sameDown || sameLeft ? 0 : rad}px`
-                : undefined;
-              return (
-                <div
-                  key={ci}
-                  className={`quadra-cell quadra-cell-small ${filled ? "quadra-cell-filled" : ""} ${sameUp ? "quadra-join-up" : ""} ${sameLeft ? "quadra-join-left" : ""}`}
-                  style={
-                    filled
-                      ? { backgroundColor: COLORS[cell], borderRadius }
-                      : undefined
-                  }
-                />
-              );
-            })}
-          </div>
-        ))}
-      </div>
+    <button
+      type="button"
+      aria-label={label}
+      className={`cascade-ctrl ${className}`}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        stop();
+        onPress();
+        if (repeat) {
+          timers.current.delay = setTimeout(() => {
+            timers.current.interval = setInterval(onPress, ARR_MS);
+          }, DAS_MS);
+        }
+      }}
+      onPointerUp={stop}
+      onPointerLeave={stop}
+      onPointerCancel={stop}
+      onContextMenu={(e) => e.preventDefault()}>
+      {children}
+    </button>
+  );
+}
+
+function Overlay({ children }: { children: ReactNode }) {
+  return (
+    <div className="cascade-overlay">
+      <div className="cascade-overlay-card">{children}</div>
     </div>
   );
 }
 
 function GameScreen() {
-  const [board, setBoard] = useState<Board>(emptyBoard);
-  const [piece, setPiece] = useState<Piece>(randomPiece);
-  const [nextPiece, setNextPiece] = useState<Piece>(randomPiece);
-  const [gameState, setGameState] = useState<GameState>("ACTIVE");
-  const [score, setScore] = useState(0);
-  const [level, setLevel] = useState(0);
-  const [totalLines, setTotalLines] = useState(0);
-  const [chain, setChain] = useState(0);
-  const [showChain, setShowChain] = useState(false);
+  const [board, setBoard, boardRef] = useStateRef<Board>(emptyBoard());
+  const [piece, setPiece, pieceRef] = useStateRef<Piece>(spawnPiece(0));
+  const [queue, setQueue, queueRef] = useStateRef<number[]>([]);
+  const [hold, setHold, holdRef] = useStateRef<number | null>(null);
+  const [canHold, setCanHold, canHoldRef] = useStateRef(true);
+  const [gameState, setGameState, gameStateRef] =
+    useStateRef<GameState>("START");
+  const [score, setScore, scoreRef] = useStateRef(0);
+  const [level, setLevel, levelRef] = useStateRef(0);
+  const [lines, setLines, linesRef] = useStateRef(0);
+  const [bestChain, setBestChain, bestChainRef] = useStateRef(0);
+  const [best, setBest, bestRef] = useStateRef(0);
+  const [isNewBest, setIsNewBest] = useState(false);
+  const [clearingRows, setClearingRows] = useState<number[]>([]);
+  const [lockedId, setLockedId] = useState<number | null>(null);
+  const [impact, setImpact] = useState(false);
+  const [popups, setPopups] = useState<Popup[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  const tickRef = useRef<ReturnType<typeof setInterval>>(null);
-  const cascadeRef = useRef<ReturnType<typeof setTimeout>>(null);
-  const boardRef = useRef(board);
-  const pieceRef = useRef(piece);
-  const nextPieceRef = useRef(nextPiece);
-  const gameStateRef = useRef(gameState);
-  const scoreRef = useRef(score);
-  const levelRef = useRef(level);
-  const totalLinesRef = useRef(totalLines);
-  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(
-    null,
-  );
+  const boardElRef = useRef<HTMLDivElement>(null);
+  const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lockResetsRef = useRef(0);
+  const timersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  const popupIdRef = useRef(0);
+  const touchRef = useRef<{
+    x0: number;
+    y0: number;
+    lastX: number;
+    lastY: number;
+    t: number;
+    moved: boolean;
+  } | null>(null);
 
-  boardRef.current = board;
-  pieceRef.current = piece;
-  nextPieceRef.current = nextPiece;
-  gameStateRef.current = gameState;
-  scoreRef.current = score;
-  levelRef.current = level;
-  totalLinesRef.current = totalLines;
+  // --- Timer helpers ---
+  const later = (fn: () => void, ms: number) => {
+    const id = setTimeout(() => {
+      timersRef.current.delete(id);
+      fn();
+    }, ms);
+    timersRef.current.add(id);
+  };
+  const clearLater = () => {
+    timersRef.current.forEach((id) => clearTimeout(id));
+    timersRef.current.clear();
+  };
+  const clearLockTimer = () => {
+    if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+    lockTimerRef.current = null;
+  };
 
-  // Save to localStorage
-  const saveState = useCallback(() => {
+  const pushPopup = (p: Omit<Popup, "id">) => {
+    const id = ++popupIdRef.current;
+    setPopups((prev) => [...prev, { ...p, id }]);
+    later(() => setPopups((prev) => prev.filter((x) => x.id !== id)), 1250);
+  };
+
+  // --- Persistence ---
+  const persist = () => {
     setStoredData(STORAGE_KEY, {
       board: boardRef.current,
       nextPieceId,
       score: scoreRef.current,
       level: levelRef.current,
-      totalLines: totalLinesRef.current,
+      totalLines: linesRef.current,
       currentPiece: pieceRef.current,
-      nextPiece: nextPieceRef.current,
+      nextPiece: spawnPiece(queueRef.current[0] ?? 0),
+      queue: queueRef.current,
+      hold: holdRef.current,
+      canHold: canHoldRef.current,
+      bestChain: bestChainRef.current,
     } satisfies SavedState);
-  }, []);
+  };
 
-  // Restore from localStorage
-  useEffect(() => {
-    const stored = getStoredData(STORAGE_KEY) as SavedState | null;
-    if (stored?.board && stored.currentPiece) {
-      setBoard(stored.board);
-      setPiece(stored.currentPiece);
-      setNextPiece(stored.nextPiece);
-      setScore(stored.score ?? 0);
-      setLevel(stored.level ?? 0);
-      setTotalLines(stored.totalLines ?? 0);
-      if (stored.nextPieceId) nextPieceId = stored.nextPieceId;
+  // --- Core actions (read refs only, so stale closures are safe) ---
+  const takeFromQueue = (): number => {
+    let q = queueRef.current.slice();
+    while (q.length <= QUEUE_PREVIEW) q = q.concat(shuffledBag());
+    const shape = q.shift()!;
+    while (q.length < QUEUE_PREVIEW) q = q.concat(shuffledBag());
+    setQueue(q);
+    return shape;
+  };
+
+  const endGame = () => {
+    clearLockTimer();
+    setGameState("OVER");
+    clearStoredData(STORAGE_KEY);
+    if (scoreRef.current > bestRef.current) {
+      setBest(scoreRef.current);
+      setStoredData(BEST_KEY, scoreRef.current);
+      setIsNewBest(true);
     }
-    setIsLoaded(true);
-  }, []);
+  };
 
-  const togglePause = useCallback(() => {
+  const spawn = (shape: number): boolean => {
+    const p = spawnPiece(shape);
+    lockResetsRef.current = 0;
+    if (!isValid(boardRef.current, p)) {
+      endGame();
+      return false;
+    }
+    setPiece(p);
+    return true;
+  };
+
+  const startLockTimer = () => {
+    if (lockTimerRef.current) return;
+    lockTimerRef.current = setTimeout(() => {
+      lockTimerRef.current = null;
+      if (
+        gameStateRef.current === "ACTIVE" &&
+        isGrounded(boardRef.current, pieceRef.current)
+      ) {
+        lockAndCascade();
+      }
+    }, LOCK_DELAY_MS);
+  };
+
+  /** Commit a moved piece and manage lock delay (move-reset, capped). */
+  const afterMove = (p: Piece) => {
+    setPiece(p);
+    const canReset = lockResetsRef.current < MAX_LOCK_RESETS;
+    if (isGrounded(boardRef.current, p)) {
+      if (lockTimerRef.current && canReset) {
+        clearLockTimer();
+        lockResetsRef.current++;
+      }
+      startLockTimer();
+    } else if (lockTimerRef.current) {
+      clearLockTimer();
+      lockResetsRef.current++;
+    }
+  };
+
+  const tryMove = (dc: number, dr: number): boolean => {
+    if (gameStateRef.current !== "ACTIVE") return false;
+    const cur = pieceRef.current;
+    const moved = { ...cur, col: cur.col + dc, row: cur.row + dr };
+    if (!isValid(boardRef.current, moved)) return false;
+    afterMove(moved);
+    return true;
+  };
+
+  const runCascade = (start: Board) => {
+    setGameState("CASCADING");
+    let current = start;
+    let chain = 0;
+    let cleared = 0;
+
+    const finish = () => {
+      setClearingRows([]);
+      if (chain > 0) {
+        const total = linesRef.current + cleared;
+        setLines(total);
+        const newLevel = Math.floor(total / LINES_PER_LEVEL);
+        if (newLevel > levelRef.current) {
+          setLevel(newLevel);
+          pushPopup({ text: `Level ${newLevel + 1}!`, tone: "level" });
+        }
+        if (chain > bestChainRef.current) setBestChain(chain);
+      }
+      setCanHold(true);
+      setGameState("ACTIVE");
+      if (spawn(takeFromQueue())) persist();
+    };
+
+    const step = () => {
+      const full = findFullRows(current);
+      if (full.length === 0) {
+        finish();
+        return;
+      }
+      chain++;
+      cleared += full.length;
+      const pts = scoreFor(full.length, chain, levelRef.current);
+      setScore(scoreRef.current + pts);
+      pushPopup(
+        chain > 1
+          ? {
+              text: `Chain ×${chain}!`,
+              sub: `+${pts.toLocaleString()}`,
+              tone: "chain",
+            }
+          : {
+              text: CLEAR_LABELS[Math.min(full.length, CLEAR_LABELS.length - 1)],
+              sub: `+${pts.toLocaleString()}`,
+              tone: "score",
+            },
+      );
+      setClearingRows(full);
+
+      later(() => {
+        setClearingRows([]);
+        current = clearRowsInPlace(current, full);
+        setBoard(current);
+        const fall = () => {
+          const [next, moved] = gravityStep(current);
+          if (!moved) {
+            later(step, CHAIN_PAUSE_MS);
+            return;
+          }
+          current = next;
+          setBoard(current);
+          later(fall, FALL_STEP_MS);
+        };
+        later(fall, FALL_STEP_MS);
+      }, CLEAR_ANIM_MS);
+    };
+
+    step();
+  };
+
+  const lockAndCascade = () => {
+    clearLockTimer();
+    lockResetsRef.current = 0;
+    const [locked, id] = lockPiece(boardRef.current, pieceRef.current);
+    setBoard(locked);
+    setLockedId(id);
+    later(() => setLockedId((cur) => (cur === id ? null : cur)), 300);
+    runCascade(locked);
+  };
+
+  const moveLeft = () => void tryMove(-1, 0);
+  const moveRight = () => void tryMove(1, 0);
+
+  const rotate = (dir: 1 | -1 = 1) => {
+    if (gameStateRef.current !== "ACTIVE") return;
+    const p = pieceRef.current;
+    const rotation = (p.rotation + dir + 4) % 4;
+    // Wall / floor kicks: [colOffset, rowOffset]
+    const kicks: [number, number][] = [
+      [0, 0],
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [-2, 0],
+      [2, 0],
+      [-1, -1],
+      [1, -1],
+    ];
+    for (const [dc, dr] of kicks) {
+      const candidate = { ...p, rotation, col: p.col + dc, row: p.row + dr };
+      if (isValid(boardRef.current, candidate)) {
+        afterMove(candidate);
+        return;
+      }
+    }
+  };
+
+  const softDrop = () => {
+    if (gameStateRef.current !== "ACTIVE") return;
+    if (tryMove(0, 1)) {
+      setScore(scoreRef.current + 1);
+    } else {
+      lockAndCascade();
+    }
+  };
+
+  const hardDrop = () => {
+    if (gameStateRef.current !== "ACTIVE") return;
+    const p = { ...pieceRef.current };
+    const target = getGhostRow(boardRef.current, p);
+    const dropped = target - p.row;
+    p.row = target;
+    setPiece(p);
+    setScore(scoreRef.current + dropped * 2);
+    setImpact(true);
+    later(() => setImpact(false), 180);
+    lockAndCascade();
+  };
+
+  const holdPiece = () => {
+    if (gameStateRef.current !== "ACTIVE" || !canHoldRef.current) return;
+    clearLockTimer();
+    const current = pieceRef.current.shape;
+    const held = holdRef.current;
+    setHold(current);
+    setCanHold(false);
+    spawn(held ?? takeFromQueue());
+  };
+
+  const tick = () => {
+    if (gameStateRef.current !== "ACTIVE") return;
+    if (!tryMove(0, 1)) startLockTimer();
+  };
+
+  const togglePause = () => {
     if (gameStateRef.current === "ACTIVE") {
+      clearLockTimer();
       setGameState("PAUSED");
+      persist();
     } else if (gameStateRef.current === "PAUSED") {
       setGameState("ACTIVE");
     }
+  };
+
+  const newGame = () => {
+    clearLater();
+    clearLockTimer();
+    clearStoredData(STORAGE_KEY);
+    nextPieceId = 1;
+    setBoard(emptyBoard());
+    setQueue([...shuffledBag(), ...shuffledBag()]);
+    setHold(null);
+    setCanHold(true);
+    setScore(0);
+    setLevel(0);
+    setLines(0);
+    setBestChain(0);
+    setIsNewBest(false);
+    setPopups([]);
+    setClearingRows([]);
+    setLockedId(null);
+    setGameState("ACTIVE");
+    spawn(takeFromQueue());
+  };
+
+  // Latest handlers for listeners/intervals registered once.
+  const handlers = useRef({
+    tick,
+    moveLeft,
+    moveRight,
+    rotate,
+    softDrop,
+    hardDrop,
+    holdPiece,
+    togglePause,
+    newGame,
+    persist,
+  });
+  handlers.current = {
+    tick,
+    moveLeft,
+    moveRight,
+    rotate,
+    softDrop,
+    hardDrop,
+    holdPiece,
+    togglePause,
+    newGame,
+    persist,
+  };
+
+  // Restore saved game + best score
+  useEffect(() => {
+    const savedBest = getStoredData(BEST_KEY);
+    if (typeof savedBest === "number") setBest(savedBest);
+
+    const stored = getStoredData(STORAGE_KEY) as SavedState | null;
+    if (stored?.board && stored.currentPiece) {
+      let q =
+        stored.queue && stored.queue.length > 0
+          ? stored.queue
+          : [stored.nextPiece?.shape ?? 0];
+      while (q.length < QUEUE_PREVIEW + 1) q = q.concat(shuffledBag());
+      setBoard(stored.board);
+      setPiece(stored.currentPiece);
+      setQueue(q);
+      setHold(stored.hold ?? null);
+      setCanHold(stored.canHold ?? true);
+      setScore(stored.score ?? 0);
+      setLevel(stored.level ?? 0);
+      setLines(stored.totalLines ?? 0);
+      setBestChain(stored.bestChain ?? 0);
+      if (stored.nextPieceId) nextPieceId = stored.nextPieceId;
+      setGameState("PAUSED");
+    }
+    setIsLoaded(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const tickMs = Math.max(TICK_MS_MIN, TICK_MS_START - level * TICK_SPEEDUP);
 
-  const spawnNext = useCallback(() => {
-    const np = nextPieceRef.current;
-    if (!isValid(boardRef.current, np)) {
-      setGameState("OVER");
-      clearStoredData(STORAGE_KEY);
-      return;
-    }
-    setPiece(np);
-    const fresh = randomPiece();
-    setNextPiece(fresh);
-  }, []);
-
-  const runCascade = useCallback(
-    (lockedBoard: Board) => {
-      setGameState("CASCADING");
-
-      // Step through cascade with delays for visual feedback
-      let current = lockedBoard;
-      let totalClearedLines = 0;
-      let chainLen = 0;
-
-      function step() {
-        const [afterClear, lines] = clearLines(current);
-        if (lines === 0) {
-          // Cascade done
-          setBoard(current);
-          setGameState("ACTIVE");
-          if (chainLen > 0) {
-            const pts = scoreLines(
-              totalClearedLines,
-              chainLen,
-              levelRef.current,
-            );
-            setScore((s) => s + pts);
-            setTotalLines((t) => {
-              const newTotal = t + totalClearedLines;
-              const newLevel = Math.floor(newTotal / LINES_PER_LEVEL);
-              setLevel(newLevel);
-              return newTotal;
-            });
-            if (chainLen > 1) {
-              setChain(chainLen);
-              setShowChain(true);
-              setTimeout(() => setShowChain(false), 1500);
-            }
-          }
-          spawnNext();
-          return;
-        }
-
-        totalClearedLines += lines;
-        chainLen++;
-
-        // Show cleared board briefly, then apply gravity
-        setBoard(afterClear);
-        cascadeRef.current = setTimeout(() => {
-          current = applyGravity(afterClear);
-          setBoard(current);
-          // Check for more clears after gravity
-          cascadeRef.current = setTimeout(step, CASCADE_DELAY);
-        }, CASCADE_DELAY);
-      }
-
-      step();
-    },
-    [spawnNext],
-  );
-
-  const lockAndCascade = useCallback(() => {
-    const locked = lockPiece(boardRef.current, pieceRef.current);
-    setBoard(locked);
-    runCascade(locked);
-    saveState();
-  }, [runCascade, saveState]);
-
-  // Move piece down by 1; lock if can't
-  const tick = useCallback(() => {
-    if (gameStateRef.current !== "ACTIVE") return;
-    const p = pieceRef.current;
-    const moved = { ...p, row: p.row + 1 };
-    if (isValid(boardRef.current, moved)) {
-      setPiece(moved);
-    } else {
-      lockAndCascade();
-    }
-  }, [lockAndCascade]);
-
-  // Game loop
+  // Gravity loop
   useEffect(() => {
-    if (gameState !== "ACTIVE" || !isLoaded) return;
-    tickRef.current = setInterval(tick, tickMs);
-    return () => {
-      if (tickRef.current) clearInterval(tickRef.current);
-    };
-  }, [gameState, tickMs, tick, isLoaded]);
+    if (!isLoaded || gameState !== "ACTIVE") return;
+    const id = setInterval(() => handlers.current.tick(), tickMs);
+    return () => clearInterval(id);
+  }, [gameState, tickMs, isLoaded]);
 
-  // Cleanup cascade on unmount
+  // Leaving ACTIVE cancels any pending lock
   useEffect(() => {
+    if (gameState !== "ACTIVE") clearLockTimer();
+  }, [gameState]);
+
+  // Cleanup everything on unmount
+  useEffect(() => {
+    const timers = timersRef.current;
     return () => {
-      if (cascadeRef.current) clearTimeout(cascadeRef.current);
+      timers.forEach((id) => clearTimeout(id));
+      timers.clear();
+      if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
     };
   }, []);
 
-  const moveLeft = useCallback(() => {
-    if (gameStateRef.current !== "ACTIVE") return;
-    const moved = { ...pieceRef.current, col: pieceRef.current.col - 1 };
-    if (isValid(boardRef.current, moved)) setPiece(moved);
-  }, []);
-
-  const moveRight = useCallback(() => {
-    if (gameStateRef.current !== "ACTIVE") return;
-    const moved = { ...pieceRef.current, col: pieceRef.current.col + 1 };
-    if (isValid(boardRef.current, moved)) setPiece(moved);
-  }, []);
-
-  const rotate = useCallback(() => {
-    if (gameStateRef.current !== "ACTIVE") return;
-    const p = pieceRef.current;
-    const rotated = { ...p, rotation: (p.rotation + 1) % 4 };
-    // Try basic rotation, then wall kicks
-    if (isValid(boardRef.current, rotated)) {
-      setPiece(rotated);
-      return;
-    }
-    for (const kick of [-1, 1, -2, 2]) {
-      const kicked = { ...rotated, col: rotated.col + kick };
-      if (isValid(boardRef.current, kicked)) {
-        setPiece(kicked);
-        return;
+  // Auto-pause when the tab is hidden
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden && gameStateRef.current === "ACTIVE") {
+        handlers.current.togglePause();
       }
-    }
-  }, []);
-
-  const softDrop = useCallback(() => {
-    if (gameStateRef.current !== "ACTIVE") return;
-    const moved = { ...pieceRef.current, row: pieceRef.current.row + 1 };
-    if (isValid(boardRef.current, moved)) {
-      setPiece(moved);
-      setScore((s) => s + 1);
-    }
-  }, []);
-
-  const hardDrop = useCallback(() => {
-    if (gameStateRef.current !== "ACTIVE") return;
-    let p = { ...pieceRef.current };
-    let dropped = 0;
-    while (isValid(boardRef.current, { ...p, row: p.row + 1 })) {
-      p.row++;
-      dropped++;
-    }
-    setPiece(p);
-    pieceRef.current = p;
-    setScore((s) => s + dropped * 2);
-    lockAndCascade();
-  }, [lockAndCascade]);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [gameStateRef]);
 
   // Keyboard controls
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" || e.key === "p" || e.key === "P") {
+    const onKey = (e: KeyboardEvent) => {
+      const h = handlers.current;
+      const state = gameStateRef.current;
+      const key = e.key;
+
+      if (key === "Escape" || key === "p" || key === "P") {
         e.preventDefault();
-        togglePause();
+        h.togglePause();
         return;
       }
-      if (gameStateRef.current !== "ACTIVE") return;
-      switch (e.key) {
-        case "ArrowLeft":
+      if (state === "START" || state === "OVER") {
+        if ((key === "Enter" || key === " ") && !e.repeat) {
           e.preventDefault();
-          moveLeft();
+          h.newGame();
+        }
+        return;
+      }
+      if (state === "PAUSED") {
+        if (key === "Enter" || key === " ") {
+          e.preventDefault();
+          if (!e.repeat) h.togglePause();
+        }
+        return;
+      }
+      if (
+        ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(key)
+      ) {
+        e.preventDefault();
+      }
+      if (state !== "ACTIVE") return;
+
+      switch (key) {
+        case "ArrowLeft":
+          h.moveLeft();
           break;
         case "ArrowRight":
-          e.preventDefault();
-          moveRight();
+          h.moveRight();
           break;
         case "ArrowUp":
-          e.preventDefault();
-          rotate();
+        case "x":
+        case "X":
+          if (!e.repeat) h.rotate(1);
+          break;
+        case "z":
+        case "Z":
+        case "Control":
+          if (!e.repeat) h.rotate(-1);
           break;
         case "ArrowDown":
-          e.preventDefault();
-          softDrop();
+          h.softDrop();
           break;
         case " ":
-          e.preventDefault();
-          hardDrop();
+          if (!e.repeat) h.hardDrop();
+          break;
+        case "c":
+        case "C":
+        case "Shift":
+          h.holdPiece();
           break;
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [moveLeft, moveRight, rotate, softDrop, hardDrop, togglePause]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [gameStateRef]);
 
-  // Touch controls on board (swipe gestures)
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+  // Board touch gestures: drag to slide, tap to rotate, flick down to drop
+  const onTouchStart = (e: ReactTouchEvent) => {
     if (gameStateRef.current !== "ACTIVE") return;
-    const touch = e.touches[0];
-    touchStartRef.current = {
-      x: touch.clientX,
-      y: touch.clientY,
-      time: Date.now(),
+    const t = e.touches[0];
+    touchRef.current = {
+      x0: t.clientX,
+      y0: t.clientY,
+      lastX: t.clientX,
+      lastY: t.clientY,
+      t: Date.now(),
+      moved: false,
     };
-  }, []);
+  };
 
-  const handleTouchEnd = useCallback(
-    (e: React.TouchEvent) => {
-      if (!touchStartRef.current || gameStateRef.current !== "ACTIVE") return;
-      const touch = e.changedTouches[0];
-      const dx = touch.clientX - touchStartRef.current.x;
-      const dy = touch.clientY - touchStartRef.current.y;
-      const dt = Date.now() - touchStartRef.current.time;
-      touchStartRef.current = null;
+  const onTouchMove = (e: ReactTouchEvent) => {
+    const s = touchRef.current;
+    if (!s || gameStateRef.current !== "ACTIVE") return;
+    const t = e.touches[0];
+    const cellPx = (boardElRef.current?.clientWidth ?? 280) / COLS;
+    const totalDx = t.clientX - s.x0;
+    const totalDy = t.clientY - s.y0;
 
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
-
-      if (absDx < 15 && absDy < 15 && dt < 300) {
-        rotate();
-      } else if (absDy > absDx && dy > 40) {
-        hardDrop();
-      } else if (absDx > absDy) {
-        if (dx < -30) moveLeft();
-        else if (dx > 30) moveRight();
+    if (Math.abs(totalDx) >= Math.abs(totalDy)) {
+      while (t.clientX - s.lastX >= cellPx) {
+        moveRight();
+        s.lastX += cellPx;
+        s.moved = true;
       }
-    },
-    [rotate, hardDrop, moveLeft, moveRight],
-  );
-
-  // Hold-to-repeat for mobile buttons
-  const holdRef = useRef<ReturnType<typeof setInterval>>(null);
-  const startHold = useCallback((action: () => void) => {
-    action();
-    const id = setInterval(action, 100);
-    holdRef.current = id;
-  }, []);
-  const stopHold = useCallback(() => {
-    if (holdRef.current) {
-      clearInterval(holdRef.current);
-      holdRef.current = null;
+      while (s.lastX - t.clientX >= cellPx) {
+        moveLeft();
+        s.lastX -= cellPx;
+        s.moved = true;
+      }
+    } else if (totalDy > 0) {
+      while (t.clientY - s.lastY >= cellPx * 1.2) {
+        softDrop();
+        s.lastY += cellPx * 1.2;
+        s.moved = true;
+      }
     }
-  }, []);
+  };
 
-  const ghostRow =
-    gameState === "ACTIVE" || gameState === "PAUSED"
-      ? getGhostRow(board, piece)
-      : null;
+  const onTouchEnd = (e: ReactTouchEvent) => {
+    const s = touchRef.current;
+    touchRef.current = null;
+    if (!s || gameStateRef.current !== "ACTIVE") return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - s.x0;
+    const dy = t.clientY - s.y0;
+    const dt = Date.now() - s.t;
+
+    if (!s.moved && Math.abs(dx) < 12 && Math.abs(dy) < 12 && dt < 280) {
+      rotate(1);
+    } else if (dt < 300 && dy > 70 && dy > Math.abs(dx) * 1.5) {
+      hardDrop();
+    }
+  };
 
   if (!isLoaded) return null;
 
-  if (gameState === "OVER") {
-    return (
-      <Container maxWidth="sm" sx={{ textAlign: "center" }}>
-        <div className="cooking-celebration">
-          <Typography variant="h4" sx={{ mb: 1, fontWeight: 700 }}>
-            Game Over!
-          </Typography>
-          <Typography variant="h5" sx={{ mb: 1 }}>
-            Score: {score.toLocaleString()}
-          </Typography>
-          <Typography variant="body1" sx={{ mb: 1, opacity: 0.7 }}>
-            Level {level} · {totalLines} lines
-          </Typography>
-          <div
-            style={{
-              display: "flex",
-              gap: 12,
-              justifyContent: "center",
-              marginTop: 16,
-            }}>
-            <button
-              className="btn"
-              onClick={() => {
-                setBoard(emptyBoard());
-                setPiece(randomPiece());
-                setNextPiece(randomPiece());
-                setScore(0);
-                setLevel(0);
-                setTotalLines(0);
-                setGameState("ACTIVE");
-              }}>
-              Play Again! 🔁
-            </button>
-          </div>
-        </div>
-      </Container>
-    );
+  // --- Build the board display ---
+  const showPiece = gameState === "ACTIVE" || gameState === "PAUSED";
+  const display: (DisplayCell | null)[][] = board.map((row) =>
+    row.map((c) =>
+      c ? { shape: c.color, id: c.pieceId, kind: "block" as const } : null,
+    ),
+  );
+  if (showPiece) {
+    const ghostRow = getGhostRow(board, piece);
+    for (const [r, c] of getCells({ ...piece, row: ghostRow })) {
+      if (r >= 0 && r < ROWS && c >= 0 && c < COLS && !display[r][c]) {
+        display[r][c] = { shape: piece.shape, id: GHOST_ID, kind: "ghost" };
+      }
+    }
+    for (const [r, c] of getCells(piece)) {
+      if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+        display[r][c] = { shape: piece.shape, id: ACTIVE_ID, kind: "block" };
+      }
+    }
   }
 
+  const danger =
+    gameState !== "OVER" &&
+    gameState !== "START" &&
+    board.slice(0, DANGER_ROWS).some((row) => row.some(Boolean));
+  const levelProgress = (lines % LINES_PER_LEVEL) / LINES_PER_LEVEL;
+
   return (
-    <div
-      className="quadra-container"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}>
-      <div className="quadra-sidebar">
-        <NextPieceDisplay piece={nextPiece} />
-        <div className="quadra-stats">
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            {score.toLocaleString()}
-          </Typography>
-          <Typography variant="body2" sx={{ opacity: 0.6 }}>
-            Score
-          </Typography>
-          <Typography variant="h6" sx={{ fontWeight: 700, mt: 1 }}>
-            {level}
-          </Typography>
-          <Typography variant="body2" sx={{ opacity: 0.6 }}>
-            Level
-          </Typography>
-          <Typography variant="h6" sx={{ fontWeight: 700, mt: 1 }}>
-            {totalLines}
-          </Typography>
-          <Typography variant="body2" sx={{ opacity: 0.6 }}>
-            Lines
-          </Typography>
+    <div className="cascade-shell">
+      <section className="cascade-panel cascade-hold">
+        <div className="cascade-panel-label">Hold</div>
+        <div className={`cascade-mini-slot${canHold ? "" : " is-dim"}`}>
+          {hold !== null && <MiniPiece shape={hold} />}
         </div>
-      </div>
+      </section>
 
-      <div className="quadra-board-wrapper">
-        <BoardDisplay
-          board={board}
-          piece={piece}
-          ghostRow={ghostRow}
-          cascading={gameState === "CASCADING"}
-        />
+      <section className="cascade-panel cascade-stats">
+        <div className="cascade-stat">
+          <div className="cascade-panel-label">Score</div>
+          <div className="cascade-stat-value">{score.toLocaleString()}</div>
+        </div>
+        <div className="cascade-stat cascade-stat-best">
+          <div className="cascade-panel-label">Best</div>
+          <div className="cascade-stat-value cascade-stat-small">
+            {Math.max(best, score).toLocaleString()}
+          </div>
+        </div>
+        <div className="cascade-stat">
+          <div className="cascade-panel-label">Level</div>
+          <div className="cascade-stat-value">{level + 1}</div>
+          <div className="cascade-level-bar" aria-hidden>
+            <div style={{ width: `${levelProgress * 100}%` }} />
+          </div>
+        </div>
+        <div className="cascade-stat">
+          <div className="cascade-panel-label">Lines</div>
+          <div className="cascade-stat-value">{lines}</div>
+        </div>
+        <button
+          type="button"
+          className="cascade-pause-btn"
+          aria-label={gameState === "PAUSED" ? "Resume" : "Pause"}
+          disabled={gameState !== "ACTIVE" && gameState !== "PAUSED"}
+          onClick={togglePause}>
+          {gameState === "PAUSED" ? "▶" : "❚❚"}
+          <span className="cascade-pause-label">
+            {gameState === "PAUSED" ? "Resume" : "Pause"}
+          </span>
+        </button>
+      </section>
+
+      <div
+        className={`cascade-board-wrap${impact ? " is-impact" : ""}`}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}>
+        <div
+          ref={boardElRef}
+          className={`cascade-board${danger ? " is-danger" : ""}`}>
+          <BlockGrid
+            cells={display}
+            clearingRows={clearingRows}
+            lockedId={lockedId}
+          />
+        </div>
+
+        <div className="cascade-popups" aria-live="polite">
+          {popups.map((p) => (
+            <div key={p.id} className={`cascade-popup tone-${p.tone}`}>
+              <div className="cascade-popup-text">{p.text}</div>
+              {p.sub && <div className="cascade-popup-sub">{p.sub}</div>}
+            </div>
+          ))}
+        </div>
+
+        {gameState === "START" && (
+          <Overlay>
+            <div className="cascade-overlay-title">Ready?</div>
+            <div className="cascade-overlay-text">
+              Clear a row and the blocks above tumble down. Line up chain
+              reactions for huge points!
+            </div>
+            <button type="button" className="cascade-btn" onClick={newGame}>
+              Play ▶
+            </button>
+            {best > 0 && (
+              <div className="cascade-overlay-meta">
+                Best: {best.toLocaleString()}
+              </div>
+            )}
+            <div className="cascade-overlay-hint">
+              <span className="only-touch">
+                Drag to move · Tap to rotate · Flick down to drop
+              </span>
+              <span className="only-mouse">Press Enter to start</span>
+            </div>
+          </Overlay>
+        )}
+
         {gameState === "PAUSED" && (
-          <div className="quadra-pause-overlay" onClick={togglePause}>
-            <Typography variant="h3" sx={{ fontWeight: 800 }}>
-              ⏸️ Paused
-            </Typography>
-            <Typography variant="body1" sx={{ opacity: 0.6, mt: 1 }}>
-              Tap or press Esc to resume
-            </Typography>
-          </div>
+          <Overlay>
+            <div className="cascade-overlay-title">Paused</div>
+            <button
+              type="button"
+              className="cascade-btn"
+              onClick={togglePause}>
+              Resume ▶
+            </button>
+            <button
+              type="button"
+              className="cascade-btn cascade-btn-secondary"
+              onClick={newGame}>
+              New game
+            </button>
+          </Overlay>
         )}
-        {showChain && (
-          <div className="quadra-chain-popup">
-            <Typography variant="h4" sx={{ fontWeight: 800 }}>
-              {chain}x Chain! ⚡
-            </Typography>
-          </div>
+
+        {gameState === "OVER" && (
+          <Overlay>
+            <div className="cascade-overlay-title">Game Over</div>
+            {isNewBest && <div className="cascade-badge">New best!</div>}
+            <div className="cascade-final-score">{score.toLocaleString()}</div>
+            <div className="cascade-final-stats">
+              <div>
+                <div className="cascade-panel-label">Level</div>
+                <div className="cascade-stat-value">{level + 1}</div>
+              </div>
+              <div>
+                <div className="cascade-panel-label">Lines</div>
+                <div className="cascade-stat-value">{lines}</div>
+              </div>
+              <div>
+                <div className="cascade-panel-label">Chain</div>
+                <div className="cascade-stat-value">×{bestChain}</div>
+              </div>
+            </div>
+            <button type="button" className="cascade-btn" onClick={newGame}>
+              Play again 🔁
+            </button>
+          </Overlay>
         )}
       </div>
 
-      <div className="quadra-controls">
-        <div className="quadra-ctrl-row">
-          <button
-            className="quadra-ctrl-btn"
-            onTouchStart={() => startHold(moveLeft)}
-            onTouchEnd={stopHold}
-            onTouchCancel={stopHold}
-            onClick={moveLeft}>
-            ◀
-          </button>
-          <button
-            className="quadra-ctrl-btn quadra-ctrl-drop"
-            onTouchStart={() => startHold(hardDrop)}
-            onTouchEnd={stopHold}
-            onTouchCancel={stopHold}
-            onClick={hardDrop}>
-            ⏬ Drop
-          </button>
-          <button
-            className="quadra-ctrl-btn"
-            onTouchStart={() => startHold(moveRight)}
-            onTouchEnd={stopHold}
-            onTouchCancel={stopHold}
-            onClick={moveRight}>
-            ▶
-          </button>
+      <section className="cascade-panel cascade-next">
+        <div className="cascade-panel-label">Next</div>
+        <div className="cascade-next-list">
+          {queue.slice(0, QUEUE_PREVIEW).map((shape, i) => (
+            <div key={`${i}-${shape}`} className="cascade-mini-slot">
+              <MiniPiece shape={shape} />
+            </div>
+          ))}
         </div>
-        <div className="quadra-ctrl-row">
-          <button
-            className="quadra-ctrl-btn"
-            onTouchStart={() => startHold(softDrop)}
-            onTouchEnd={stopHold}
-            onTouchCancel={stopHold}
-            onClick={softDrop}>
-            ▼
-          </button>
-          <button
-            className="quadra-ctrl-btn quadra-ctrl-rotate"
-            onClick={rotate}>
-            ↻ Rotate
-          </button>
-          <button
-            className="quadra-ctrl-btn quadra-ctrl-pause"
-            onClick={togglePause}>
-            {gameState === "PAUSED" ? "▶" : "⏸"}
-          </button>
-        </div>
+      </section>
+
+      <section className="cascade-panel cascade-keys">
+        <div className="cascade-panel-label">Controls</div>
+        <ul>
+          <li>
+            <kbd>←</kbd>
+            <kbd>→</kbd> Move
+          </li>
+          <li>
+            <kbd>↑</kbd> Rotate
+          </li>
+          <li>
+            <kbd>Z</kbd> Spin back
+          </li>
+          <li>
+            <kbd>↓</kbd> Soft drop
+          </li>
+          <li>
+            <kbd>Space</kbd> Drop
+          </li>
+          <li>
+            <kbd>C</kbd> Hold
+          </li>
+          <li>
+            <kbd>P</kbd> Pause
+          </li>
+        </ul>
+      </section>
+
+      <div className="cascade-controls">
+        <CtrlButton label="Move left" repeat onPress={moveLeft}>
+          ◀
+        </CtrlButton>
+        <CtrlButton label="Soft drop" repeat onPress={softDrop}>
+          ▼
+        </CtrlButton>
+        <CtrlButton label="Move right" repeat onPress={moveRight}>
+          ▶
+        </CtrlButton>
+        <CtrlButton
+          label="Hold"
+          className="cascade-ctrl-hold"
+          onPress={holdPiece}>
+          <small>Hold</small>
+        </CtrlButton>
+        <CtrlButton
+          label="Rotate"
+          className="cascade-ctrl-rotate"
+          onPress={() => rotate(1)}>
+          ↻
+        </CtrlButton>
+        <CtrlButton
+          label="Drop"
+          className="cascade-ctrl-drop"
+          onPress={hardDrop}>
+          ⤓ <small>Drop</small>
+        </CtrlButton>
       </div>
     </div>
   );
 }
 
+const LOGO = "CASCADE";
+
 export default function Quadra() {
   return (
-    <Box sx={{ pb: 2 }}>
-      <Container
-        maxWidth="sm"
-        sx={{ textAlign: "center", mb: 1, px: { xs: 1, sm: 2 } }}>
-        <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>
-          🧱 Cascade
-        </Typography>
-        <Typography variant="body2" sx={{ opacity: 0.5, mb: 1 }}>
-          Clear lines → blocks fall → chain reactions!
-        </Typography>
-      </Container>
+    <Box className="cascade-page">
+      <header className="cascade-header">
+        <h1 className="cascade-logo" aria-label="Cascade">
+          {LOGO.split("").map((ch, i) => (
+            <span
+              key={i}
+              aria-hidden
+              style={
+                {
+                  color: PIECE_COLORS[i % PIECE_COLORS.length].base,
+                  "--i": i,
+                } as CSSProperties
+              }>
+              {ch}
+            </span>
+          ))}
+        </h1>
+        <p className="cascade-tagline">
+          Clear lines → blocks tumble → chain reactions!
+        </p>
+      </header>
       <GameScreen />
     </Box>
   );
