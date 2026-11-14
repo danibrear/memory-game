@@ -12,4 +12,5 @@ export default [
   route("/towerdefense", "routes/towerdefense.tsx"),
   route("/e", "routes/el.tsx"),
   route("/arrows", "routes/arrows.tsx"),
+  route("/munch", "routes/munch.tsx"),
 ] satisfies RouteConfig;

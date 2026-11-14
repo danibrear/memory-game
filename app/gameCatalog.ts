@@ -4,6 +4,7 @@ import {
   faBrain,
   faCircle,
   faCircleDot,
+  faCookieBite,
   faCopy,
   faCubes,
   faFlask,
@@ -58,6 +59,17 @@ export interface Game {
 }
 
 export const GAMES: Game[] = [
+  {
+    id: "munch",
+    name: "Munch Bunch",
+    path: "/munch",
+    description: "Send hungry Munchies to gobble a pixel picture, one color at a time!",
+    icon: faCookieBite,
+    category: "puzzle",
+    colors: { from: "#f0abfc", to: "#a21caf" },
+    players: "1 player",
+    isNew: true,
+  },
   {
     id: "arrows",
     name: "Arrow Escape",
