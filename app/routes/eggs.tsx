@@ -1,14 +1,13 @@
-import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import {
   faArrowsRotate,
-  faBasketShopping,
   faBolt,
   faBook,
-  faClover,
   faCoins,
   faEgg,
+  faForwardFast,
   faHouse,
-  faLock,
+  faMapLocationDot,
+  faMusic,
   faPaw,
   faPlay,
   faRotateLeft,
@@ -29,6 +28,21 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
+  BookBody,
+  Coin,
+  cx,
+  EggIcon,
+  MapBody,
+  noBreak,
+  PetIcon,
+  PetsBody,
+  RarityChip,
+  ShopBody,
+  StarIcon,
+  TrophiesBody,
+  upgradeName,
+} from "~/components/eggs/Menus";
+import {
   Banner,
   GameShell,
   getGame,
@@ -39,55 +53,66 @@ import {
   StatPill,
   WinScreen,
 } from "~/components/game/GameKit";
-import { setMuted, sfx, unlockAudio } from "~/games/eggs/audio";
+import { ACHIEVEMENTS, achievementById } from "~/games/eggs/achievements";
+import { setMusic, setMusicMood, setMuted, sfx, unlockAudio } from "~/games/eggs/audio";
 import {
   BIOMES,
-  FUSE_COUNT,
+  HATS,
+  HOME_DECOR,
   PETS,
   RARITIES,
-  SELL_SECONDS,
   SKINS,
-  basketSize,
+  TRAILS,
+  UPGRADE_IDS,
+  dashCooldown,
   fmtCoins,
-  maxLevel,
   penSize,
   petById,
-  petFor,
   petRate,
   skinById,
   upgradeCost,
+  type HatId,
+  type HomeDecorId,
   type Look,
   type PetDef,
-  type Rarity,
+  type TrailId,
   type UpgradeId,
 } from "~/games/eggs/config";
 import {
   anyFusable,
   bookCount,
   buy,
-  canFuse,
-  countOf,
+  buyDecor,
+  buyHat,
+  buyTrail,
+  coinMult,
   createGame,
+  dash,
   fuse,
   penIsFull,
   savedRate,
   sell,
+  setBuddy,
+  setFlag,
   step,
   tapAt,
+  tapWorld,
   toSave,
   totalRate,
+  travel,
+  pickTrail,
+  wearHat,
+  wish,
   type Game,
   type GameEvent,
   type SavedGame,
 } from "~/games/eggs/engine";
 import {
   computeView,
-  paintEggIcon,
-  paintPetIcon,
   render,
   screenToWorld,
+  shootingStarAt,
   type Joystick,
-  type Mood,
   type View,
 } from "~/games/eggs/render";
 import { clearStoredData, getStoredData, setStoredData } from "~/storage";
@@ -108,32 +133,47 @@ export function meta({}: Route.MetaArgs) {
 }
 
 const STORAGE_KEY = "sneaky-eggs";
-/** Joystick reach in px: roomier on tablets, where thumbs travel further. */
-const joyRadius = (w: number, h: number) => (Math.min(w, h) >= 700 ? 76 : 56);
 const STEP = 1 / 60;
 /** Pets keep earning (at half speed) for up to this long while you're away. */
 const AWAY_CAP_SECONDS = 600;
+/** Joystick reach in px: roomier on tablets, where thumbs travel further. */
+const joyRadius = (w: number, h: number) => (Math.min(w, h) >= 700 ? 76 : 56);
 
 type Phase = "START" | "PLAYING" | "WON";
-type PanelId = "shop" | "pets" | "book";
+type PanelId = "shop" | "pets" | "book" | "trophies" | "map";
 
 interface Save {
   game: SavedGame | null;
   skin: string;
   muted: boolean;
+  music: boolean;
+  /** The title-screen secret. */
+  giant: boolean;
   lastSeen: number;
 }
 
-const DEFAULT_SAVE: Save = { game: null, skin: SKINS[0].id, muted: false, lastSeen: 0 };
+const DEFAULT_SAVE: Save = {
+  game: null,
+  skin: SKINS[0].id,
+  muted: false,
+  music: true,
+  giant: false,
+  lastSeen: 0,
+};
 
 interface Hud {
   coins: number;
   rate: number;
+  stars: number;
   speed: number;
   pets: number;
   cap: number;
   book: number;
+  trophies: number;
+  dash: number;
+  frenzy: boolean;
   canBuy: boolean;
+  canStyle: boolean;
   canFuse: boolean;
   penFull: boolean;
 }
@@ -141,11 +181,16 @@ interface Hud {
 const EMPTY_HUD: Hud = {
   coins: 0,
   rate: 0,
+  stars: 0,
   speed: 0,
   pets: 0,
   cap: penSize(0),
   book: 0,
+  trophies: 0,
+  dash: 0,
+  frenzy: false,
   canBuy: false,
+  canStyle: false,
   canFuse: false,
   penFull: false,
 };
@@ -162,27 +207,32 @@ interface Toast {
   tone: "info" | "good" | "bad";
 }
 
-const UPGRADE_IDS: UpgradeId[] = ["speed", "basket", "pen", "luck"];
-
-/** Keep hyphenated names like "Mer-Kitty" on one line. */
-const noBreak = (name: string) => name.replace(/-/g, "\u2011");
-
-function cx(...parts: (string | false | null | undefined)[]) {
-  return parts.filter(Boolean).join(" ");
+interface Cheer {
+  id: number;
+  name: string;
+  stars: number;
 }
 
 function hudOf(g: Game): Hud {
   return {
     coins: Math.floor(g.coins),
     rate: totalRate(g),
+    stars: g.stars,
     speed: g.up.speed,
     pets: g.pets.length,
     cap: penSize(g.up.pen),
     book: bookCount(g.book),
-    canBuy: UPGRADE_IDS.some((id) => {
-      const cost = upgradeCost(id, g.up[id]);
-      return cost !== null && g.coins >= cost;
-    }),
+    trophies: Object.keys(g.ach).length,
+    dash: g.up.dash,
+    frenzy: g.frenzy > 0,
+    canBuy:
+      UPGRADE_IDS.some((id) => {
+        const cost = upgradeCost(id, g.up[id]);
+        return cost !== null && g.coins >= cost;
+      }) || HOME_DECOR.some((d) => !g.home.includes(d.id) && g.coins >= d.cost),
+    canStyle:
+      HATS.some((h) => !g.hats.includes(h.id) && g.stars >= h.cost) ||
+      TRAILS.some((t) => !g.trails.includes(t.id) && g.stars >= t.cost),
     canFuse: anyFusable(g),
     penFull: penIsFull(g),
   };
@@ -191,252 +241,8 @@ function hudOf(g: Game): Hud {
 const sameHud = (a: Hud, b: Hud) =>
   (Object.keys(a) as (keyof Hud)[]).every((k) => a[k] === b[k]);
 
-/* ---------- Little pictures ---------- */
-
-function PetIcon({
-  look,
-  size,
-  hidden,
-  mood,
-}: {
-  look: Look;
-  size: number;
-  hidden?: boolean;
-  mood?: Mood;
-}) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    if (ref.current) paintPetIcon(ref.current, look, size, mood);
-  }, [look, size, mood]);
-  return (
-    <canvas
-      ref={ref}
-      className={cx("se-icon", hidden && "is-hidden")}
-      style={{ width: size, height: size }}
-      aria-hidden
-    />
-  );
-}
-
-function EggIcon({ biome, rarity, size }: { biome: number; rarity: Rarity; size: number }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    if (ref.current) paintEggIcon(ref.current, biome, rarity, size);
-  }, [biome, rarity, size]);
-  return <canvas ref={ref} className="se-icon" style={{ width: size, height: size }} aria-hidden />;
-}
-
-function RarityChip({ rarity }: { rarity: Rarity }) {
-  const info = RARITIES[rarity];
-  return (
-    <span className="se-chip" style={{ "--chip": info.color, "--chip-dk": info.dark } as CSSProperties}>
-      {info.name}
-    </span>
-  );
-}
-
-function Coin() {
-  return <span className="se-coin" aria-hidden />;
-}
-
-/* ---------- Dialog contents ---------- */
-
-interface UpgradeInfo {
-  id: UpgradeId;
-  icon: IconDefinition;
-  color: string;
-  name: string;
-  now: (level: number) => string;
-  hint: (level: number) => string;
-}
-
-const UPGRADES: UpgradeInfo[] = [
-  {
-    id: "speed",
-    icon: faBolt,
-    color: "#f59e0b",
-    name: "Speedy Sneakers",
-    now: (l) => `Speed ${l}`,
-    hint: (l) => {
-      const next = BIOMES.find((b) => b.speedReq > l);
-      return next ? `Speed ${next.speedReq} opens ${next.name}` : "Zoom past every Grumble";
-    },
-  },
-  {
-    id: "basket",
-    icon: faBasketShopping,
-    color: "#fb7185",
-    name: "Egg Basket",
-    now: (l) => `Carry ${basketSize(l)} egg${basketSize(l) > 1 ? "s" : ""}`,
-    hint: () => "Carry more eggs each trip",
-  },
-  {
-    id: "pen",
-    icon: faPaw,
-    color: "#22c55e",
-    name: "Bigger Pen",
-    now: (l) => `Room for ${penSize(l)} pets`,
-    hint: () => "More pets means more coins",
-  },
-  {
-    id: "luck",
-    icon: faClover,
-    color: "#10b981",
-    name: "Lucky Clover",
-    now: (l) => `Luck ${l}`,
-    hint: () => "Rare eggs show up more often",
-  },
-];
-
-function ShopBody({ g, onBuy }: { g: Game; onBuy: (id: UpgradeId) => void }) {
-  return (
-    <div className="se-list">
-      {UPGRADES.map((u) => {
-        const level = g.up[u.id];
-        const cost = upgradeCost(u.id, level);
-        const afford = cost !== null && g.coins >= cost;
-        return (
-          <div className="se-row" key={u.id}>
-            <span className="se-row-icon" style={{ "--tile": u.color } as CSSProperties}>
-              <FontAwesomeIcon icon={u.icon} />
-            </span>
-            <div className="se-row-text">
-              <strong>{u.name}</strong>
-              <span>{u.now(level)}</span>
-              <small>{cost === null ? "All the way up!" : u.hint(level)}</small>
-            </div>
-            {cost === null ? (
-              <span className="se-max">MAX</span>
-            ) : (
-              <KitButton
-                size="sm"
-                disabled={!afford}
-                onClick={() => onBuy(u.id)}
-                aria-label={`Buy ${u.name} for ${fmtCoins(cost)} coins`}>
-                <Coin />
-                {fmtCoins(cost)}
-              </KitButton>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function PetsBody({
-  g,
-  onFuse,
-  onSell,
-}: {
-  g: Game;
-  onFuse: (id: string) => void;
-  onSell: (id: string) => void;
-}) {
-  const kinds = PETS.filter((p) => countOf(g, p.id) > 0).sort(
-    (a, b) => b.biome - a.biome || b.rarity - a.rarity,
-  );
-  if (!kinds.length) {
-    return (
-      <p className="dg-subtitle" style={{ margin: "0 auto" }}>
-        No pets yet! Bring an egg home and it will hatch into one.
-      </p>
-    );
-  }
-  return (
-    <>
-      <p className="se-tip">
-        <FontAwesomeIcon icon={faWandMagicSparkles} /> Fuse {FUSE_COUNT} of the same pet to make a
-        rarer one!
-      </p>
-      <div className="se-list">
-        {kinds.map((def) => {
-          const n = countOf(g, def.id);
-          const fusable = canFuse(g, def.id);
-          const hasShiny = g.pets.some((p) => p.id === def.id && p.shiny);
-          return (
-            <div className="se-row" key={def.id}>
-              <span className="se-row-pet">
-                <PetIcon look={def.look} size={52} />
-                <b>×{n}</b>
-              </span>
-              <div className="se-row-text">
-                <strong>
-                  {noBreak(def.name)}
-                  {hasShiny && <FontAwesomeIcon icon={faStar} className="se-shiny" title="Shiny" />}
-                </strong>
-                <RarityChip rarity={def.rarity} />
-                <small>
-                  <Coin /> {fmtCoins(petRate(def))} a second
-                </small>
-              </div>
-              <div className="se-row-actions">
-                {def.rarity < 3 && (
-                  <KitButton
-                    size="sm"
-                    disabled={!fusable}
-                    onClick={() => onFuse(def.id)}
-                    aria-label={`Fuse ${FUSE_COUNT} ${def.name}`}>
-                    Fuse {Math.min(n, FUSE_COUNT)}/{FUSE_COUNT}
-                  </KitButton>
-                )}
-                <KitButton
-                  size="sm"
-                  variant="neutral"
-                  onClick={() => onSell(def.id)}
-                  aria-label={`Sell one ${def.name} for ${fmtCoins(petRate(def) * SELL_SECONDS)} coins`}>
-                  Sell <Coin />
-                  {fmtCoins(petRate(def) * SELL_SECONDS)}
-                </KitButton>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
-function BookBody({ g }: { g: Game }) {
-  return (
-    <div className="se-book">
-      {BIOMES.map((b, i) => {
-        const open = g.up.speed >= b.speedReq;
-        return (
-          <section key={b.id}>
-            <h3 style={{ "--biome": b.fence } as CSSProperties}>
-              {b.name}
-              {!open && (
-                <span>
-                  <FontAwesomeIcon icon={faLock} /> Speed {b.speedReq}
-                </span>
-              )}
-            </h3>
-            <div className="se-book-grid">
-              {([0, 1, 2, 3] as Rarity[]).map((r) => {
-                const def = petFor(i, r);
-                const found = g.book[def.id] ?? 0;
-                return (
-                  <div
-                    key={def.id}
-                    className={cx("se-book-cell", found > 0 && "is-found")}
-                    style={{ "--chip": RARITIES[r].color } as CSSProperties}
-                    aria-label={found ? `${def.name}, ${RARITIES[r].name}` : `Not found yet, ${RARITIES[r].name}`}>
-                    <PetIcon look={def.look} size={58} hidden={!found} />
-                    {found > 1 && <FontAwesomeIcon icon={faStar} className="se-shiny" />}
-                    <span>{found ? noBreak(def.name) : "???"}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ---------- The game ---------- */
+const fmtWait = (seconds: number) =>
+  seconds >= 60 ? `${Math.ceil(seconds / 60)} min` : `${seconds} seconds`;
 
 export default function SneakyEggs() {
   const game = getGame("eggs");
@@ -449,8 +255,12 @@ export default function SneakyEggs() {
   const [panel, setPanel] = useState<PanelId | null>(null);
   const [reveals, setReveals] = useState<Reveal[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [cheers, setCheers] = useState<Cheer[]>([]);
   const [place, setPlace] = useState<{ id: number; text: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [seenTrophies, setSeenTrophies] = useState(0);
+  const [dashKey, setDashKey] = useState(0);
+  const [tickles, setTickles] = useState(0);
   const [, bump] = useState(0);
 
   const stageRef = useRef<HTMLDivElement>(null);
@@ -468,12 +278,16 @@ export default function SneakyEggs() {
     r: 56,
     id: -1,
   });
+  const tapRef = useRef<{ id: number; x: number; y: number; at: number } | null>(null);
   const keysRef = useRef(new Set<string>());
   const pausedRef = useRef(false);
   const pendingWinRef = useRef(false);
+  const coinTapsRef = useRef(0);
+  const nightToldRef = useRef(false);
   const eventsRef = useRef<(g: Game) => void>(() => {});
 
   const reveal = reveals[0] ?? null;
+  const cheer = cheers[0] ?? null;
   pausedRef.current = panel !== null || reveal !== null;
 
   /* ── Saving ── */
@@ -537,6 +351,13 @@ export default function SneakyEggs() {
     return () => clearTimeout(t);
   }, [place]);
 
+  // Trophy banners queue up and show one at a time.
+  useEffect(() => {
+    if (!cheer) return;
+    const t = window.setTimeout(() => setCheers((list) => list.slice(1)), 2300);
+    return () => clearTimeout(t);
+  }, [cheer]);
+
   const refreshHud = useCallback(() => {
     const g = gameRef.current;
     if (!g) return;
@@ -555,7 +376,8 @@ export default function SneakyEggs() {
       switch (e.type) {
         case "pickup":
           sfx.pickup(e.rarity);
-          if (g.stats.eggs < 2) say("Run home before the Grumble catches you!");
+          if (e.mystery) say("You got the Mystery Egg! Run!", "good");
+          else if (g.stats.eggs < 2) say("Run home before the Grumble catches you!");
           break;
         case "wake":
           sfx.wake();
@@ -563,6 +385,10 @@ export default function SneakyEggs() {
         case "caught":
           sfx.caught();
           say("The Grumble took the egg back. Try again!", "bad");
+          break;
+        case "escape":
+          sfx.escape(e.close);
+          if (e.close) say("Phew! That was close!", "good");
           break;
         case "deliver":
           sfx.deliver();
@@ -585,6 +411,7 @@ export default function SneakyEggs() {
         }
         case "biome":
           setPlace({ id: Date.now(), text: e.biome < 0 ? "Home" : BIOMES[e.biome].name });
+          setMusicMood(e.biome, g.night);
           break;
         case "blocked":
           sfx.nope();
@@ -594,12 +421,112 @@ export default function SneakyEggs() {
             say("Your hands are full! Take the egg home first.");
           } else if (e.reason === "pads") {
             say("Your egg nests are full! Hatch those eggs first.");
+          } else if (e.reason === "chest") {
+            say(`The gift chest fills up again in ${fmtWait(e.seconds)}.`);
+          } else if (e.reason === "travel") {
+            say("Carry your eggs home on foot first!");
           } else {
             say("Your pen is full! Open Pets to fuse or sell.", "bad");
           }
           break;
         case "complete":
           pendingWinRef.current = true;
+          break;
+        case "achievement": {
+          const a = achievementById(e.id);
+          if (!a) break;
+          sfx.achievement();
+          setCheers((list) => [...list, { id: Date.now() + Math.random(), name: a.name, stars: a.stars }]);
+          break;
+        }
+        case "catchup":
+          say(`Welcome back! You earned ${e.count} trophies and ${e.stars} stars.`, "good");
+          break;
+        case "pat":
+          sfx.pat();
+          break;
+        case "grumblePat":
+          sfx.purr();
+          if (g.stats.grumblePats === 1) say("Shhh... the Grumble likes that.");
+          break;
+        case "knock":
+          sfx.knock();
+          if (e.coins > 0) {
+            sfx.coins();
+            say("Someone slid coins under the door!", "good");
+          }
+          break;
+        case "chest":
+          sfx.chest();
+          say(`Gift chest! +${fmtCoins(e.coins)} coins and a star!`, "good");
+          break;
+        case "mystery":
+          sfx.mystery();
+          say(`A Mystery Egg appeared in ${BIOMES[e.biome].name}!`, "good");
+          break;
+        case "mysteryGone":
+          say("The Mystery Egg vanished...");
+          break;
+        case "night":
+          sfx.night();
+          setMusicMood(g.biome, true);
+          if (!nightToldRef.current) {
+            nightToldRef.current = true;
+            say("Night time! Rare eggs love the moonlight.");
+          }
+          break;
+        case "day":
+          sfx.day();
+          setMusicMood(g.biome, false);
+          break;
+        case "wish":
+          sfx.wish();
+          say("You caught a shooting star! Double coins for 30 seconds!", "good");
+          break;
+        case "frenzy":
+          break;
+        case "sugar":
+          sfx.sugar();
+          break;
+        case "coconut":
+          sfx.bonk();
+          break;
+        case "chime":
+          sfx.chime(e.note);
+          break;
+        case "boing":
+          sfx.boing();
+          break;
+        case "rustle":
+          sfx.rustle();
+          break;
+        case "snow":
+          sfx.snow();
+          break;
+        case "secret":
+          sfx.secret();
+          say(`You found a hidden star! ${e.count} of ${BIOMES.length}`, "good");
+          break;
+        case "taxi":
+          sfx.taxi();
+          say("Whoosh! The saucer flew you home!", "good");
+          break;
+        case "sleepy":
+          sfx.zzz();
+          break;
+        case "dash":
+          sfx.dash();
+          setDashKey((k) => k + 1);
+          break;
+        case "travel":
+          sfx.poof();
+          break;
+        case "bug":
+          sfx.coins();
+          if (e.golden) {
+            sfx.secret();
+            say("A golden glitterbug! +1 star", "good");
+          }
           break;
       }
     }
@@ -610,24 +537,34 @@ export default function SneakyEggs() {
 
   const play = () => {
     unlockAudio();
-    const g = createGame(saveRef.current.game);
+    const g = createGame(saveRef.current.game, { giant: saveRef.current.giant });
     if (away > 0) {
       g.coins += away;
+      g.stats.earned += away;
       setAway(0);
     }
     gameRef.current = g;
+    // Handy while developing: poke at the live game from the browser console.
+    if (import.meta.env.DEV) (window as unknown as { __eggs?: Game }).__eggs = g;
     joyRef.current.active = false;
     keysRef.current.clear();
     pendingWinRef.current = false;
+    nightToldRef.current = false;
+    coinTapsRef.current = 0;
     hudRef.current = hudOf(g);
     setHud(hudRef.current);
+    setSeenTrophies(hudRef.current.trophies);
     setReveals([]);
+    setCheers([]);
     setPanel(null);
+    setDashKey(0);
+    setMusicMood(-1, false);
     persist();
     setPhase("PLAYING");
     if (!g.pets.length && g.pads.every((p) => !p.egg)) {
       say("Walk up the path and grab an egg!");
     }
+    eventsRef.current(g);
   };
 
   const quit = () => {
@@ -639,7 +576,12 @@ export default function SneakyEggs() {
 
   const startOver = () => {
     clearStoredData(STORAGE_KEY);
-    const fresh: Save = { ...DEFAULT_SAVE, skin: saveRef.current.skin, muted: saveRef.current.muted };
+    const fresh: Save = {
+      ...DEFAULT_SAVE,
+      skin: saveRef.current.skin,
+      muted: saveRef.current.muted,
+      music: saveRef.current.music,
+    };
     saveRef.current = fresh;
     gameRef.current = null;
     setSave(fresh);
@@ -666,7 +608,26 @@ export default function SneakyEggs() {
     }
   };
 
+  const openPanel = (id: PanelId) => {
+    unlockAudio();
+    if (id === "trophies") setSeenTrophies(hudRef.current.trophies);
+    setPanel(id);
+  };
+
+  // Music follows the game: on while playing, unless muted or switched off.
+  useEffect(() => {
+    setMusic(phase === "PLAYING" && save.music && !save.muted);
+    return () => setMusic(false);
+  }, [phase, save.music, save.muted]);
+
   /* ── Menu actions ── */
+
+  const afterAction = (g: Game) => {
+    eventsRef.current(g);
+    refreshHud();
+    persist(undefined, true);
+    bump((n) => n + 1);
+  };
 
   const onBuy = (id: UpgradeId) => {
     const g = gameRef.current;
@@ -682,32 +643,121 @@ export default function SneakyEggs() {
       say(`${opened.name} is open! Head up the path.`, "good");
     } else {
       sfx.buy();
+      if (id === "dash" && g.up.dash === 1) say("Tap ZOOM for a burst of speed!", "good");
+      else say(`${upgradeName(id)} upgraded!`, "good");
     }
-    refreshHud();
-    persist(undefined, true);
-    bump((n) => n + 1);
+    afterAction(g);
+  };
+
+  const onHat = (id: HatId) => {
+    const g = gameRef.current;
+    if (!g) return;
+    if (g.hats.includes(id)) {
+      wearHat(g, id);
+      sfx.tap();
+    } else if (buyHat(g, id)) {
+      sfx.buy();
+    } else {
+      sfx.nope();
+      return;
+    }
+    afterAction(g);
+  };
+
+  const onTrail = (id: TrailId) => {
+    const g = gameRef.current;
+    if (!g) return;
+    if (g.trails.includes(id)) {
+      pickTrail(g, id);
+      sfx.tap();
+    } else if (buyTrail(g, id)) {
+      sfx.buy();
+    } else {
+      sfx.nope();
+      return;
+    }
+    afterAction(g);
+  };
+
+  const onDecor = (id: HomeDecorId) => {
+    const g = gameRef.current;
+    if (!g) return;
+    if (!buyDecor(g, id)) {
+      sfx.nope();
+      return;
+    }
+    sfx.gate();
+    say("Placed! Go and have a look at home.", "good");
+    afterAction(g);
   };
 
   const onFuse = (id: string) => {
     const g = gameRef.current;
     if (!g || !fuse(g, id)) return;
-    eventsRef.current(g);
-    persist(undefined, true);
-    bump((n) => n + 1);
+    afterAction(g);
   };
 
   const onSell = (id: string) => {
     const g = gameRef.current;
     if (!g) return;
-    const coins = sell(g, id);
-    if (!coins) return;
+    if (!sell(g, id)) return;
     sfx.sell();
-    refreshHud();
-    persist(undefined, true);
-    bump((n) => n + 1);
+    afterAction(g);
+  };
+
+  const onBuddy = (id: string | null) => {
+    const g = gameRef.current;
+    if (!g) return;
+    setBuddy(g, id);
+    sfx.pat();
+    afterAction(g);
+  };
+
+  const onGo = (biome: number) => {
+    const g = gameRef.current;
+    if (!g) return;
+    if (travel(g, biome)) setPanel(null);
+    afterAction(g);
+  };
+
+  const onDash = () => {
+    const g = gameRef.current;
+    if (!g || pausedRef.current) return;
+    unlockAudio();
+    if (dash(g)) eventsRef.current(g);
+  };
+
+  const onCoinTap = () => {
+    const g = gameRef.current;
+    if (!g) return;
+    unlockAudio();
+    sfx.tap();
+    coinTapsRef.current += 1;
+    if (coinTapsRef.current === 10) {
+      sfx.coins();
+      say("Ka-ching!", "good");
+      setFlag(g, "kaching");
+      eventsRef.current(g);
+    }
+  };
+
+  const tickle = () => {
+    unlockAudio();
+    sfx.pat();
+    const n = tickles + 1;
+    setTickles(n);
+    if (n % 7 === 0) {
+      sfx.secret();
+      persist({ giant: !saveRef.current.giant });
+    }
   };
 
   /* ── Input ── */
+
+  const stagePoint = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = stageRef.current!.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top, w: rect.width, h: rect.height };
+  };
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest("[data-ui]")) return;
@@ -715,23 +765,23 @@ export default function SneakyEggs() {
     const stage = stageRef.current;
     if (!g || !stage || pausedRef.current) return;
     unlockAudio();
-    const rect = stage.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
+    const at = stagePoint(e);
     const v = viewRef.current;
     if (v) {
-      const w = screenToWorld(v, sx, sy);
+      // Hatching eggs react the instant a finger lands, so fast tapping feels good.
+      const w = screenToWorld(v, at.x, at.y);
       if (tapAt(g, w.x, w.y)) return;
     }
+    tapRef.current = { id: e.pointerId, x: at.x, y: at.y, at: performance.now() };
     // The newest finger always takes the stick. If a lift was ever missed (a
     // system gesture on a tablet, say), the next touch puts things right.
     joyRef.current = {
       active: true,
-      ox: sx,
-      oy: sy,
+      ox: at.x,
+      oy: at.y,
       dx: 0,
       dy: 0,
-      r: joyRadius(rect.width, rect.height),
+      r: joyRadius(at.w, at.h),
       id: e.pointerId,
     };
     try {
@@ -743,11 +793,10 @@ export default function SneakyEggs() {
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const joy = joyRef.current;
-    const stage = stageRef.current;
-    if (!joy.active || joy.id !== e.pointerId || !stage) return;
-    const rect = stage.getBoundingClientRect();
-    let dx = e.clientX - rect.left - joy.ox;
-    let dy = e.clientY - rect.top - joy.oy;
+    if (!joy.active || joy.id !== e.pointerId || !stageRef.current) return;
+    const at = stagePoint(e);
+    let dx = at.x - joy.ox;
+    let dy = at.y - joy.oy;
     const d = Math.hypot(dx, dy);
     if (d > joy.r) {
       dx = (dx / d) * joy.r;
@@ -759,6 +808,24 @@ export default function SneakyEggs() {
 
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (joyRef.current.id === e.pointerId) joyRef.current.active = false;
+    const tap = tapRef.current;
+    if (!tap || tap.id !== e.pointerId) return;
+    tapRef.current = null;
+    const g = gameRef.current;
+    const v = viewRef.current;
+    if (!g || !v || !stageRef.current || e.type === "pointercancel") return;
+    const at = stagePoint(e);
+    // A quick touch that didn't travel is a tap, not a steer.
+    if (Math.hypot(at.x - tap.x, at.y - tap.y) > 14 || performance.now() - tap.at > 400) return;
+    if (g.shoot && !g.shoot.caught) {
+      const star = shootingStarAt(g.shoot, at.w, at.h);
+      if (Math.hypot(star.x - at.x, star.y - at.y) < 90 && wish(g)) {
+        eventsRef.current(g);
+        return;
+      }
+    }
+    const w = screenToWorld(v, at.x, at.y);
+    if (tapWorld(g, w.x, w.y)) eventsRef.current(g);
   };
 
   useEffect(() => {
@@ -767,7 +834,14 @@ export default function SneakyEggs() {
     const MOVE = new Set(["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d"]);
     const down = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
-      if (!MOVE.has(k) || pausedRef.current) return;
+      if (pausedRef.current) return;
+      if (k === " " || k === "shift") {
+        const g = gameRef.current;
+        if (!e.repeat && g && dash(g)) eventsRef.current(g);
+        if (k === " ") e.preventDefault();
+        return;
+      }
+      if (!MOVE.has(k)) return;
       keys.add(k);
       e.preventDefault();
       unlockAudio();
@@ -897,16 +971,9 @@ export default function SneakyEggs() {
 
       const view = computeView(g, w, h);
       viewRef.current = view;
-      render(
-        ctx,
-        g,
-        view,
-        dpr,
-        now / 1000,
-        joyRef.current,
-        skinById(saveRef.current.skin).look,
-        bookCount(g.book) < 3,
-      );
+      const skin = skinById(saveRef.current.skin).look;
+      const look: Look = g.hat === "none" ? skin : { ...skin, hat: g.hat };
+      render(ctx, g, view, dpr, now / 1000, joyRef.current, look, bookCount(g.book) < 3);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
@@ -925,7 +992,8 @@ export default function SneakyEggs() {
           title="Pet Master!"
           subtitle={
             <>
-              You found all <strong>{PETS.length} pets</strong> and filled the whole Pet Book!
+              You found all <strong>20 egg pets</strong>! Now fuse three Legendary pets to
+              discover the secret Mythic ones.
             </>
           }>
           <div className="se-parade">
@@ -940,6 +1008,9 @@ export default function SneakyEggs() {
             <StatPill icon={faWandMagicSparkles} color="#a855f7" label="Fusions">
               {g.stats.fused} fusions
             </StatPill>
+            <StatPill icon={faTrophy} color="#f59e0b" label="Trophies">
+              {Object.keys(g.ach).length} trophies
+            </StatPill>
           </div>
           <div className="dg-row" style={{ marginTop: 8 }}>
             <KitButton size="lg" icon={faPlay} onClick={() => setPhase("PLAYING")}>
@@ -953,6 +1024,8 @@ export default function SneakyEggs() {
 
   if (phase === "START" || !g) {
     const found = save.game ? bookCount(save.game.book) : 0;
+    const trophies = save.game?.ach?.length ?? 0;
+    const hat = save.game?.hat && save.game.hat !== "none" ? save.game.hat : undefined;
     return (
       <GameShell game={game}>
         <StartScreen
@@ -960,9 +1033,21 @@ export default function SneakyEggs() {
           subtitle="Sneak eggs past the sleepy Grumbles, run them home, and hatch rare pets!">
           <div className="se-mascots">
             <EggIcon biome={0} rarity={2} size={64} />
-            <PetIcon look={skin.look} size={96} mood="happy" />
+            <button
+              type="button"
+              className={cx("se-tickle", save.giant && "is-giant")}
+              key={tickles}
+              onClick={tickle}
+              aria-label="Your character. Tap to tickle.">
+              <PetIcon look={{ ...skin.look, hat }} size={96} mood="happy" />
+            </button>
             <PetIcon look={BIOMES[0].guard} size={84} mood="sleep" />
           </div>
+          {save.giant && (
+            <Banner tone="gold" icon={faStar}>
+              Secret found: Big Sneak mode!
+            </Banner>
+          )}
 
           <Panel label="How to play">
             <ol className="se-how">
@@ -990,9 +1075,14 @@ export default function SneakyEggs() {
           </Panel>
 
           {found > 0 && (
-            <StatPill icon={faBook} label="Pets found">
-              {found} of {PETS.length} pets found
-            </StatPill>
+            <div className="dg-row">
+              <StatPill icon={faBook} label="Pets found">
+                {found} of {PETS.length} pets
+              </StatPill>
+              <StatPill icon={faTrophy} color="#f59e0b" label="Trophies earned">
+                {trophies} of {ACHIEVEMENTS.length} trophies
+              </StatPill>
+            </div>
           )}
           {away > 0 && (
             <Banner tone="gold" icon={faCoins}>
@@ -1005,13 +1095,21 @@ export default function SneakyEggs() {
               {save.game ? "Keep Playing" : "Play"}
             </KitButton>
           </div>
-          {save.game && (
-            <div className="dg-row">
+          <div className="dg-row">
+            <KitButton
+              variant="neutral"
+              size="sm"
+              icon={faMusic}
+              aria-pressed={save.music}
+              onClick={() => persist({ music: !save.music })}>
+              Music {save.music ? "on" : "off"}
+            </KitButton>
+            {save.game && (
               <KitButton variant="neutral" size="sm" icon={faRotateLeft} onClick={() => setConfirmReset(true)}>
                 Start over
               </KitButton>
-            </div>
-          )}
+            )}
+          </div>
         </StartScreen>
 
         <KitDialog
@@ -1021,7 +1119,7 @@ export default function SneakyEggs() {
           icon={faArrowsRotate}
           title="Start over?">
           <p className="dg-subtitle" style={{ margin: "0 auto 8px" }}>
-            Your pets, coins and Pet Book will be gone for good.
+            Your pets, coins, trophies and Pet Book will be gone for good.
           </p>
           <div className="dg-row">
             <KitButton variant="neutral" onClick={() => setConfirmReset(false)}>
@@ -1037,6 +1135,9 @@ export default function SneakyEggs() {
   }
 
   const petsAlert = hud.penFull || hud.canFuse;
+  const newTrophies = Math.max(0, hud.trophies - seenTrophies);
+  const playerLook: Look = g.hat === "none" ? skin.look : { ...skin.look, hat: g.hat };
+  const mapOpen = hud.speed >= BIOMES[1].speedReq;
 
   return (
     <GameShell game={game}>
@@ -1057,14 +1158,30 @@ export default function SneakyEggs() {
 
         <div className="se-top">
           <div className="se-top-left">
-            <span className="se-coins" data-ui aria-label={`${hud.coins} coins`}>
+            <button
+              type="button"
+              className={cx("se-coins", hud.frenzy && "is-frenzy")}
+              data-ui
+              onClick={onCoinTap}
+              aria-label={`${hud.coins} coins`}>
               <Coin />
               <b>{fmtCoins(hud.coins)}</b>
               {hud.rate > 0 && <small>+{fmtCoins(hud.rate)}/s</small>}
-            </span>
-            <span className="se-speed" data-ui>
-              <FontAwesomeIcon icon={faBolt} /> Speed {hud.speed}
-            </span>
+              {hud.frenzy && <em>x2</em>}
+            </button>
+            <div className="se-chips">
+              <button
+                type="button"
+                className="se-speed"
+                data-ui
+                onClick={() => openPanel("trophies")}
+                aria-label={`${hud.stars} stars. Open trophies.`}>
+                <StarIcon /> {hud.stars}
+              </button>
+              <span className="se-speed" data-ui>
+                <FontAwesomeIcon icon={faBolt} /> Speed {hud.speed}
+              </span>
+            </div>
           </div>
           <div className="se-top-right" data-ui>
             <KitButton
@@ -1075,6 +1192,16 @@ export default function SneakyEggs() {
               aria-label={save.muted ? "Turn sound on" : "Turn sound off"}
               onClick={toggleSound}
             />
+            {mapOpen && (
+              <KitButton
+                round
+                variant="neutral"
+                size="sm"
+                icon={faMapLocationDot}
+                aria-label="Map"
+                onClick={() => openPanel("map")}
+              />
+            )}
             <KitButton round variant="neutral" size="sm" icon={faHouse} aria-label="Back to the menu" onClick={quit} />
           </div>
         </div>
@@ -1084,26 +1211,52 @@ export default function SneakyEggs() {
             {place.text}
           </div>
         )}
+        {cheer && (
+          <div className="se-cheer" key={cheer.id} role="status">
+            <FontAwesomeIcon icon={faTrophy} />
+            <span>
+              <small>Trophy!</small>
+              {cheer.name}
+            </span>
+            <b>
+              +{cheer.stars} <StarIcon />
+            </b>
+          </div>
+        )}
         {toast && (
           <div className={cx("se-toast", `is-${toast.tone}`)} key={toast.id} role="status">
             {toast.text}
           </div>
         )}
 
+        {hud.dash > 0 && (
+          <button
+            type="button"
+            key={dashKey}
+            className={cx("se-dash", dashKey > 0 && "is-cooling")}
+            style={{ "--cd": `${dashCooldown(hud.dash)}s` } as CSSProperties}
+            data-ui
+            onPointerDown={onDash}
+            aria-label="Zoom dash">
+            <FontAwesomeIcon icon={faForwardFast} />
+            <span>ZOOM</span>
+          </button>
+        )}
+
         <div className="se-dock" data-ui>
           <button
             type="button"
             className="dg-btn dg-btn--neutral se-dock-btn"
-            onClick={() => setPanel("shop")}
-            aria-label="Upgrades">
+            onClick={() => openPanel("shop")}
+            aria-label="Shop">
             <FontAwesomeIcon icon={faStore} />
             <span>Shop</span>
-            {hud.canBuy && <i className="se-badge is-good" aria-label="You can afford an upgrade" />}
+            {(hud.canBuy || hud.canStyle) && <i className="se-badge is-good" aria-label="You can afford something" />}
           </button>
           <button
             type="button"
             className="dg-btn dg-btn--neutral se-dock-btn"
-            onClick={() => setPanel("pets")}
+            onClick={() => openPanel("pets")}
             aria-label={`Pets, ${hud.pets} of ${hud.cap}`}>
             <FontAwesomeIcon icon={faPaw} />
             <span>
@@ -1114,12 +1267,23 @@ export default function SneakyEggs() {
           <button
             type="button"
             className="dg-btn dg-btn--neutral se-dock-btn"
-            onClick={() => setPanel("book")}
+            onClick={() => openPanel("book")}
             aria-label={`Pet Book, ${hud.book} of ${PETS.length} found`}>
             <FontAwesomeIcon icon={faBook} />
             <span>
               {hud.book}/{PETS.length}
             </span>
+          </button>
+          <button
+            type="button"
+            className="dg-btn dg-btn--neutral se-dock-btn"
+            onClick={() => openPanel("trophies")}
+            aria-label={`Trophies, ${hud.trophies} of ${ACHIEVEMENTS.length} earned`}>
+            <FontAwesomeIcon icon={faTrophy} />
+            <span>
+              {hud.trophies}/{ACHIEVEMENTS.length}
+            </span>
+            {newTrophies > 0 && <i className="se-badge is-gold">{newTrophies}</i>}
           </button>
         </div>
       </div>
@@ -1131,10 +1295,14 @@ export default function SneakyEggs() {
         icon={faStore}
         title="Shop"
         className="se-menu">
-        <StatPill label="Your coins">
-          <Coin /> {fmtCoins(g.coins)}
-        </StatPill>
-        <ShopBody g={g} onBuy={onBuy} />
+        <ShopBody
+          g={g}
+          playerLook={skin.look}
+          onBuy={onBuy}
+          onHat={onHat}
+          onTrail={onTrail}
+          onDecor={onDecor}
+        />
         <KitButton variant="neutral" onClick={() => setPanel(null)}>
           Back to the eggs
         </KitButton>
@@ -1150,7 +1318,7 @@ export default function SneakyEggs() {
         <StatPill label="Coins every second">
           <Coin /> {fmtCoins(totalRate(g))} every second
         </StatPill>
-        <PetsBody g={g} onFuse={onFuse} onSell={onSell} />
+        <PetsBody g={g} onFuse={onFuse} onSell={onSell} onBuddy={onBuddy} />
         <KitButton variant="neutral" onClick={() => setPanel(null)}>
           Back to the eggs
         </KitButton>
@@ -1171,10 +1339,36 @@ export default function SneakyEggs() {
 
       <KitDialog
         game={game}
+        open={panel === "trophies"}
+        onClose={() => setPanel(null)}
+        icon={faTrophy}
+        title="Trophies"
+        className="se-menu">
+        <TrophiesBody g={g} />
+        <KitButton variant="neutral" onClick={() => setPanel(null)}>
+          Back to the eggs
+        </KitButton>
+      </KitDialog>
+
+      <KitDialog
+        game={game}
+        open={panel === "map"}
+        onClose={() => setPanel(null)}
+        icon={faMapLocationDot}
+        title="Map"
+        className="se-menu">
+        <MapBody g={g} onGo={onGo} />
+        <KitButton variant="neutral" onClick={() => setPanel(null)}>
+          Back to the eggs
+        </KitButton>
+      </KitDialog>
+
+      <KitDialog
+        game={game}
         open={reveal !== null}
         onClose={closeReveal}
         icon={reveal?.fused ? faWandMagicSparkles : faStar}
-        title={reveal?.fused ? "Fusion!" : "New pet!"}>
+        title={reveal?.def.rarity === 4 ? "A Mythic pet!" : reveal?.fused ? "Fusion!" : "New pet!"}>
         {reveal && (
           <>
             <div
@@ -1188,8 +1382,11 @@ export default function SneakyEggs() {
             </strong>
             <RarityChip rarity={reveal.def.rarity} />
             <p className="dg-subtitle" style={{ margin: 0 }}>
-              <Coin /> Earns {fmtCoins(petRate(reveal.def, reveal.shiny))}{" "}
-              {petRate(reveal.def, reveal.shiny) === 1 ? "coin" : "coins"} every second
+              {reveal.def.blurb}
+            </p>
+            <p className="dg-subtitle" style={{ margin: 0 }}>
+              <Coin /> Earns {fmtCoins(petRate(reveal.def, reveal.shiny) * coinMult(g))}{" "}
+              {petRate(reveal.def, reveal.shiny) * coinMult(g) === 1 ? "coin" : "coins"} every second
             </p>
             <KitButton size="lg" onClick={closeReveal}>
               Yay!

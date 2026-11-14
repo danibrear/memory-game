@@ -30,6 +30,25 @@ export function setMuted(m: boolean) {
   if (master) master.gain.value = m ? 0 : VOLUME;
 }
 
+function noise(dur: number, opts: { vol?: number; from?: number; to?: number; delay?: number } = {}) {
+  if (!ctx || !master || muted) return;
+  const t0 = ctx.currentTime + (opts.delay ?? 0);
+  const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const filter = ctx.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(opts.from ?? 800, t0);
+  if (opts.to) filter.frequency.exponentialRampToValueAtTime(opts.to, t0 + dur);
+  const gain = ctx.createGain();
+  gain.gain.value = opts.vol ?? 0.2;
+  src.connect(filter).connect(gain).connect(master);
+  src.start(t0);
+}
+
 interface ToneOpts {
   type?: OscillatorType;
   to?: number;
@@ -54,6 +73,7 @@ function tone(freq: number, dur: number, opts: ToneOpts = {}) {
 }
 
 const NOTE = (semis: number) => 523.25 * Math.pow(2, semis / 12);
+const CHIME = [0, 2, 4, 7, 9, 12];
 
 export const sfx = {
   pickup(rarity: number) {
@@ -68,6 +88,11 @@ export const sfx = {
   caught() {
     tone(300, 0.12, { type: "square", vol: 0.14, to: 160 });
     tone(520, 0.4, { type: "triangle", vol: 0.18, to: 180, delay: 0.1 });
+  },
+  escape(close: boolean) {
+    tone(NOTE(7), 0.08, { type: "triangle", vol: 0.14 });
+    tone(NOTE(12), 0.14, { type: "triangle", vol: 0.14, delay: 0.07 });
+    if (close) tone(NOTE(19), 0.2, { type: "triangle", vol: 0.14, delay: 0.16 });
   },
   deliver() {
     tone(NOTE(4), 0.1, { type: "triangle", vol: 0.2 });
@@ -103,4 +128,170 @@ export const sfx = {
   win() {
     [0, 4, 7, 12, 7, 12, 16, 24].forEach((s, i) => tone(NOTE(s), 0.3, { type: "triangle", vol: 0.22, delay: i * 0.13 }));
   },
+  achievement() {
+    [7, 12, 16, 19].forEach((s, i) => tone(NOTE(s), 0.2, { type: "triangle", vol: 0.2, delay: i * 0.08 }));
+    tone(NOTE(24), 0.45, { type: "sine", vol: 0.16, delay: 0.34 });
+  },
+  pat() {
+    tone(900, 0.07, { type: "sine", vol: 0.16, to: 1400 });
+    tone(1300, 0.09, { type: "sine", vol: 0.14, to: 1700, delay: 0.08 });
+  },
+  purr() {
+    for (let i = 0; i < 6; i++) tone(70 + (i % 2) * 8, 0.07, { type: "sawtooth", vol: 0.1, delay: i * 0.07 });
+  },
+  knock() {
+    tone(180, 0.06, { type: "square", vol: 0.16, to: 110 });
+    tone(180, 0.06, { type: "square", vol: 0.16, to: 110, delay: 0.16 });
+  },
+  chest() {
+    noise(0.25, { vol: 0.14, from: 500, to: 2500 });
+    [0, 4, 7, 12, 16].forEach((s, i) => tone(NOTE(s), 0.2, { type: "triangle", vol: 0.2, delay: 0.1 + i * 0.07 }));
+  },
+  coins() {
+    tone(NOTE(16), 0.06, { type: "square", vol: 0.08 });
+    tone(NOTE(21), 0.12, { type: "square", vol: 0.08, delay: 0.06 });
+  },
+  mystery() {
+    [12, 11, 12, 16, 19].forEach((s, i) => tone(NOTE(s), 0.22, { type: "sine", vol: 0.16, delay: i * 0.1 }));
+  },
+  night() {
+    tone(NOTE(-5), 0.5, { type: "sine", vol: 0.14 });
+    tone(NOTE(-8), 0.7, { type: "sine", vol: 0.14, delay: 0.4 });
+  },
+  day() {
+    [0, 4, 7].forEach((s, i) => tone(NOTE(s), 0.25, { type: "sine", vol: 0.14, delay: i * 0.14 }));
+  },
+  wish() {
+    [24, 19, 16, 12, 16, 19, 24].forEach((s, i) => tone(NOTE(s), 0.16, { type: "sine", vol: 0.14, delay: i * 0.06 }));
+  },
+  sugar() {
+    [0, 4, 7, 12, 16, 19].forEach((s, i) => tone(NOTE(s), 0.08, { type: "square", vol: 0.08, delay: i * 0.04 }));
+  },
+  bonk() {
+    tone(220, 0.1, { type: "square", vol: 0.14, to: 90 });
+    tone(NOTE(9), 0.12, { type: "triangle", vol: 0.14, delay: 0.14 });
+  },
+  chime(note: number) {
+    const s = CHIME[note % CHIME.length];
+    tone(NOTE(s + 12), 0.7, { type: "sine", vol: 0.16 });
+    tone(NOTE(s + 24), 0.5, { type: "sine", vol: 0.06 });
+  },
+  boing() {
+    tone(160, 0.22, { type: "sine", vol: 0.2, to: 520 });
+  },
+  rustle() {
+    noise(0.14, { vol: 0.08, from: 2400, to: 1200 });
+  },
+  snow() {
+    noise(0.18, { vol: 0.08, from: 900, to: 400 });
+  },
+  secret() {
+    [0, 7, 12, 19, 24, 31].forEach((s, i) => tone(NOTE(s), 0.3, { type: "sine", vol: 0.16, delay: i * 0.09 }));
+  },
+  taxi() {
+    tone(300, 0.7, { type: "sine", vol: 0.16, to: 1500 });
+    tone(310, 0.7, { type: "triangle", vol: 0.1, to: 1560 });
+  },
+  dash() {
+    noise(0.28, { vol: 0.16, from: 600, to: 3200 });
+  },
+  zzz() {
+    tone(200, 0.5, { type: "sine", vol: 0.1, to: 130 });
+  },
+  poof() {
+    noise(0.2, { vol: 0.12, from: 1500, to: 500 });
+    tone(NOTE(12), 0.14, { type: "sine", vol: 0.12, delay: 0.05 });
+  },
 };
+
+/* ---------- Music: a soft looping tune that changes with the land ---------- */
+
+interface Tune {
+  root: number;
+  scale: number[];
+  bpm: number;
+}
+
+const MAJOR = [0, 2, 4, 7, 9];
+const MINOR = [0, 3, 5, 7, 10];
+// Index 0 is home; 1–5 are the lands, bottom to top.
+const TUNES: Tune[] = [
+  { root: 261.63, scale: MAJOR, bpm: 96 },
+  { root: 293.66, scale: MAJOR, bpm: 104 },
+  { root: 349.23, scale: MAJOR, bpm: 110 },
+  { root: 329.63, scale: MINOR, bpm: 100 },
+  { root: 392.0, scale: MAJOR, bpm: 116 },
+  { root: 220.0, scale: MINOR, bpm: 92 },
+];
+// Bars of eight steps; numbers are scale steps, -1 is a rest.
+const BARS = [
+  [0, 2, 4, 2, 3, 4, 5, -1],
+  [4, 3, 2, 3, 4, -1, 2, -1],
+  [0, -1, 2, 4, 5, 4, 2, 0],
+  [5, 4, 2, 4, 3, 2, 0, -1],
+  [2, 2, 4, -1, 5, 7, 5, 4],
+];
+
+let musicOn = false;
+let musicTimer: ReturnType<typeof setInterval> | null = null;
+let musicGain: GainNode | null = null;
+let nextStep = 0;
+let stepIdx = 0;
+let bar = BARS[0];
+let tune = TUNES[0];
+let sleepy = false;
+
+function musicNote(freq: number, at: number, dur: number, vol: number, type: OscillatorType) {
+  if (!ctx || !musicGain) return;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.0001, at);
+  gain.gain.exponentialRampToValueAtTime(vol, at + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  osc.connect(gain).connect(musicGain);
+  osc.start(at);
+  osc.stop(at + dur + 0.03);
+}
+
+const degree = (t: Tune, step: number) =>
+  t.root * Math.pow(2, (t.scale[((step % 5) + 5) % 5] + 12 * Math.floor(step / 5)) / 12);
+
+function scheduleMusic() {
+  if (!ctx || !master || !musicOn) return;
+  if (!musicGain) {
+    musicGain = ctx.createGain();
+    musicGain.gain.value = 0.5;
+    musicGain.connect(master);
+  }
+  if (ctx.state !== "running") return;
+  if (nextStep < ctx.currentTime) nextStep = ctx.currentTime + 0.05;
+  const stepDur = 60 / (tune.bpm * (sleepy ? 0.78 : 1)) / 2;
+  while (nextStep < ctx.currentTime + 0.35) {
+    const i = stepIdx % 8;
+    if (i === 0) bar = BARS[Math.floor(Math.random() * BARS.length)];
+    const s = bar[i];
+    if (s >= 0) musicNote(degree(tune, s) * (sleepy ? 1 : 2), nextStep, stepDur * 1.7, sleepy ? 0.05 : 0.06, "triangle");
+    if (i === 0) musicNote(tune.root / 2, nextStep, stepDur * 3.6, 0.09, "sine");
+    if (i === 4) musicNote((tune.root / 2) * Math.pow(2, 7 / 12), nextStep, stepDur * 3.2, 0.07, "sine");
+    nextStep += stepDur;
+    stepIdx++;
+  }
+}
+
+export function setMusic(on: boolean) {
+  musicOn = on;
+  if (on && !musicTimer) {
+    musicTimer = setInterval(scheduleMusic, 120);
+  } else if (!on && musicTimer) {
+    clearInterval(musicTimer);
+    musicTimer = null;
+  }
+}
+
+/** Pick the tune for where the player is (-1 = home) and whether it's night. */
+export function setMusicMood(biome: number, night: boolean) {
+  tune = TUNES[Math.max(0, Math.min(TUNES.length - 1, biome + 1))];
+  sleepy = night;
+}
