@@ -2,7 +2,9 @@ import type { Config } from "@react-router/dev/config";
 
 export default {
   ssr: true,
-  async prerender() {
-    return ["/", "/memory", "/color", "/match", "/ballsort", "/bubblepop", "/quadra", "/towerdefense", "/munch", "/eggs"];
-  },
+  // The site is served as static files (Amplify), so there is no server to
+  // answer React Router's lazy `/__manifest` requests. Ship every route in the
+  // initial manifest and prerender all of them instead.
+  routeDiscovery: { mode: "initial" },
+  prerender: true,
 } satisfies Config;

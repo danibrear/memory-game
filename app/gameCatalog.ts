@@ -97,7 +97,7 @@ export const GAMES: Game[] = [
     id: "towerdefense",
     name: "Tower Defense",
     path: "/towerdefense",
-    description: "Build towers and stop the enemy waves before they break through!",
+    description: "Build a maze of towers across five battlefields and stop the enemy waves!",
     icon: faShield,
     category: "strategy",
     colors: { from: "#fca5a5", to: "#b91c1c" },

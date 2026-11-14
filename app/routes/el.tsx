@@ -2,6 +2,14 @@ import { faHeart } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Container, Stack, Typography } from "@mui/material";
 
+// Unlisted page: keep it out of search results and link previews.
+export function meta() {
+  return [
+    { title: "Games by DaniB" },
+    { name: "robots", content: "noindex, nofollow" },
+  ];
+}
+
 export default function ElRoute() {
   return (
     <Container maxWidth="md">
