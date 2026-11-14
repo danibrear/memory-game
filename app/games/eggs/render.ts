@@ -425,7 +425,7 @@ export function drawPet(ctx: Ctx, look: Look, x: number, y: number, size: number
 
   // Scarf sits over the body.
   if (look.hat === "scarf") {
-    ctx.fillStyle = look.accent;
+    ctx.fillStyle = look.hatColor ?? look.accent;
     roundRect(ctx, -rx * 0.86, cy + ry * 0.34, rx * 1.72, 0.1, 0.05);
     ctx.fill();
     roundRect(ctx, rx * 0.3, cy + ry * 0.4, 0.1, 0.2, 0.04);
@@ -614,7 +614,7 @@ export function drawPet(ctx: Ctx, look: Look, x: number, y: number, size: number
     case "bow": {
       const bx = rx * 0.5;
       const by = top + 0.06;
-      ctx.fillStyle = look.accent;
+      ctx.fillStyle = look.hatColor ?? look.accent;
       for (const s of [-1, 1]) {
         ctx.beginPath();
         ctx.moveTo(bx, by);
@@ -623,7 +623,7 @@ export function drawPet(ctx: Ctx, look: Look, x: number, y: number, size: number
         ctx.closePath();
         ctx.fill();
       }
-      ctx.fillStyle = shade(look.accent, 0.35);
+      ctx.fillStyle = shade(look.hatColor ?? look.accent, 0.35);
       ellipse(ctx, bx, by, 0.035, 0.035);
       ctx.fill();
       break;
@@ -2200,7 +2200,7 @@ export function render(
   if (p.carry.length && !padsOnScreen) {
     arrow(ctx, w / 2, h - (ui > 1 ? 180 : 124) + bounce, Math.PI / 2, "Home", ui);
   } else if (showHints && !p.carry.length && g.biome < 0 && g.pads.every((pad) => !pad.egg)) {
-    arrow(ctx, w / 2, (ui > 1 ? 130 : 96) - bounce, -Math.PI / 2, "Find an egg", ui);
+    arrow(ctx, w / 2, h * 0.36 - bounce, -Math.PI / 2, "Find an egg", ui);
   }
 
   const m = g.mystery;

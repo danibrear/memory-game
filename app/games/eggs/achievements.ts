@@ -6,6 +6,7 @@
 
 import {
   BIOMES,
+  HATS,
   HOME_DECOR,
   PETS,
   UPGRADE_IDS,
@@ -108,15 +109,18 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: "close-1", name: "By a Whisker", desc: "Escape with a Grumble right behind you.", kind: "skill", stars: 2, target: 1, progress: (g) => g.stats.close },
   { id: "dash-25", name: "Zoom Zoom", desc: "Use Zoom Dash 25 times.", kind: "skill", stars: 2, target: 25, progress: (g) => g.stats.dashes },
 
+  { id: "mission-5", name: "Helper", desc: "Finish 5 missions.", kind: "skill", stars: 2, target: 5, progress: (g) => g.stats.missions },
+  { id: "mission-50", name: "Mission Master", desc: "Finish 50 missions.", kind: "skill", stars: 5, target: 50, progress: (g) => g.stats.missions },
+
   // Care
   { id: "pat-1", name: "Aww", desc: "Pet one of your pets.", kind: "care", stars: 1, target: 1, progress: (g) => g.stats.pats },
   { id: "pat-100", name: "Best Friend", desc: "Pet your pets 100 times.", kind: "care", stars: 3, target: 100, progress: (g) => g.stats.pats },
   { id: "buddy", name: "Buddies", desc: "Pick a pet to follow you around.", kind: "care", stars: 1, target: 1, progress: (g) => flag(g, "buddy") },
 
   // Style
-  { id: "hat-1", name: "Fancy", desc: "Buy a hat with your stars.", kind: "style", stars: 1, target: 2, progress: (g) => g.hats.length },
-  { id: "trail-1", name: "Trailblazer", desc: "Buy a trail with your stars.", kind: "style", stars: 1, target: 2, progress: (g) => g.trails.length },
-  { id: "hat-all", name: "Hat Collector", desc: "Own every hat.", kind: "style", stars: 5, target: 10, progress: (g) => g.hats.length },
+  { id: "hat-1", name: "Fancy", desc: "Buy a hat with your stars.", kind: "style", stars: 1, target: 1, progress: (g) => g.hats.length - 1 },
+  { id: "trail-1", name: "Trailblazer", desc: "Buy a trail with your stars.", kind: "style", stars: 1, target: 1, progress: (g) => g.trails.length - 1 },
+  { id: "hat-all", name: "Hat Collector", desc: "Own every hat.", kind: "style", stars: 5, target: HATS.length - 1, progress: (g) => g.hats.length - 1 },
 
   // Home
   { id: "decor-1", name: "Decorator", desc: "Place a decoration at home.", kind: "style", stars: 1, target: 1, progress: (g) => g.home.length },

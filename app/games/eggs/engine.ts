@@ -28,6 +28,9 @@ import {
   HOME_TOP,
   HUT,
   IDLE_SLEEP_AFTER,
+  MISSION_STREAK,
+  MISSION_STREAK_STARS,
+  MISSIONS,
   MYSTERY_EVERY,
   MYSTERY_LIFETIME,
   NIGHT_LUCK,
@@ -75,6 +78,7 @@ import {
   type DecorKind,
   type HatId,
   type HomeDecorId,
+  type MissionKind,
   type PetDef,
   type Point,
   type Rarity,
@@ -235,6 +239,15 @@ export interface ShootingStar {
   caught: boolean;
 }
 
+export interface Mission {
+  kind: MissionKind;
+  target: number;
+  /** The stat's value when the mission was handed out. */
+  start: number;
+  /** Counts down after it's done, until a fresh mission takes its place. */
+  doneT: number;
+}
+
 export type Upgrades = Record<UpgradeId, number>;
 
 export interface Player {
@@ -282,6 +295,7 @@ export interface Stats {
   snowmen: number;
   chimes: number;
   travels: number;
+  missions: number;
   /** Every coin ever earned. */
   earned: number;
 }
@@ -290,7 +304,7 @@ const ZERO_STATS: Stats = {
   eggs: 0, caught: 0, fused: 0, taps: 0, pats: 0, shinies: 0, golden: 0, night: 0,
   mystery: 0, bugs: 0, chests: 0, dashes: 0, escapes: 0, close: 0, maxCarry: 0,
   wishes: 0, grumblePats: 0, knocks: 0, sugar: 0, coconuts: 0, snowmen: 0, chimes: 0,
-  travels: 0, earned: 0,
+  travels: 0, missions: 0, earned: 0,
 };
 
 const ZERO_UPGRADES: Upgrades = {
@@ -333,7 +347,8 @@ export type GameEvent =
   | { type: "dash" }
   | { type: "travel"; biome: number }
   | { type: "bug"; coins: number; golden: boolean }
-  | { type: "frenzy" };
+  | { type: "frenzy" }
+  | { type: "mission"; kind: MissionKind; target: number; coins: number; stars: number };
 
 export interface Game {
   time: number;
@@ -374,6 +389,7 @@ export interface Game {
   home: HomeDecorId[];
   /** Seconds of double coins left (from catching a shooting star). */
   frenzy: number;
+  missions: Mission[];
   /** Lands whose hidden star has been found. */
   secrets: number[];
   secretSpots: Point[];
@@ -410,6 +426,7 @@ export interface SavedGame {
   hat?: HatId;
   trail?: TrailId;
   home?: HomeDecorId[];
+  missions?: { kind: MissionKind; target: number; progress: number }[];
   secrets?: number[];
   /** Index into `pets` of the buddy, or -1. */
   buddy?: number;
@@ -636,6 +653,47 @@ function openSpot(g: Game, biome: number, lowerHalf: boolean): Point {
   return { x: CENTER_X + (Math.random() < 0.5 ? -200 : 200), y: top + BIOME_H - 150 };
 }
 
+/* ---------- Missions ---------- */
+
+export const missionProgress = (g: Game, m: Mission) =>
+  Math.max(0, Math.min(m.target, g.stats[m.kind] - m.start));
+
+function newMission(g: Game): Mission {
+  const active = g.missions.map((m) => m.kind);
+  const pool = MISSIONS.filter((d) => {
+    if (active.includes(d.kind)) return false;
+    // Only hand out goals the player can actually do right now.
+    if (d.kind === "dashes") return g.up.dash > 0;
+    if (d.kind === "pats") return g.pets.length > 0;
+    if (d.kind === "taps" || d.kind === "bugs") return g.stats.eggs > 0;
+    return true;
+  });
+  const def = pick(pool.length ? pool : MISSIONS.filter((d) => !active.includes(d.kind)));
+  return { kind: def.kind, target: pick(def.amounts), start: g.stats[def.kind], doneT: 0 };
+}
+
+function updateMissions(g: Game, dt: number) {
+  for (let i = 0; i < g.missions.length; i++) {
+    const m = g.missions[i];
+    if (m.doneT > 0) {
+      m.doneT -= dt;
+      if (m.doneT <= 0) {
+        g.missions.splice(i, 1);
+        g.missions.splice(i, 0, newMission(g));
+      }
+      continue;
+    }
+    if (missionProgress(g, m) < m.target) continue;
+    m.doneT = 2.5;
+    g.stats.missions++;
+    const coins = Math.max(30, Math.round(totalRate(g) * 40));
+    const stars = g.stats.missions % MISSION_STREAK === 0 ? MISSION_STREAK_STARS : 0;
+    earn(g, coins);
+    g.stars += stars;
+    emit(g, { type: "mission", kind: m.kind, target: m.target, coins, stars });
+  }
+}
+
 /* ---------- Create / save ---------- */
 
 export interface CreateOptions {
@@ -686,6 +744,7 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
     trail: "none",
     home: [],
     frenzy: 0,
+    missions: [],
     secrets: [],
     secretSpots: WORLD.secrets,
     buddy: 0,
@@ -727,6 +786,10 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
     if (saved.trail && g.trails.includes(saved.trail)) g.trail = saved.trail;
     g.secrets = (saved.secrets ?? []).filter((b) => b >= 0 && b < BIOME_COUNT);
     g.home = (saved.home ?? []).filter((id) => HOME_DECOR.some((d) => d.id === id));
+    for (const m of saved.missions ?? []) {
+      if (!MISSIONS.some((d) => d.kind === m.kind) || g.missions.length >= 3) continue;
+      g.missions.push({ kind: m.kind, target: m.target, start: g.stats[m.kind] - (m.progress || 0), doneT: 0 });
+    }
     g.flags = { ...saved.flags };
     g.lastChest = Number(saved.lastChest) || 0;
     const buddy = saved.buddy ?? -1;
@@ -734,6 +797,9 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
     g.completeSent = PETS.every((p) => p.rarity === 4 || g.book[p.id]);
   }
   if (opts.giant) g.flags.giant = 1;
+  // A brand-new player's first mission is the simplest one there is.
+  if (!saved) g.missions.push({ kind: "eggs", target: 3, start: 0, doneT: 0 });
+  while (g.missions.length < 3) g.missions.push(newMission(g));
 
   for (let i = 0; i < BIOME_COUNT; i++) {
     const top = biomeTop(i);
@@ -797,6 +863,9 @@ export function toSave(g: Game): SavedGame {
     hat: g.hat,
     trail: g.trail,
     home: [...g.home],
+    missions: g.missions
+      .filter((m) => m.doneT <= 0)
+      .map((m) => ({ kind: m.kind, target: m.target, progress: missionProgress(g, m) })),
     secrets: [...g.secrets],
     buddy: g.pets.findIndex((p) => p.uid === g.buddy),
     flags: { ...g.flags },
@@ -1877,6 +1946,7 @@ export function step(g: Game, dt: number, input: Input) {
   updateNests(g, dt);
   updateBugs(g, dt);
   updateWorldEvents(g, dt);
+  updateMissions(g, dt);
   updateFx(g, dt);
 
   g.achT -= dt;

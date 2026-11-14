@@ -119,6 +119,88 @@ button.se-speed {
 .se-speed svg {
   color: #f59e0b;
 }
+/* The current mission, under the star and speed chips */
+.se-mission {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: min(64vw, 280px);
+  padding: 5px 6px 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--dg-border);
+  background: var(--dg-surface);
+  background: color-mix(in srgb, var(--dg-surface) 94%, transparent);
+  box-shadow: 0 3px 0 rgba(20, 16, 50, 0.16);
+  color: var(--dg-ink);
+  font-family: var(--dg-display);
+  font-weight: 600;
+  font-size: 0.82rem;
+  line-height: 1.1;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: dgPopIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.se-mission svg {
+  flex: none;
+  color: #ef4444;
+}
+.se-mission span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.se-mission b {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: #fff;
+  background: var(--g-to);
+}
+.se-missions {
+  padding: 10px 12px 12px;
+  border-radius: 18px;
+  text-align: left;
+  background: color-mix(in srgb, #ef4444 9%, var(--dg-surface));
+  border: 2px dashed color-mix(in srgb, #ef4444 40%, transparent);
+}
+.se-missions h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-family: var(--dg-display);
+  font-weight: 700;
+  font-size: 1rem;
+}
+.se-missions h3 svg:first-child {
+  color: #ef4444;
+}
+.se-missions h3 span {
+  margin-left: auto;
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: var(--dg-muted);
+}
+.se-mission-row {
+  display: grid;
+  grid-template-columns: 1fr 96px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+.se-mission-row .se-bar {
+  margin: 0;
+}
+.se-mission-row.is-done > span:first-child {
+  text-decoration: line-through;
+  color: var(--dg-muted);
+}
 .se-star.se-star {
   color: #f59e0b;
   filter: drop-shadow(0 1px 0 #b45309);
@@ -127,7 +209,7 @@ button.se-speed {
 /* Trophy banner */
 .se-cheer {
   position: absolute;
-  top: 100px;
+  top: 140px;
   left: 50%;
   display: flex;
   align-items: center;
@@ -237,7 +319,7 @@ button.se-speed {
 
 .se-place {
   position: absolute;
-  top: 100px;
+  top: 140px;
   left: 50%;
   padding: 8px 22px;
   border-radius: 999px;
@@ -254,7 +336,7 @@ button.se-speed {
 .se-toast {
   position: absolute;
   left: 50%;
-  top: 158px;
+  top: 198px;
   max-width: min(92%, 380px);
   padding: 10px 18px;
   border-radius: 18px;
@@ -983,6 +1065,14 @@ button.se-speed {
     padding: 6px 16px;
     font-size: 1.05rem;
   }
+  .se-mission {
+    max-width: 380px;
+    padding: 7px 8px 7px 14px;
+    font-size: 1.02rem;
+  }
+  .se-mission b {
+    font-size: 0.95rem;
+  }
   .se-top-right .dg-btn--round {
     width: 58px;
     height: 58px;
@@ -1006,10 +1096,10 @@ button.se-speed {
     height: 24px;
   }
   .se-place {
-    top: 132px;
+    top: 184px;
   }
   .se-cheer {
-    top: 130px;
+    top: 182px;
     padding: 12px 24px 12px 18px;
     font-size: 1.35rem;
   }
@@ -1024,7 +1114,7 @@ button.se-speed {
     font-size: 2.2rem;
   }
   .se-toast {
-    top: 208px;
+    top: 262px;
     max-width: 460px;
     padding: 14px 24px;
     font-size: 1.3rem;

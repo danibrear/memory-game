@@ -31,12 +31,18 @@ burst, cooldown shrinks per level), Egg Basket, Bigger Pen, Pet Treats (+25%
 coins per level), Warm Nests (faster hatching), Lucky Clover, Sparkle Charm
 (more shinies), Tiptoe Socks (Grumbles wake slower).
 
-**Trophies (69).** Data-driven in `achievements.ts`: each is a number to reach
+**Trophies (71).** Data-driven in `achievements.ts`: each is a number to reach
 read straight off the game. Banners queue one at a time. Old saves get whatever
 they've already earned in one quiet "welcome back" lump.
 
+**Missions.** Three small goals at a time ("Bring 5 eggs home", "Catch 3
+glitterbugs"), listed in `MISSIONS` in config. Finishing one pays coins and deals
+a new one; every 5th pays 2 bonus stars. The one nearest to done shows under the
+star chip; all three are at the top of the Trophies menu. Only goals the player
+can do right now are dealt (no dash missions before Zoom Dash is bought).
+
 **Style.** 9 hats and 8 trails (Shop → Hats / Trails). The hat shows on the
-title screen too.
+title screen too. Wardrobe bows and scarves are always red (`dressed()` in config).
 
 **Home decorations (6).** Garden, balloon arch, fountain, slide, rainbow, golden
 statue. Each adds +5% coins.

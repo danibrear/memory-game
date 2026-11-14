@@ -3,6 +3,7 @@ import {
   faBasketShopping,
   faBolt,
   faBone,
+  faBullseye,
   faCheck,
   faClover,
   faCoins,
@@ -38,6 +39,8 @@ import {
   FUSE_COUNT,
   HATS,
   HOME_DECOR,
+  MISSION_STREAK,
+  MISSION_STREAK_STARS,
   PETS,
   RARITIES,
   SELL_SECONDS,
@@ -45,7 +48,9 @@ import {
   UPGRADE_IDS,
   basketSize,
   dashCooldown,
+  dressed,
   fmtCoins,
+  missionText,
   hatchScale,
   penSize,
   petFor,
@@ -62,7 +67,7 @@ import {
   type TrailId,
   type UpgradeId,
 } from "~/games/eggs/config";
-import { canFuse, coinMult, countOf, type Game } from "~/games/eggs/engine";
+import { canFuse, coinMult, countOf, missionProgress, type Game } from "~/games/eggs/engine";
 import { paintEggIcon, paintPetIcon, type Mood } from "~/games/eggs/render";
 
 export function cx(...parts: (string | false | null | undefined)[]) {
@@ -348,7 +353,7 @@ export function ShopBody({
                   aria-pressed={wearing}
                   aria-label={owned ? `Wear ${h.name}` : `Buy ${h.name} for ${h.cost} stars`}
                   onClick={() => onHat(h.id)}>
-                  <PetIcon look={{ ...playerLook, hat: h.id }} size={62} />
+                  <PetIcon look={dressed(playerLook, h.id)} size={62} />
                   <span>{h.name}</span>
                   <b>
                     {wearing ? (
@@ -618,6 +623,27 @@ export function TrophiesBody({ g }: { g: Game }) {
         </span>
       </div>
       <div className="se-list">
+        <div className="se-missions">
+          <h3>
+            <FontAwesomeIcon icon={faBullseye} /> Missions
+            <span>
+              {MISSION_STREAK - (g.stats.missions % MISSION_STREAK)} more for +{MISSION_STREAK_STARS} <StarIcon />
+            </span>
+          </h3>
+          {g.missions.map((m, i) => {
+            const have = missionProgress(g, m);
+            const done = m.doneT > 0 || have >= m.target;
+            return (
+              <div className={cx("se-mission-row", done && "is-done")} key={`${m.kind}-${i}`}>
+                <span>{missionText(m.kind, m.target)}</span>
+                <span className="se-bar" role="progressbar" aria-valuemin={0} aria-valuemax={m.target} aria-valuenow={have}>
+                  <i style={{ width: `${(have / m.target) * 100}%` }} />
+                  <em>{done ? "Done!" : `${have} / ${m.target}`}</em>
+                </span>
+              </div>
+            );
+          })}
+        </div>
         {rows.map(({ a, done, value, frac }) => {
           const hidden = a.secret && !done;
           const style = KIND_STYLE[a.kind];

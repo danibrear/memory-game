@@ -82,6 +82,8 @@ export interface Look {
   back?: "none" | "wings" | "shell" | "mane" | "fluff";
   pattern?: "none" | "stripes" | "spots" | "sprinkles" | "stars" | "mask";
   hat?: HatId;
+  /** Colour for a bow or scarf (defaults to the accent colour). */
+  hatColor?: string;
   /** Glow colour behind the critter (Mythic pets). */
   aura?: string;
   face?: "smile" | "beak" | "fang" | "cat";
@@ -341,6 +343,9 @@ export const SKINS: Skin[] = [
   { id: "sky", name: "Sky", look: sneak("#7dd3fc", "#f0f9ff", "#075985") },
 ];
 export const skinById = (id: string): Skin => SKINS.find((s) => s.id === id) ?? SKINS[0];
+/** A look with a wardrobe hat on. Bows and scarves get a cheerful red, whatever the fur. */
+export const dressed = (look: Look, hat: HatId | undefined): Look =>
+  hat && hat !== "none" ? { ...look, hat, hatColor: "#f43f5e" } : look;
 
 /* ---------- Upgrades ---------- */
 
@@ -467,6 +472,32 @@ export const HOME_DECOR: HomeDecor[] = [
 ];
 /** Each decoration makes pets a little happier: this much more coins apiece. */
 export const DECOR_BONUS = 0.05;
+
+/* ---------- Missions: three little goals that keep refreshing ---------- */
+
+export type MissionKind = "eggs" | "bugs" | "pats" | "taps" | "golden" | "dashes" | "escapes";
+
+export interface MissionDef {
+  kind: MissionKind;
+  /** How many, easiest first. One is picked at random. */
+  amounts: number[];
+  text: (n: number) => string;
+}
+
+export const MISSIONS: MissionDef[] = [
+  { kind: "eggs", amounts: [3, 5, 8], text: (n) => `Bring ${n} eggs home` },
+  { kind: "bugs", amounts: [2, 3, 5], text: (n) => `Catch ${n} glitterbugs` },
+  { kind: "pats", amounts: [3, 5], text: (n) => `Pet your pets ${n} times` },
+  { kind: "taps", amounts: [15, 30], text: (n) => `Tap hatching eggs ${n} times` },
+  { kind: "golden", amounts: [1, 2], text: (n) => (n === 1 ? "Take an egg from a golden nest" : `Take ${n} eggs from golden nests`) },
+  { kind: "dashes", amounts: [3, 5], text: (n) => `Use Zoom Dash ${n} times` },
+  { kind: "escapes", amounts: [2, 4], text: (n) => `Escape a chasing Grumble ${n} times` },
+];
+export const missionText = (kind: MissionKind, n: number) =>
+  MISSIONS.find((m) => m.kind === kind)?.text(n) ?? "";
+/** Every this-many missions pays a bonus in stars. */
+export const MISSION_STREAK = 5;
+export const MISSION_STREAK_STARS = 2;
 
 /* ---------- World events ---------- */
 

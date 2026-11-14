@@ -2,6 +2,7 @@ import {
   faArrowsRotate,
   faBolt,
   faBook,
+  faBullseye,
   faCoins,
   faEgg,
   faForwardFast,
@@ -65,7 +66,9 @@ import {
   TRAILS,
   UPGRADE_IDS,
   dashCooldown,
+  dressed,
   fmtCoins,
+  missionText,
   penSize,
   petById,
   petRate,
@@ -73,7 +76,6 @@ import {
   upgradeCost,
   type HatId,
   type HomeDecorId,
-  type Look,
   type PetDef,
   type TrailId,
   type UpgradeId,
@@ -89,6 +91,7 @@ import {
   createGame,
   dash,
   fuse,
+  missionProgress,
   penIsFull,
   savedRate,
   sell,
@@ -172,6 +175,8 @@ interface Hud {
   trophies: number;
   dash: number;
   frenzy: boolean;
+  /** The mission nearest to done, as "text|have|need" (a string so it compares cheaply). */
+  mission: string;
   canBuy: boolean;
   canStyle: boolean;
   canFuse: boolean;
@@ -189,6 +194,7 @@ const EMPTY_HUD: Hud = {
   trophies: 0,
   dash: 0,
   frenzy: false,
+  mission: "",
   canBuy: false,
   canStyle: false,
   canFuse: false,
@@ -214,6 +220,9 @@ interface Cheer {
 }
 
 function hudOf(g: Game): Hud {
+  const open = g.missions
+    .filter((m) => m.doneT <= 0)
+    .sort((a, b) => missionProgress(g, b) / b.target - missionProgress(g, a) / a.target)[0];
   return {
     coins: Math.floor(g.coins),
     rate: totalRate(g),
@@ -225,6 +234,7 @@ function hudOf(g: Game): Hud {
     trophies: Object.keys(g.ach).length,
     dash: g.up.dash,
     frenzy: g.frenzy > 0,
+    mission: open ? `${missionText(open.kind, open.target)}|${missionProgress(g, open)}|${open.target}` : "",
     canBuy:
       UPGRADE_IDS.some((id) => {
         const cost = upgradeCost(id, g.up[id]);
@@ -484,6 +494,15 @@ export default function SneakyEggs() {
           say("You caught a shooting star! Double coins for 30 seconds!", "good");
           break;
         case "frenzy":
+          break;
+        case "mission":
+          sfx.mission();
+          say(
+            e.stars
+              ? `Mission done! +${fmtCoins(e.coins)} coins and ${e.stars} bonus stars!`
+              : `Mission done! +${fmtCoins(e.coins)} coins`,
+            "good",
+          );
           break;
         case "sugar":
           sfx.sugar();
@@ -972,8 +991,7 @@ export default function SneakyEggs() {
       const view = computeView(g, w, h);
       viewRef.current = view;
       const skin = skinById(saveRef.current.skin).look;
-      const look: Look = g.hat === "none" ? skin : { ...skin, hat: g.hat };
-      render(ctx, g, view, dpr, now / 1000, joyRef.current, look, bookCount(g.book) < 3);
+      render(ctx, g, view, dpr, now / 1000, joyRef.current, dressed(skin, g.hat), bookCount(g.book) < 3);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
@@ -1025,7 +1043,7 @@ export default function SneakyEggs() {
   if (phase === "START" || !g) {
     const found = save.game ? bookCount(save.game.book) : 0;
     const trophies = save.game?.ach?.length ?? 0;
-    const hat = save.game?.hat && save.game.hat !== "none" ? save.game.hat : undefined;
+    const hat = save.game?.hat;
     return (
       <GameShell game={game}>
         <StartScreen
@@ -1039,7 +1057,7 @@ export default function SneakyEggs() {
               key={tickles}
               onClick={tickle}
               aria-label="Your character. Tap to tickle.">
-              <PetIcon look={{ ...skin.look, hat }} size={96} mood="happy" />
+              <PetIcon look={dressed(skin.look, hat)} size={96} mood="happy" />
             </button>
             <PetIcon look={BIOMES[0].guard} size={84} mood="sleep" />
           </div>
@@ -1136,7 +1154,6 @@ export default function SneakyEggs() {
 
   const petsAlert = hud.penFull || hud.canFuse;
   const newTrophies = Math.max(0, hud.trophies - seenTrophies);
-  const playerLook: Look = g.hat === "none" ? skin.look : { ...skin.look, hat: g.hat };
   const mapOpen = hud.speed >= BIOMES[1].speedReq;
 
   return (
@@ -1182,6 +1199,21 @@ export default function SneakyEggs() {
                 <FontAwesomeIcon icon={faBolt} /> Speed {hud.speed}
               </span>
             </div>
+            {hud.mission && (
+              <button
+                type="button"
+                className="se-mission"
+                data-ui
+                key={hud.mission.split("|")[0]}
+                onClick={() => openPanel("trophies")}
+                aria-label={`Mission: ${hud.mission.split("|")[0]}, ${hud.mission.split("|")[1]} of ${hud.mission.split("|")[2]}`}>
+                <FontAwesomeIcon icon={faBullseye} />
+                <span>{hud.mission.split("|")[0]}</span>
+                <b>
+                  {hud.mission.split("|")[1]}/{hud.mission.split("|")[2]}
+                </b>
+              </button>
+            )}
           </div>
           <div className="se-top-right" data-ui>
             <KitButton

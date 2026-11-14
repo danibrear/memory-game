@@ -132,6 +132,9 @@ export const sfx = {
     [7, 12, 16, 19].forEach((s, i) => tone(NOTE(s), 0.2, { type: "triangle", vol: 0.2, delay: i * 0.08 }));
     tone(NOTE(24), 0.45, { type: "sine", vol: 0.16, delay: 0.34 });
   },
+  mission() {
+    [4, 9, 12, 16].forEach((s, i) => tone(NOTE(s), 0.16, { type: "triangle", vol: 0.18, delay: i * 0.07 }));
+  },
   pat() {
     tone(900, 0.07, { type: "sine", vol: 0.16, to: 1400 });
     tone(1300, 0.09, { type: "sine", vol: 0.14, to: 1700, delay: 0.08 });
