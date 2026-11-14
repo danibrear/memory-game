@@ -3,6 +3,6 @@ import type { Config } from "@react-router/dev/config";
 export default {
   ssr: true,
   async prerender() {
-    return ["/", "/memory", "/color", "/match", "/ballsort", "/bubblepop", "/quadra", "/towerdefense", "/munch"];
+    return ["/", "/memory", "/color", "/match", "/ballsort", "/bubblepop", "/quadra", "/towerdefense", "/munch", "/eggs"];
   },
 } satisfies Config;

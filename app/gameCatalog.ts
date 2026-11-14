@@ -7,6 +7,7 @@ import {
   faCookieBite,
   faCopy,
   faCubes,
+  faEgg,
   faFlask,
   faPaintBrush,
   faShield,
@@ -59,6 +60,17 @@ export interface Game {
 }
 
 export const GAMES: Game[] = [
+  {
+    id: "eggs",
+    name: "Sneaky Eggs",
+    path: "/eggs",
+    description: "Sneak eggs past the sleepy Grumbles, run them home, and hatch rare pets!",
+    icon: faEgg,
+    category: "arcade",
+    colors: { from: "#a3e635", to: "#4d7c0f" },
+    players: "1 player",
+    isNew: true,
+  },
   {
     id: "munch",
     name: "Munch Bunch",
