@@ -1,0 +1,440 @@
+/* ========== Bubble Pop ========== */
+
+.bp-stage {
+  padding: 0 12px;
+}
+
+/* Sky-style play tray. `container-type: size` lets bubbles rise exactly
+   the field's height using cqh units, whatever the screen size. */
+.bp-field {
+  position: relative;
+  container-type: size;
+  height: max(420px, calc(100dvh - 250px));
+  max-width: 900px;
+  margin: 0 auto;
+  border-radius: 28px;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  border: 1px solid var(--dg-border);
+  background:
+    radial-gradient(120% 55% at 50% 112%, color-mix(in srgb, var(--g-from) 60%, transparent), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--g-from) 14%, var(--dg-surface)) 0%, color-mix(in srgb, var(--g-from) 42%, var(--dg-surface)) 100%);
+  box-shadow:
+    var(--dg-lift),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+@media (prefers-color-scheme: dark) {
+  .bp-field {
+    background:
+      radial-gradient(120% 55% at 50% 112%, color-mix(in srgb, var(--g-to) 55%, transparent), transparent 70%),
+      linear-gradient(180deg, var(--dg-surface) 0%, color-mix(in srgb, var(--g-to) 40%, var(--dg-surface)) 100%);
+  }
+}
+
+/* Decorative background bubbles */
+.bp-ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.bp-ambient i {
+  position: absolute;
+  bottom: -40px;
+  width: var(--s);
+  height: var(--s);
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  background: radial-gradient(circle at 32% 30%, rgba(255, 255, 255, 0.6), transparent 60%);
+  opacity: 0.55;
+  animation: bp-rise var(--d) linear var(--delay) infinite;
+}
+
+/* Red flash along the top when a bubble escapes */
+.bp-hurt {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 90px;
+  pointer-events: none;
+  z-index: 6;
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.55), transparent);
+  animation: bp-hurt 0.6s ease-out forwards;
+}
+
+/* Bubble layers: hitbox (rise) > sway > wobble > bubble (squish) */
+.bp-hitbox {
+  position: absolute;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  animation: bp-rise linear forwards;
+  will-change: transform;
+  z-index: 2;
+}
+.bp-sway {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  animation: bp-sway var(--sway-d, 3s) ease-in-out infinite alternate;
+}
+.bp-wobble {
+  animation: bp-wobble 2.2s ease-in-out infinite;
+}
+
+.bp-bubble {
+  --tint: #22c55e;
+  --size: 80px;
+  position: relative;
+  width: var(--size);
+  height: var(--size);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: calc(var(--size) * 0.42);
+  color: #fff;
+  background: radial-gradient(
+    circle at 50% 58%,
+    color-mix(in srgb, var(--tint) 20%, transparent) 0%,
+    color-mix(in srgb, var(--tint) 55%, transparent) 62%,
+    color-mix(in srgb, var(--tint) 92%, white) 100%
+  );
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.65),
+    inset -6px -9px 16px color-mix(in srgb, var(--tint) 80%, black),
+    inset 5px 7px 14px rgba(255, 255, 255, 0.55),
+    0 12px 22px -10px color-mix(in srgb, var(--tint) 80%, transparent);
+  transition: filter 0.15s ease;
+}
+/* Glossy highlight */
+.bp-bubble::before {
+  content: "";
+  position: absolute;
+  top: 11%;
+  left: 17%;
+  width: 36%;
+  height: 22%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 70%);
+  transform: rotate(-32deg);
+  z-index: 2;
+  pointer-events: none;
+}
+/* Rainbow soap-film rim */
+.bp-bubble::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    rgba(255, 120, 200, 0.6),
+    rgba(120, 220, 255, 0.6),
+    rgba(170, 255, 150, 0.55),
+    rgba(255, 240, 120, 0.6),
+    rgba(255, 120, 200, 0.6)
+  );
+  -webkit-mask: radial-gradient(circle closest-side, transparent 70%, #000 90%, #000 100%);
+  mask: radial-gradient(circle closest-side, transparent 70%, #000 90%, #000 100%);
+  mix-blend-mode: screen;
+  opacity: 0.75;
+  animation: bp-spin 6s linear infinite;
+  pointer-events: none;
+}
+.bp-icon {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 2px 2px color-mix(in srgb, var(--tint) 60%, black));
+}
+@media (hover: hover) {
+  .bp-hitbox:hover .bp-bubble {
+    filter: brightness(1.08) saturate(1.1);
+  }
+}
+.bp-bubble.is-hit {
+  animation: bp-hit 0.34s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+/* Dots showing how many taps a tough bubble still needs */
+.bp-pips {
+  position: absolute;
+  bottom: 9%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+  z-index: 1;
+}
+.bp-pips i {
+  width: max(6px, calc(var(--size) * 0.09));
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.bp-bubble--mini {
+  display: inline-grid;
+}
+.bp-bubble--mini .bp-pips {
+  bottom: auto;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+.bp-legend {
+  display: flex;
+  justify-content: center;
+  gap: 22px;
+}
+.bp-legend-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---------- Pop burst ---------- */
+
+.bp-pop {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.bp-flash,
+.bp-ring {
+  position: absolute;
+  left: calc(var(--s) * -0.5);
+  top: calc(var(--s) * -0.5);
+  width: var(--s);
+  height: var(--s);
+  border-radius: 50%;
+}
+.bp-flash {
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.95) 0%,
+    color-mix(in srgb, var(--tint) 55%, transparent) 45%,
+    transparent 70%
+  );
+  animation: bp-flash 0.28s ease-out forwards;
+}
+.bp-ring {
+  border: 3px solid color-mix(in srgb, var(--tint) 60%, white);
+  animation: bp-ring 0.5s ease-out forwards;
+}
+.bp-drop {
+  position: absolute;
+  left: calc(var(--ds) * -0.5);
+  top: calc(var(--ds) * -0.5);
+  width: var(--ds);
+  height: var(--ds);
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow:
+    inset -1px -1px 2px rgba(0, 0, 0, 0.15),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.8);
+  animation: bp-drop var(--dd) cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+}
+.bp-pop-icon {
+  position: absolute;
+  font-size: calc(var(--s) * 0.42);
+  line-height: 1;
+  color: #fff;
+  filter: drop-shadow(0 2px 3px color-mix(in srgb, var(--tint) 70%, black));
+  animation: bp-icon 0.65s ease-out forwards;
+}
+.bp-points {
+  position: absolute;
+  left: calc(var(--s) * 0.55);
+  top: calc(var(--s) * -0.25);
+  font-family: var(--dg-display);
+  font-weight: 700;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: #fff;
+  white-space: nowrap;
+  text-shadow:
+    0 2px 0 color-mix(in srgb, var(--tint) 70%, black),
+    0 0 14px var(--tint);
+  animation: bp-points 0.85s ease-out forwards;
+}
+.bp-points.is-combo {
+  font-size: 2rem;
+  color: #fde68a;
+  text-shadow:
+    0 2px 0 #b45309,
+    0 0 16px #f59e0b;
+}
+
+/* ---------- HUD bits ---------- */
+
+.bp-score {
+  display: inline-block;
+  min-width: 1.5ch;
+  animation: bp-bump 0.3s ease-out;
+}
+.bp-hearts {
+  gap: 4px;
+}
+.bp-hearts .bp-heart {
+  color: #ef4444;
+}
+.bp-hearts .bp-heart.is-lost {
+  color: color-mix(in srgb, var(--dg-ink) 25%, transparent);
+  animation: bp-heart-lose 0.5s ease-out;
+}
+
+/* ---------- Keyframes ---------- */
+
+@keyframes bp-rise {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(calc(-100cqh - 100%));
+  }
+}
+@keyframes bp-sway {
+  from {
+    transform: translateX(calc(var(--sway, 14px) * -1));
+  }
+  to {
+    transform: translateX(var(--sway, 14px));
+  }
+}
+@keyframes bp-wobble {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  25% {
+    transform: scale(1.05, 0.95);
+  }
+  50% {
+    transform: scale(0.97, 1.03);
+  }
+  75% {
+    transform: scale(1.03, 0.97);
+  }
+}
+@keyframes bp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes bp-hit {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(0.78, 0.86);
+  }
+  65% {
+    transform: scale(1.12, 1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes bp-flash {
+  0% {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+@keyframes bp-ring {
+  0% {
+    transform: scale(0.75);
+    opacity: 1;
+    border-width: 6px;
+  }
+  100% {
+    transform: scale(1.75);
+    opacity: 0;
+    border-width: 1px;
+  }
+}
+@keyframes bp-drop {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx), calc(var(--dy) + 22px)) scale(0.2);
+    opacity: 0;
+  }
+}
+@keyframes bp-icon {
+  0% {
+    transform: translate(-50%, -50%) scale(1) rotate(0);
+    opacity: 1;
+  }
+  30% {
+    transform: translate(-50%, -85%) scale(1.35) rotate(-10deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -190%) scale(0.6) rotate(14deg);
+    opacity: 0;
+  }
+}
+@keyframes bp-points {
+  0% {
+    transform: translate(-50%, -20%) scale(0.4);
+    opacity: 0;
+  }
+  20% {
+    transform: translate(-50%, -100%) scale(1.25);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -230%) scale(1);
+    opacity: 0;
+  }
+}
+@keyframes bp-hurt {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes bp-bump {
+  0% {
+    transform: scale(1.45);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes bp-heart-lose {
+  0% {
+    transform: scale(1.6) rotate(-12deg);
+    color: #ef4444;
+  }
+  40% {
+    transform: scale(0.8) rotate(10deg);
+  }
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bp-sway,
+  .bp-wobble,
+  .bp-bubble::after,
+  .bp-ambient i {
+    animation: none;
+  }
+}

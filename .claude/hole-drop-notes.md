@@ -36,6 +36,9 @@ plain Canvas 2D, same module layout as Tower Defense.
 ## Controls
 Mouse = hole follows the cursor (hole.io desktop style); touch = floating
 joystick anywhere; arrows/WASD; Esc/P pauses.
+Last-used control wins (`inputModeRef`): pressing an arrow switches to keys and
+the resting cursor is ignored (no arrow held = hole stops); moving the mouse
+more than ~4px switches back to mouse steering.
 
 ## Storage keys
 `hole-settings` (name, skin, mode, muted), `hole-best-v2` (best per mode).
@@ -44,3 +47,13 @@ The old `hole-drop-best` key is no longer read.
 ## Perf
 Renderer culls to the view and batches small far objects into a few fills.
 The route lowers canvas resolution automatically if frames run slow.
+
+## Smoothness (jitter fix)
+- Loop advances by the real frame time in ≤1/60s sub-steps (no fixed-step
+  accumulator, which ran 0 or 2 steps on some frames and stuttered at speed).
+- Camera is locked to the player; it only glides for big jumps (respawn).
+  The old lagging camera also fed back into mouse steering and pumped the speed.
+- HUD lives in `HudView` behind a tiny store (`useSyncExternalStore`) and only
+  re-renders when a shown value changes, so the page around the canvas no longer
+  re-renders 10x/second.
+- Phaser isn't needed: the bottleneck was frame timing, not drawing speed.
