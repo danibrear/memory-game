@@ -1,13 +1,18 @@
 import {
   faArrowUp,
   faCoins,
+  faCrosshairs,
   faFlag,
   faForward,
   faHeart,
+  faInfinity,
+  faLightbulb,
+  faMap,
   faPause,
   faPlay,
   faRotateRight,
   faSkull,
+  faStar,
   faTrophy,
   faVolumeHigh,
   faVolumeXmark,
@@ -25,26 +30,52 @@ import {
   Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useRef, useState } from "react";
+import GameIconTile from "~/components/GameIconTile";
+import {
+  ChoiceGroup,
+  Confetti,
+  GameShell,
+  KitButton,
+  KitDialog,
+  getGame,
+} from "~/components/game/GameKit";
 import { playSfx, unlockAudio } from "~/games/towerdefense/audio";
 import {
   COLS,
+  DIFFICULTIES,
+  DIFFICULTY_ORDER,
   ENEMIES,
-  MAX_LIVES,
+  ENEMY_ORDER,
+  HILL_RANGE_BONUS,
+  MAPS,
   ROWS,
+  TARGETING,
+  TARGETING_ORDER,
+  TERRAIN,
   TOTAL_WAVES,
   TOWERS,
   TOWER_ORDER,
-  WAVES,
+  getMap,
+  starsFor,
+  waveDef,
+  type Cell,
+  type Difficulty,
   type EnemyType,
+  type MapDef,
+  type Targeting,
+  type Terrain,
   type TowerType,
 } from "~/games/towerdefense/config";
 import {
   canCallWave,
   canPlace,
+  clearRubble,
+  continueEndless,
   createGame,
   placeTower,
   sellTower,
   sellValue,
+  setTargeting,
   startWave,
   step,
   towerAt,
@@ -58,69 +89,80 @@ import {
 import {
   drawBoard,
   drawEnemySprite,
+  drawMapThumb,
+  drawTerrainSwatch,
   drawTower,
   renderFrame,
 } from "~/games/towerdefense/sprites";
+import { getStoredData, setStoredData } from "~/storage";
+import towerDefenseStyles from "~/styles/towerdefense.css?url";
 import type { Route } from "./+types/towerdefense";
+
+export const links: Route.LinksFunction = () => [
+  { rel: "stylesheet", href: towerDefenseStyles },
+];
 
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Tower Defense - Games by DaniB" },
-    { name: "description", content: "Build a maze of towers and stop the waves!" },
+    { name: "description", content: "Build a maze of towers across five battlefields and stop the waves!" },
   ];
 }
 
 const STEP = 1 / 60;
 const MUTE_KEY = "td-muted";
+const SAVE_KEY = "tower-defense";
 
-interface Hud {
-  gold: number;
-  lives: number;
-  wave: number;
-  phase: Phase;
-  canCall: boolean;
-  remaining: number;
+// ─── Saved progress ───────────────────────────────────────────────────────────
+
+interface Save {
+  difficulty: Difficulty;
+  /** Best stars per map, per difficulty. */
+  stars: Record<string, Partial<Record<Difficulty, number>>>;
+  /** Highest endless wave reached per map. */
+  endless: Record<string, number>;
 }
 
-const snapshot = (g: Game): Hud => ({
-  gold: g.gold,
-  lives: g.lives,
-  wave: g.wave,
-  phase: g.phase,
-  canCall: canCallWave(g),
-  remaining: g.enemies.length + g.spawnQueue.length,
-});
+const EMPTY_SAVE: Save = { difficulty: "normal", stars: {}, endless: {} };
 
-const sameHud = (a: Hud, b: Hud) =>
-  a.gold === b.gold &&
-  a.lives === b.lives &&
-  a.wave === b.wave &&
-  a.phase === b.phase &&
-  a.canCall === b.canCall &&
-  a.remaining === b.remaining;
+function loadSave(): Save {
+  const raw = getStoredData(SAVE_KEY) as Partial<Save> | null;
+  if (!raw || typeof raw !== "object") return EMPTY_SAVE;
+  return {
+    difficulty: DIFFICULTY_ORDER.includes(raw.difficulty as Difficulty) ? (raw.difficulty as Difficulty) : "normal",
+    stars: raw.stars && typeof raw.stars === "object" ? raw.stars : {},
+    endless: raw.endless && typeof raw.endless === "object" ? raw.endless : {},
+  };
+}
 
 // ─── Sprite icons (small static canvases) ─────────────────────────────────────
 
-function useSpriteCanvas(size: number, draw: (ctx: CanvasRenderingContext2D) => void, deps: unknown[]) {
+function useCanvas(
+  width: number,
+  height: number,
+  draw: (ctx: CanvasRenderingContext2D) => void,
+  deps: unknown[],
+) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = size * dpr;
-    canvas.height = size * dpr;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, size, size);
+    ctx.clearRect(0, 0, width, height);
     draw(ctx);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [size, ...deps]);
+  }, [width, height, ...deps]);
   return ref;
 }
 
 function TowerIcon({ type, level = 0, size = 48 }: { type: TowerType; level?: Level; size?: number }) {
-  const ref = useSpriteCanvas(
+  const ref = useCanvas(
+    size,
     size,
     (ctx) =>
       drawTower(ctx, type, level, { angle: -Math.PI / 4, recoil: 0, flash: 0 }, size / 2, size / 2 - size * 0.04, size * 0.95, 0.6),
@@ -130,16 +172,152 @@ function TowerIcon({ type, level = 0, size = 48 }: { type: TowerType; level?: Le
 }
 
 function EnemyIcon({ type, size = 26 }: { type: EnemyType; size?: number }) {
-  const ref = useSpriteCanvas(
+  const ref = useCanvas(
+    size,
     size,
     (ctx) => {
       const r = ENEMIES[type].radius;
-      const s = (size * 0.8) / (r * 2.9);
-      drawEnemySprite(ctx, type, size / 2, size / 2 + size * 0.08, s, 0, { dirX: 1, dirY: 0.3, seed: 1.2 });
+      // Flyers need extra room for their wings.
+      const s = (size * (ENEMIES[type].flying ? 0.5 : 0.8)) / (r * 2.9);
+      const y = size / 2 + size * (ENEMIES[type].flying ? 0.22 : 0.08);
+      drawEnemySprite(ctx, type, size / 2, y, s, 0, { dirX: 1, dirY: 0.3, seed: 1.2 });
     },
     [type],
   );
-  return <canvas ref={ref} style={{ width: size, height: size, display: "block" }} />;
+  return <canvas ref={ref} style={{ width: size, height: size, display: "block", flexShrink: 0 }} />;
+}
+
+function TerrainIcon({ type, size = 36 }: { type: Terrain; size?: number }) {
+  const ref = useCanvas(size, size, (ctx) => drawTerrainSwatch(ctx, type, size), [type]);
+  return <canvas ref={ref} className="td-swatch" style={{ width: size, height: size }} />;
+}
+
+const THUMB_CELL = 16;
+
+function MapThumb({ map }: { map: MapDef }) {
+  const ref = useCanvas(COLS * THUMB_CELL, ROWS * THUMB_CELL, (ctx) => drawMapThumb(ctx, map, THUMB_CELL), [map.id]);
+  return <canvas ref={ref} className="td-thumb" />;
+}
+
+// ─── Map picker ───────────────────────────────────────────────────────────────
+
+function StarRow({ count }: { count: number }) {
+  return (
+    <span className="td-stars" aria-label={`${count} of 3 stars`}>
+      {[0, 1, 2].map((i) => (
+        <FontAwesomeIcon key={i} icon={faStar} className={i < count ? "is-lit" : undefined} />
+      ))}
+    </span>
+  );
+}
+
+const GUIDE_TERRAIN: Terrain[] = ["hill", "road", "water", "rock", "rubble"];
+
+function MapSelect({
+  save,
+  onDifficulty,
+  onPlay,
+}: {
+  save: Save;
+  onDifficulty: (d: Difficulty) => void;
+  onPlay: (map: MapDef) => void;
+}) {
+  const game = getGame("towerdefense");
+  const earned = MAPS.reduce((sum, m) => sum + (save.stars[m.id]?.[save.difficulty] ?? 0), 0);
+  return (
+    <div className="td-menu">
+      <header className="td-menu-head">
+        <GameIconTile game={game} size={76} />
+        <div>
+          <h1 className="dg-title">Tower Defense</h1>
+          <p className="dg-subtitle td-menu-sub">
+            Pick a battlefield. Each one changes where you can build and where the enemy can walk.
+          </p>
+        </div>
+      </header>
+
+      <div className="td-diff">
+        <ChoiceGroup
+          label="Difficulty"
+          value={save.difficulty}
+          onChange={onDifficulty}
+          options={DIFFICULTY_ORDER.map((d) => ({ value: d, label: DIFFICULTIES[d].name }))}
+        />
+        <span className="dg-caption">{DIFFICULTIES[save.difficulty].blurb}</span>
+        <span className="td-total">
+          <FontAwesomeIcon icon={faStar} /> {earned} / {MAPS.length * 3}
+        </span>
+      </div>
+
+      <div className="td-maps">
+        {MAPS.map((map) => {
+          const stars = save.stars[map.id]?.[save.difficulty] ?? 0;
+          const endless = save.endless[map.id] ?? 0;
+          return (
+            <button key={map.id} type="button" className="td-map" onClick={() => onPlay(map)}>
+              <MapThumb map={map} />
+              <span className="td-map-body">
+                <span className="td-map-top">
+                  <span className="td-map-name">{map.name}</span>
+                  <span className="td-skulls" aria-label={`Danger ${map.skulls} of 3`}>
+                    {[0, 1, 2].map((i) => (
+                      <FontAwesomeIcon key={i} icon={faSkull} className={i < map.skulls ? "is-lit" : undefined} />
+                    ))}
+                  </span>
+                </span>
+                <span className="td-map-blurb">{map.blurb}</span>
+                <span className="td-map-tip">
+                  <FontAwesomeIcon icon={faLightbulb} /> {map.tip}
+                </span>
+                <span className="td-map-foot">
+                  <StarRow count={stars} />
+                  {endless > 0 && (
+                    <span className="td-endless">
+                      <FontAwesomeIcon icon={faInfinity} /> wave {endless}
+                    </span>
+                  )}
+                  <span className="td-play">
+                    <FontAwesomeIcon icon={faPlay} /> Play
+                  </span>
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="td-guides">
+        <section className="dg-panel td-guide">
+          <span className="dg-label">Know the ground</span>
+          <ul>
+            {GUIDE_TERRAIN.map((t) => (
+              <li key={t}>
+                <TerrainIcon type={t} />
+                <span>
+                  <b>{TERRAIN[t].name}</b>
+                  {TERRAIN[t].hint}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+        <section className="dg-panel td-guide">
+          <span className="dg-label">Know the enemy</span>
+          <ul>
+            {ENEMY_ORDER.map((t) => (
+              <li key={t}>
+                <EnemyIcon type={t} size={36} />
+                <span>
+                  <b>{ENEMIES[t].name}</b>
+                  {ENEMIES[t].trait}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+    </div>
+  );
 }
 
 // ─── Small UI pieces ──────────────────────────────────────────────────────────
@@ -165,11 +343,12 @@ function Stat({ icon, color, children }: { icon: typeof faCoins; color: string; 
   );
 }
 
-function describeLevel(type: TowerType, level: Level) {
+function describeLevel(type: TowerType, level: Level, onHill: boolean) {
   const s = TOWERS[type].levels[level];
+  const range = s.range * (onHill ? HILL_RANGE_BONUS : 1);
   const rows: { label: string; value: string }[] = [
     { label: "Damage", value: String(s.dmg) },
-    { label: "Range", value: s.range.toFixed(1) },
+    { label: "Range", value: range.toFixed(1) },
     { label: "Speed", value: `${s.rate}/s` },
   ];
   if (s.splash) rows.push({ label: "Blast", value: s.splash.toFixed(1) });
@@ -178,23 +357,36 @@ function describeLevel(type: TowerType, level: Level) {
   return rows;
 }
 
+/** The fine print for a tower type: what it can and can't shoot. */
+function towerNotes(type: TowerType, onHill: boolean): string[] {
+  const def = TOWERS[type];
+  const notes: string[] = [];
+  if (onHill) notes.push("On a hilltop: +25% range");
+  if (def.pierce) notes.push("Shots ignore armor");
+  notes.push(def.needsSight ? "Needs a clear view: rocks block its shots" : "Fires over rocks and rubble");
+  if (!def.hitsAir) notes.push("Can't hit flying enemies");
+  return notes;
+}
+
 function TowerPanel({
   tower,
   gold,
   onUpgrade,
   onSell,
+  onTargeting,
   onClose,
 }: {
   tower: Tower;
   gold: number;
   onUpgrade: () => void;
   onSell: () => void;
+  onTargeting: (t: Targeting) => void;
   onClose: () => void;
 }) {
   const def = TOWERS[tower.type];
   const cost = upgradeCost(tower);
-  const now = describeLevel(tower.type, tower.level);
-  const next = tower.level < 2 ? describeLevel(tower.type, (tower.level + 1) as Level) : null;
+  const now = describeLevel(tower.type, tower.level, tower.onHill);
+  const next = tower.level < 2 ? describeLevel(tower.type, (tower.level + 1) as Level, tower.onHill) : null;
   return (
     <Paper
       elevation={3}
@@ -202,7 +394,7 @@ function TowerPanel({
         p: 2,
         borderRadius: 3,
         minWidth: 260,
-        flex: { xs: "1 1 100%", md: "0 0 300px" },
+        flex: { xs: "1 1 100%", md: "0 0 320px" },
         borderTop: `4px solid ${def.color}`,
       }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
@@ -217,7 +409,7 @@ function TowerPanel({
           <FontAwesomeIcon icon={faXmark} />
         </IconButton>
       </Box>
-      <Box sx={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 2, rowGap: 0.25, mb: 1.5 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 2, rowGap: 0.25, mb: 1 }}>
         {now.map((row, i) => {
           const upgraded = next && next[i] && next[i].value !== row.value ? next[i].value : null;
           return (
@@ -250,12 +442,35 @@ function TowerPanel({
             ))}
           </>
         )}
-        {def.pierce && (
-          <Typography variant="body2" sx={{ gridColumn: "1 / -1", color: "text.secondary" }}>
-            Shots ignore armor
-          </Typography>
-        )}
       </Box>
+      <Box component="ul" sx={{ m: 0, mb: 1.5, pl: 2.25, color: "text.secondary", fontSize: "0.82rem", lineHeight: 1.45 }}>
+        {towerNotes(tower.type, tower.onHill).map((note) => (
+          <li key={note}>{note}</li>
+        ))}
+      </Box>
+
+      <Typography
+        variant="caption"
+        sx={{ display: "flex", alignItems: "center", gap: 0.75, fontWeight: 800, color: "text.secondary", mb: 0.5 }}>
+        <FontAwesomeIcon icon={faCrosshairs} /> SHOOT AT
+      </Typography>
+      <ToggleButtonGroup
+        size="small"
+        exclusive
+        fullWidth
+        value={tower.targeting}
+        onChange={(_, v: Targeting | null) => v && onTargeting(v)}
+        aria-label="Targeting"
+        sx={{ mb: 1.5 }}>
+        {TARGETING_ORDER.map((t) => (
+          <Tooltip key={t} title={TARGETING[t].hint} arrow>
+            <ToggleButton value={t} sx={{ fontWeight: 800, textTransform: "none", py: 0.4 }}>
+              {TARGETING[t].label}
+            </ToggleButton>
+          </Tooltip>
+        ))}
+      </ToggleButtonGroup>
+
       <Box sx={{ display: "flex", gap: 1 }}>
         <Button
           fullWidth
@@ -279,28 +494,128 @@ function TowerPanel({
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+function RubblePanel({
+  cost,
+  gold,
+  onClear,
+  onClose,
+}: {
+  cost: number;
+  gold: number;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Paper
+      elevation={3}
+      sx={{
+        p: 2,
+        borderRadius: 3,
+        minWidth: 260,
+        flex: { xs: "1 1 100%", md: "0 0 320px" },
+        borderTop: "4px solid #978c7d",
+      }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
+        <TerrainIcon type="rubble" size={52} />
+        <Box sx={{ flex: 1 }}>
+          <Typography sx={{ fontWeight: 900, lineHeight: 1.1 }}>Rubble</Typography>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            Blocks the way and the view
+          </Typography>
+        </Box>
+        <IconButton size="small" onClick={onClose} aria-label="Close">
+          <FontAwesomeIcon icon={faXmark} />
+        </IconButton>
+      </Box>
+      <Typography variant="body2" sx={{ color: "text.secondary", mb: 1.5 }}>
+        Clearing it leaves open ground you can build on. Enemies can walk there too, so check it doesn't hand them
+        a shortcut.
+      </Typography>
+      <Button
+        fullWidth
+        variant="contained"
+        color="warning"
+        disabled={gold < cost}
+        onClick={onClear}
+        startIcon={<FontAwesomeIcon icon={faCoins} />}
+        sx={{ fontWeight: 800 }}>
+        Clear · {cost}
+      </Button>
+    </Paper>
+  );
+}
 
-export default function TowerDefense() {
-  const gameRef = useRef<Game>(createGame());
+// ─── Battle ───────────────────────────────────────────────────────────────────
+
+interface Hud {
+  gold: number;
+  lives: number;
+  wave: number;
+  phase: Phase;
+  endless: boolean;
+  canCall: boolean;
+  remaining: number;
+}
+
+const snapshot = (g: Game): Hud => ({
+  gold: g.gold,
+  lives: g.lives,
+  wave: g.wave,
+  phase: g.phase,
+  endless: g.endless,
+  canCall: canCallWave(g),
+  remaining: g.enemies.length + g.spawnQueue.length,
+});
+
+const sameHud = (a: Hud, b: Hud) =>
+  a.gold === b.gold &&
+  a.lives === b.lives &&
+  a.wave === b.wave &&
+  a.phase === b.phase &&
+  a.endless === b.endless &&
+  a.canCall === b.canCall &&
+  a.remaining === b.remaining;
+
+function Battle({
+  map,
+  difficulty,
+  bestEndless,
+  onExit,
+  onRestart,
+  onWin,
+  onEndlessWave,
+}: {
+  map: MapDef;
+  difficulty: Difficulty;
+  bestEndless: number;
+  onExit: () => void;
+  onRestart: () => void;
+  onWin: (stars: number) => void;
+  onEndlessWave: (wave: number) => void;
+}) {
+  const game = getGame("towerdefense");
+  const gameRef = useRef<Game | null>(null);
+  if (!gameRef.current) gameRef.current = createGame(map, difficulty);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<{ canvas: HTMLCanvasElement; key: string } | null>(null);
-  const hoverRef = useRef<{ r: number; c: number } | null>(null);
+  const hoverRef = useRef<Cell | null>(null);
 
   const [cs, setCs] = useState(40);
-  const [hud, setHud] = useState<Hud>(() => snapshot(gameRef.current));
+  const [hud, setHud] = useState<Hud>(() => snapshot(gameRef.current!));
   const [tool, setTool] = useState<TowerType | null>("blaster");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedCell, setSelectedCell] = useState<Cell | null>(null);
   const [speed, setSpeed] = useState<1 | 2>(1);
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
   const [, bump] = useState(0);
 
   // Live values the animation loop reads without re-subscribing
-  const live = useRef({ tool, selectedId, speed, paused, muted, cs });
-  live.current = { tool, selectedId, speed, paused, muted, cs };
+  const live = useRef({ tool, selectedId, selectedCell, speed, paused, muted, cs });
+  live.current = { tool, selectedId, selectedCell, speed, paused: paused || leaving, muted, cs };
 
   useEffect(() => {
     try {
@@ -335,7 +650,7 @@ export default function TowerDefense() {
     let acc = 0;
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
-      const g = gameRef.current;
+      const g = gameRef.current!;
       const L = live.current;
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
@@ -386,7 +701,8 @@ export default function TowerDefense() {
         const hover = hoverRef.current;
         const selected = L.selectedId !== null ? g.towers.find((t) => t.id === L.selectedId) ?? null : null;
         const building = L.tool !== null && g.phase !== "gameover" && g.phase !== "win";
-        const showGhost = building && hover && !towerAt(g, hover.r, hover.c);
+        const showGhost =
+          building && hover && !towerAt(g, hover.r, hover.c) && g.terrain[hover.r][hover.c] !== "rubble";
         renderFrame(ctx, g, {
           s,
           board: boardRef.current.canvas,
@@ -397,7 +713,7 @@ export default function TowerDefense() {
               ? { type: L.tool, ok: canPlace(g, L.tool, hover!.r, hover!.c).ok }
               : null,
           selected,
-          maxLives: MAX_LIVES,
+          selectedCell: L.selectedCell,
         });
       }
 
@@ -407,6 +723,17 @@ export default function TowerDefense() {
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  // Record results as they happen
+  const reported = useRef({ win: false });
+  useEffect(() => {
+    const g = gameRef.current!;
+    if (hud.phase === "win" && !reported.current.win) {
+      reported.current.win = true;
+      onWin(starsFor(g.lives, g.maxLives));
+    }
+    if (hud.endless && hud.wave > bestEndless) onEndlessWave(hud.wave);
+  }, [hud.phase, hud.endless, hud.wave, bestEndless, onWin, onEndlessWave]);
 
   // ── Actions ─────────────────────────────────────────────────────────────────
 
@@ -422,19 +749,27 @@ export default function TowerDefense() {
   const chooseTool = useCallback((t: TowerType, toggle = false) => {
     setTool((cur) => (toggle && cur === t ? null : t));
     setSelectedId(null);
+    setSelectedCell(null);
   }, []);
 
   const handleClick = (e: React.MouseEvent) => {
     unlockAudio();
     const cell = cellFromEvent(e);
     if (!cell) return;
-    const g = gameRef.current;
+    const g = gameRef.current!;
     const existing = towerAt(g, cell.r, cell.c);
     if (existing) {
       setSelectedId(existing.id);
+      setSelectedCell(null);
       setTool(null);
       return;
     }
+    if (g.terrain[cell.r][cell.c] === "rubble") {
+      setSelectedCell(cell);
+      setSelectedId(null);
+      return;
+    }
+    setSelectedCell(null);
     if (tool) {
       const res = placeTower(g, tool, cell.r, cell.c);
       if (!res.ok) setToast(res.reason);
@@ -446,29 +781,54 @@ export default function TowerDefense() {
 
   const callWave = useCallback(() => {
     unlockAudio();
-    startWave(gameRef.current);
+    startWave(gameRef.current!);
     setPaused(false);
   }, []);
 
   const upgradeSelected = useCallback(() => {
     if (selectedId === null) return;
-    upgradeTower(gameRef.current, selectedId);
+    upgradeTower(gameRef.current!, selectedId);
     bump((n) => n + 1);
   }, [selectedId]);
 
   const sellSelected = useCallback(() => {
     if (selectedId === null) return;
-    sellTower(gameRef.current, selectedId);
+    sellTower(gameRef.current!, selectedId);
     setSelectedId(null);
   }, [selectedId]);
 
-  const restart = () => {
-    gameRef.current = createGame();
-    boardRef.current = null;
-    setSelectedId(null);
-    setTool("blaster");
+  const retarget = useCallback(
+    (targeting?: Targeting) => {
+      if (selectedId === null) return;
+      const g = gameRef.current!;
+      const t = g.towers.find((tw) => tw.id === selectedId);
+      if (!t) return;
+      // No argument = step to the next option (the T shortcut).
+      const next =
+        targeting ?? TARGETING_ORDER[(TARGETING_ORDER.indexOf(t.targeting) + 1) % TARGETING_ORDER.length];
+      setTargeting(g, selectedId, next);
+      bump((n) => n + 1);
+    },
+    [selectedId],
+  );
+
+  const clearSelectedRubble = useCallback(() => {
+    if (!selectedCell) return;
+    const res = clearRubble(gameRef.current!, selectedCell.r, selectedCell.c);
+    if (res.ok) setSelectedCell(null);
+    else setToast(res.reason);
+  }, [selectedCell]);
+
+  const goEndless = () => {
+    continueEndless(gameRef.current!);
     setPaused(false);
-    setHud(snapshot(gameRef.current));
+  };
+
+  const requestExit = () => {
+    const g = gameRef.current!;
+    const inProgress = g.wave > 0 && g.phase !== "gameover" && g.phase !== "win";
+    if (inProgress) setLeaving(true);
+    else onExit();
   };
 
   const toggleMute = () => {
@@ -493,11 +853,14 @@ export default function TowerDefense() {
       } else if (e.key === "Escape") {
         setTool(null);
         setSelectedId(null);
+        setSelectedCell(null);
       } else if (e.key === " ") {
         e.preventDefault();
         callWave();
       } else if (e.key.toLowerCase() === "u") {
         upgradeSelected();
+      } else if (e.key.toLowerCase() === "t") {
+        retarget();
       } else if (e.key.toLowerCase() === "p") {
         setPaused((p) => !p);
       } else if (e.key === "Delete" || e.key === "Backspace") {
@@ -506,17 +869,19 @@ export default function TowerDefense() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [chooseTool, callWave, upgradeSelected, sellSelected]);
+  }, [chooseTool, callWave, upgradeSelected, sellSelected, retarget]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
   const g = gameRef.current;
   const selected = selectedId !== null ? g.towers.find((t) => t.id === selectedId) ?? null : null;
-  const nextWave = hud.wave < TOTAL_WAVES ? WAVES[hud.wave] : null;
+  const rubble = selectedCell && g.terrain[selectedCell.r][selectedCell.c] === "rubble" ? selectedCell : null;
+  const nextWave = hud.endless || hud.wave < TOTAL_WAVES ? waveDef(hud.wave) : null;
   const over = hud.phase === "gameover" || hud.phase === "win";
+  const stars = hud.phase === "win" ? starsFor(hud.lives, g.maxLives) : 0;
 
   return (
-    <Box sx={{ pb: 6, pt: 1, maxWidth: COLS * 52 + 16, mx: "auto" }}>
+    <Box sx={{ pb: 6, pt: 1, maxWidth: COLS * 52 + 16, mx: "auto", px: { xs: 0.5, sm: 1 } }}>
       {/* HUD */}
       <Paper
         elevation={2}
@@ -530,14 +895,29 @@ export default function TowerDefense() {
           mb: 1.5,
           borderRadius: 3,
         }}>
+        <Tooltip title="Back to the maps">
+          <Button
+            size="small"
+            color="inherit"
+            onClick={requestExit}
+            startIcon={<FontAwesomeIcon icon={faMap} />}
+            sx={{ fontWeight: 800, textTransform: "none", minWidth: 0, px: 1.25 }}>
+            <Box component="span" sx={{ display: { xs: "none", md: "inline" } }}>
+              {map.name} · {DIFFICULTIES[difficulty].name}
+            </Box>
+            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+              Maps
+            </Box>
+          </Button>
+        </Tooltip>
         <Stat icon={faCoins} color="#f59e0b">
           {hud.gold}
         </Stat>
         <Stat icon={faHeart} color="#ef4444">
           {hud.lives}
         </Stat>
-        <Stat icon={faFlag} color="#6366f1">
-          {Math.max(1, hud.wave)}/{TOTAL_WAVES}
+        <Stat icon={hud.endless ? faInfinity : faFlag} color="#6366f1">
+          {hud.endless ? Math.max(1, hud.wave) : `${Math.max(1, hud.wave)}/${TOTAL_WAVES}`}
         </Stat>
         {nextWave && hud.canCall && (
           <Box sx={{ display: { xs: "none", sm: "flex" }, alignItems: "center", gap: 0.75, ml: 0.5 }}>
@@ -545,7 +925,7 @@ export default function TowerDefense() {
               NEXT
             </Typography>
             {nextWave.groups.map((gr, i) => (
-              <Tooltip key={i} title={ENEMIES[gr.type].name} arrow>
+              <Tooltip key={i} title={`${ENEMIES[gr.type].name}: ${ENEMIES[gr.type].trait}`} arrow>
                 <Box sx={{ display: "flex", alignItems: "center", fontWeight: 800, fontSize: "0.85rem" }}>
                   <EnemyIcon type={gr.type} />×{gr.count}
                 </Box>
@@ -573,9 +953,11 @@ export default function TowerDefense() {
           </ToggleButton>
         </ToggleButtonGroup>
         <Tooltip title={paused ? "Resume (P)" : "Pause (P)"}>
-          <IconButton onClick={() => setPaused((p) => !p)} disabled={over}>
-            <FontAwesomeIcon icon={paused ? faPlay : faPause} />
-          </IconButton>
+          <span>
+            <IconButton onClick={() => setPaused((p) => !p)} disabled={over}>
+              <FontAwesomeIcon icon={paused ? faPlay : faPause} />
+            </IconButton>
+          </span>
         </Tooltip>
         <Tooltip title={muted ? "Sound on" : "Mute"}>
           <IconButton onClick={toggleMute}>
@@ -628,6 +1010,7 @@ export default function TowerDefense() {
               e.preventDefault();
               setTool(null);
               setSelectedId(null);
+              setSelectedCell(null);
             }}
           />
 
@@ -679,28 +1062,49 @@ export default function TowerDefense() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                p: 2,
+                p: 1,
               }}>
-              <Paper sx={{ p: { xs: 2.5, md: 4 }, borderRadius: 4, textAlign: "center", maxWidth: 340 }}>
-                <Box sx={{ fontSize: "3rem", color: hud.phase === "win" ? "#f59e0b" : "#64748b", mb: 1 }}>
-                  <FontAwesomeIcon icon={hud.phase === "win" ? faTrophy : faSkull} />
-                </Box>
-                <Typography variant="h4" sx={{ fontWeight: 900, mb: 0.5 }}>
-                  {hud.phase === "win" ? "You Won!" : "Game Over"}
+              {hud.phase === "win" && <Confetti />}
+              <Paper
+                className="td-result"
+                sx={{ p: { xs: 2, md: 3.5 }, borderRadius: 4, textAlign: "center", maxWidth: 380 }}>
+                {hud.phase === "win" ? (
+                  <span className="td-stars td-stars--big" aria-label={`${stars} of 3 stars`}>
+                    {[0, 1, 2].map((i) => (
+                      <FontAwesomeIcon key={i} icon={faStar} className={i < stars ? "is-lit" : undefined} />
+                    ))}
+                  </span>
+                ) : (
+                  <Box sx={{ fontSize: { xs: "2rem", md: "3rem" }, color: hud.endless ? "#6366f1" : "#64748b" }}>
+                    <FontAwesomeIcon icon={hud.endless ? faTrophy : faSkull} />
+                  </Box>
+                )}
+                <Typography variant="h4" sx={{ fontFamily: "var(--dg-display)", fontWeight: 700, mb: 0.5 }}>
+                  {hud.phase === "win" ? "You Won!" : hud.endless ? "Overrun at last" : "Game Over"}
                 </Typography>
-                <Typography sx={{ mb: 3, color: "text.secondary" }}>
+                <Typography sx={{ mb: { xs: 1.5, md: 2.5 }, color: "text.secondary" }}>
                   {hud.phase === "win"
-                    ? `All ${TOTAL_WAVES} waves defeated with ${hud.lives} lives left!`
-                    : `You made it to wave ${hud.wave}.`}
+                    ? `${map.name} held with ${hud.lives} of ${g.maxLives} lives left.`
+                    : hud.endless
+                      ? `You lasted until wave ${hud.wave}.${hud.wave >= bestEndless ? " That's your best yet!" : ""}`
+                      : `You made it to wave ${hud.wave} of ${TOTAL_WAVES}.`}
                 </Typography>
-                <Button
-                  variant="contained"
-                  size="large"
-                  onClick={restart}
-                  startIcon={<FontAwesomeIcon icon={faRotateRight} />}
-                  sx={{ fontWeight: 900, borderRadius: 99, px: 3 }}>
-                  Play again
-                </Button>
+                <div className="dg-row">
+                  {hud.phase === "win" && (
+                    <KitButton icon={faInfinity} onClick={goEndless}>
+                      Keep going
+                    </KitButton>
+                  )}
+                  <KitButton
+                    variant={hud.phase === "win" ? "neutral" : "primary"}
+                    icon={faRotateRight}
+                    onClick={onRestart}>
+                    {hud.phase === "win" ? "Replay" : "Try again"}
+                  </KitButton>
+                  <KitButton variant="neutral" icon={faMap} onClick={onExit}>
+                    Maps
+                  </KitButton>
+                </div>
               </Paper>
             </Box>
           )}
@@ -778,18 +1182,119 @@ export default function TowerDefense() {
             gold={hud.gold}
             onUpgrade={upgradeSelected}
             onSell={sellSelected}
+            onTargeting={retarget}
             onClose={() => setSelectedId(null)}
+          />
+        )}
+        {rubble && !selected && (
+          <RubblePanel
+            cost={map.rubbleCost}
+            gold={hud.gold}
+            onClear={clearSelectedRubble}
+            onClose={() => setSelectedCell(null)}
           />
         )}
       </Box>
 
       <Typography variant="body2" sx={{ mt: 1.5, color: "text.secondary" }}>
-        Build towers on the grass to make a maze. Enemies always take the shortest way to your castle, and
-        you can keep building during a wave. Tap a tower to upgrade or sell it.
+        Build towers to make a maze: enemies always take the shortest way to your castle, and you can keep
+        building during a wave. Hilltops add range, rocks block the view, and flying enemies ignore your maze.
+        Tap a tower to upgrade it, sell it or change what it shoots at.
       </Typography>
       <Typography variant="caption" sx={{ display: { xs: "none", md: "block" }, color: "text.disabled", mt: 0.5 }}>
-        Shortcuts: 1–5 pick a tower · Space start / send wave · U upgrade · Delete sell · P pause · Esc cancel
+        Shortcuts: 1–5 pick a tower · Space start / send wave · U upgrade · T change target · Delete sell · P
+        pause · Esc cancel
       </Typography>
+
+      <KitDialog game={game} open={leaving} onClose={() => setLeaving(false)} icon={faMap} title="Leave this battle?">
+        <p className="dg-subtitle" style={{ margin: "0 auto 16px" }}>
+          Your towers and progress on this map will be lost.
+        </p>
+        <div className="dg-row">
+          <KitButton variant="neutral" onClick={() => setLeaving(false)}>
+            Stay
+          </KitButton>
+          <KitButton variant="danger" onClick={onExit}>
+            Leave
+          </KitButton>
+        </div>
+      </KitDialog>
     </Box>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function TowerDefense() {
+  const game = getGame("towerdefense");
+  const [save, setSave] = useState<Save>(EMPTY_SAVE);
+  const saveRef = useRef(save);
+  const [battle, setBattle] = useState<{ mapId: string; difficulty: Difficulty; run: number } | null>(null);
+
+  useEffect(() => {
+    const loaded = loadSave();
+    saveRef.current = loaded;
+    setSave(loaded);
+  }, []);
+
+  const update = useCallback((change: (s: Save) => Save) => {
+    const next = change(saveRef.current);
+    saveRef.current = next;
+    setSave(next);
+    setStoredData(SAVE_KEY, next);
+  }, []);
+
+  const mapId = battle?.mapId;
+  const difficulty = battle?.difficulty;
+
+  const recordWin = useCallback(
+    (stars: number) => {
+      if (!mapId || !difficulty) return;
+      update((s) => {
+        const best = s.stars[mapId]?.[difficulty] ?? 0;
+        if (stars <= best) return s;
+        return { ...s, stars: { ...s.stars, [mapId]: { ...s.stars[mapId], [difficulty]: stars } } };
+      });
+    },
+    [mapId, difficulty, update],
+  );
+
+  const recordEndless = useCallback(
+    (wave: number) => {
+      if (!mapId) return;
+      update((s) => ((s.endless[mapId] ?? 0) >= wave ? s : { ...s, endless: { ...s.endless, [mapId]: wave } }));
+    },
+    [mapId, update],
+  );
+
+  return (
+    <GameShell game={game}>
+      {battle ? (
+        <Battle
+          key={`${battle.mapId}:${battle.difficulty}:${battle.run}`}
+          map={getMap(battle.mapId)}
+          difficulty={battle.difficulty}
+          bestEndless={save.endless[battle.mapId] ?? 0}
+          onExit={() => {
+            setBattle(null);
+            window.scrollTo({ top: 0 });
+          }}
+          onRestart={() => setBattle((b) => (b ? { ...b, run: b.run + 1 } : b))}
+          onWin={recordWin}
+          onEndlessWave={recordEndless}
+        />
+      ) : (
+        <MapSelect
+          save={save}
+          onDifficulty={(d) => update((s) => ({ ...s, difficulty: d }))}
+          onPlay={(map) => {
+            unlockAudio();
+            setBattle({ mapId: map.id, difficulty: save.difficulty, run: 0 });
+            // The card may have been tapped from further down the page.
+            window.scrollTo({ top: 0 });
+          }}
+        />
+      )}
+    </GameShell>
   );
 }

@@ -1,28 +1,38 @@
 // ─── Tower Defense: simulation (pure, framework-free) ─────────────────────────
 //
 // Everything is in "cell units": (x, y) = (col, row) of a cell's centre.
-// Enemies follow a flow field (distance-to-exit per cell), so players can
-// build mazes at any time and every enemy re-routes on its next step.
+// Ground enemies follow a flow field (distance-to-castle per cell), so players
+// can build mazes at any time and every enemy re-routes on its next step.
+// Each map adds terrain on top of that: water and rocks shape the walkable
+// space, roads can't be built on, hilltops stretch a tower's range, rocks hide
+// enemies from towers that need a line of sight, and rubble can be bought out
+// of the way.
 
 import {
   COLS,
+  DIFFICULTIES,
   ENEMIES,
-  ENTRY,
-  EXIT,
   HEAL_AURA_RANGE,
-  MAX_LIVES,
+  HILL_RANGE_BONUS,
   MIN_ARMOR_DAMAGE,
   ROWS,
   SELL_REFUND,
-  START_GOLD,
+  TERRAIN,
   TESLA_FALLOFF,
   TESLA_JUMP_RANGE,
   TOTAL_WAVES,
   TOWERS,
-  WAVES,
   earlyCallBonus,
+  parseMap,
   waveClearBonus,
+  waveDef,
+  type Cell,
+  type Difficulty,
   type EnemyType,
+  type EntryDef,
+  type MapDef,
+  type Targeting,
+  type Terrain,
   type TowerLevel,
   type TowerType,
 } from "./config";
@@ -38,7 +48,7 @@ export interface Enemy {
   /** Cell the enemy is walking toward. */
   nr: number;
   nc: number;
-  /** Last cell centre reached (col -1 = still walking in from off-board). */
+  /** Last cell centre reached (off the board while still walking in). */
   cr: number;
   cc: number;
   dirX: number;
@@ -53,6 +63,14 @@ export interface Enemy {
   hitFlash: number;
   /** Random phase so enemies don't bounce in lock-step. */
   seed: number;
+  /** Flyers ignore the maze and head straight for (tx, ty). */
+  flying: boolean;
+  tx: number;
+  ty: number;
+  /** Wave-scaled base stats, kept so a splitter can size its children. */
+  baseHp: number;
+  baseSpeed: number;
+  baseReward: number;
 }
 
 export interface Tower {
@@ -66,6 +84,11 @@ export interface Tower {
   recoil: number; // 0..1, decays after each shot
   flash: number; // muzzle flash timer
   spent: number;
+  targeting: Targeting;
+  /** Built on a hilltop (extra range). */
+  onHill: boolean;
+  /** Nothing in range can block this tower's view, so sight checks are skipped. */
+  clearView: boolean;
 }
 
 export interface Projectile {
@@ -124,6 +147,8 @@ export type Sfx =
   | "place"
   | "upgrade"
   | "sell"
+  | "clear"
+  | "portal"
   | "error"
   | "waveStart"
   | "waveClear"
@@ -141,15 +166,34 @@ export interface SpawnEntry {
   type: EnemyType;
   wave: number; // 0-based wave index the enemy belongs to
   delay: number;
+  /** Index into `game.entries` of the portal it comes out of. */
+  entry: number;
+}
+
+export interface Route {
+  /** Index into `game.entries`. */
+  entry: number;
+  cells: Cell[];
+  /** False while the portal is still shut (drawn as a faint preview). */
+  open: boolean;
 }
 
 export interface Game {
+  map: MapDef;
+  difficulty: Difficulty;
   phase: Phase;
   time: number;
+  /** Live terrain: starts as the map's and changes when rubble is cleared. */
+  terrain: Terrain[][];
+  entries: EntryDef[];
+  exits: Cell[];
+  /** Cells ground enemies can't walk through (terrain or a tower). */
   blocked: boolean[][];
+  /** Cells that block a tower's line of sight. */
+  opaque: boolean[][];
   dist: number[][];
-  /** Cells from the entry to the exit along the current route (for drawing). */
-  route: { r: number; c: number }[];
+  /** One walking route per portal (for drawing). */
+  routes: Route[];
   routeVersion: number;
   towers: Tower[];
   enemies: Enemy[];
@@ -158,10 +202,17 @@ export interface Game {
   particles: Particle[];
   gold: number;
   lives: number;
+  maxLives: number;
   /** Number of waves started so far (next wave index). */
   wave: number;
+  /** Playing on past the last scripted wave. */
+  endless: boolean;
   spawnQueue: SpawnEntry[];
   spawnTimer: number;
+  /** Rotates which portal the next enemy comes out of. */
+  spawnTurn: number;
+  /** Enemy types the player has already met this game. */
+  seen: EnemyType[];
   shake: number;
   banner: Banner | null;
   sfx: Sfx[];
@@ -180,12 +231,15 @@ const inBounds = (r: number, c: number) =>
 
 // ─── Path finding (flow field) ────────────────────────────────────────────────
 
-export function computeDist(blocked: boolean[][]): number[][] {
+export function computeDist(blocked: boolean[][], exits: Cell[]): number[][] {
   const dist = Array.from({ length: ROWS }, () =>
     Array<number>(COLS).fill(Infinity),
   );
-  dist[EXIT.r][EXIT.c] = 0;
-  const q: [number, number][] = [[EXIT.r, EXIT.c]];
+  const q: [number, number][] = [];
+  for (const e of exits) {
+    dist[e.r][e.c] = 0;
+    q.push([e.r, e.c]);
+  }
   for (let h = 0; h < q.length; h++) {
     const [r, c] = q[h];
     for (const [dr, dc] of DIRS) {
@@ -226,16 +280,17 @@ function nextCell(
   return best ?? [r, c];
 }
 
-function traceRoute(dist: number[][]): { r: number; c: number }[] {
-  const route: { r: number; c: number }[] = [];
-  if (dist[ENTRY.r][ENTRY.c] === Infinity) return route;
-  let r: number = ENTRY.r;
-  let c: number = ENTRY.c;
-  let dr = 0;
-  let dc = 1;
+function traceRoute(dist: number[][], entry: EntryDef): Cell[] {
+  const route: Cell[] = [];
+  if (dist[entry.r][entry.c] === Infinity) return route;
+  let r = entry.r;
+  let c = entry.c;
+  let dr = entry.dr;
+  let dc = entry.dc;
   route.push({ r, c });
   for (let guard = 0; guard < ROWS * COLS && dist[r][c] > 0; guard++) {
     const [nr, nc] = nextCell(dist, r, c, dr, dc);
+    if (nr === r && nc === c) break;
     dr = nr - r;
     dc = nc - c;
     r = nr;
@@ -245,35 +300,111 @@ function traceRoute(dist: number[][]): { r: number; c: number }[] {
   return route;
 }
 
+/** Portals that send enemies in the given (1-based) wave. */
+const openEntries = (g: Game, waveNumber: number) =>
+  g.entries.map((_, i) => i).filter((i) => g.entries[i].fromWave <= waveNumber);
+
 function refreshRoute(g: Game) {
-  g.dist = computeDist(g.blocked);
-  g.route = traceRoute(g.dist);
+  g.dist = computeDist(g.blocked, g.exits);
+  // A portal shows as open as soon as the *next* wave will use it.
+  g.routes = g.entries.map((entry, i) => ({
+    entry: i,
+    cells: traceRoute(g.dist, entry),
+    open: entry.fromWave <= g.wave + 1,
+  }));
   g.routeVersion++;
+}
+
+// ─── Line of sight ────────────────────────────────────────────────────────────
+
+/** True when nothing tall sits between two points. */
+export function hasSight(g: Game, x0: number, y0: number, x1: number, y1: number): boolean {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const n = Math.ceil(Math.hypot(dx, dy) / 0.12);
+  for (let i = 1; i < n; i++) {
+    const r = Math.round(y0 + (dy * i) / n);
+    const c = Math.round(x0 + (dx * i) / n);
+    if (g.opaque[r]?.[c]) return false;
+  }
+  return true;
+}
+
+function viewIsClear(g: Game, r: number, c: number, range: number): boolean {
+  const reach = Math.ceil(range) + 1;
+  for (let rr = r - reach; rr <= r + reach; rr++) {
+    for (let cc = c - reach; cc <= c + reach; cc++) {
+      if (g.opaque[rr]?.[cc]) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Outline of what a tower at (cx, cy) can actually hit, as points in cell
+ * units. Towers that fire over obstacles (or have nothing in the way) get a
+ * plain circle; the rest get the circle with rock shadows cut out of it.
+ */
+export function coverageOutline(
+  g: Game,
+  cx: number,
+  cy: number,
+  range: number,
+  needsSight: boolean,
+): { x: number; y: number }[] {
+  const pts: { x: number; y: number }[] = [];
+  const clear = !needsSight || viewIsClear(g, Math.round(cy), Math.round(cx), range);
+  const rays = clear ? 72 : 180;
+  for (let i = 0; i < rays; i++) {
+    const a = (i / rays) * Math.PI * 2;
+    const ux = Math.cos(a);
+    const uy = Math.sin(a);
+    let d = range;
+    if (!clear) {
+      for (let t = 0.1; t < range; t += 0.1) {
+        if (g.opaque[Math.round(cy + uy * t)]?.[Math.round(cx + ux * t)]) {
+          d = Math.max(0, t - 0.1);
+          break;
+        }
+      }
+    }
+    pts.push({ x: cx + ux * d, y: cy + uy * d });
+  }
+  return pts;
 }
 
 // ─── Setup ────────────────────────────────────────────────────────────────────
 
-export function createGame(): Game {
-  const blocked = Array.from({ length: ROWS }, () =>
-    Array<boolean>(COLS).fill(false),
-  );
+export function createGame(map: MapDef, difficulty: Difficulty): Game {
+  const parsed = parseMap(map);
+  const diff = DIFFICULTIES[difficulty];
   const g: Game = {
+    map,
+    difficulty,
     phase: "build",
     time: 0,
-    blocked,
+    terrain: parsed.terrain,
+    entries: parsed.entries,
+    exits: parsed.exits,
+    blocked: parsed.terrain.map((row) => row.map((t) => !TERRAIN[t].walk)),
+    opaque: parsed.terrain.map((row) => row.map((t) => TERRAIN[t].blocksSight)),
     dist: [],
-    route: [],
+    routes: [],
     routeVersion: 0,
     towers: [],
     enemies: [],
     projectiles: [],
     bolts: [],
     particles: [],
-    gold: START_GOLD,
-    lives: MAX_LIVES,
+    gold: Math.round((map.startGold * diff.gold) / 5) * 5,
+    lives: diff.lives,
+    maxLives: diff.lives,
     wave: 0,
+    endless: false,
     spawnQueue: [],
     spawnTimer: 0,
+    spawnTurn: 0,
+    seen: [],
     shake: 0,
     banner: null,
     sfx: [],
@@ -286,6 +417,13 @@ export function createGame(): Game {
 export const towerStats = (t: Pick<Tower, "type" | "level">) =>
   TOWERS[t.type].levels[t.level];
 
+/** Range of a tower type / level standing on the given cell (hilltops add reach). */
+export const rangeAt = (g: Game, type: TowerType, level: Level, r: number, c: number) =>
+  TOWERS[type].levels[level].range * (g.terrain[r]?.[c] === "hill" ? HILL_RANGE_BONUS : 1);
+
+export const towerRange = (t: Tower) =>
+  towerStats(t).range * (t.onHill ? HILL_RANGE_BONUS : 1);
+
 export const upgradeCost = (t: Tower): number | null =>
   t.level < 2 ? TOWERS[t.type].levels[t.level + 1].cost : null;
 
@@ -293,6 +431,13 @@ export const sellValue = (t: Tower) => Math.floor(t.spent * SELL_REFUND);
 
 export const towerAt = (g: Game, r: number, c: number) =>
   g.towers.find((t) => t.r === r && t.c === c) ?? null;
+
+export const isGate = (g: Game, r: number, c: number) =>
+  g.entries.some((e) => e.r === r && e.c === c) || g.exits.some((e) => e.r === r && e.c === c);
+
+const updateView = (g: Game, t: Tower) => {
+  t.clearView = !TOWERS[t.type].needsSight || viewIsClear(g, t.r, t.c, towerRange(t));
+};
 
 // ─── Player actions ───────────────────────────────────────────────────────────
 
@@ -309,12 +454,14 @@ export function canPlace(
   if (g.phase === "gameover" || g.phase === "win")
     return { ok: false, reason: "Game over" };
   if (!inBounds(r, c)) return { ok: false, reason: "Off the map" };
-  if ((r === ENTRY.r && c === ENTRY.c) || (r === EXIT.r && c === EXIT.c))
-    return { ok: false, reason: "Can't build on the gates" };
+  if (isGate(g, r, c)) return { ok: false, reason: "Can't build on the gates" };
+  const terrain = TERRAIN[g.terrain[r][c]];
+  if (!terrain.build) return { ok: false, reason: terrain.noBuild };
   if (g.blocked[r][c]) return { ok: false, reason: "Spot taken" };
   if (g.gold < TOWERS[type].levels[0].cost)
     return { ok: false, reason: "Not enough gold" };
   for (const e of g.enemies) {
+    if (e.flying) continue;
     const onCell =
       (e.nr === r && e.nc === c) ||
       (e.cr === r && e.cc === c) ||
@@ -322,12 +469,15 @@ export function canPlace(
     if (onCell) return { ok: false, reason: "An enemy is in the way" };
   }
   g.blocked[r][c] = true;
-  const dist = computeDist(g.blocked);
+  const dist = computeDist(g.blocked, g.exits);
   g.blocked[r][c] = false;
-  if (dist[ENTRY.r][ENTRY.c] === Infinity)
-    return { ok: false, reason: "That would block the path!" };
+  // Every portal needs a way through, even the ones that haven't opened yet.
+  for (const entry of g.entries) {
+    if (dist[entry.r][entry.c] === Infinity)
+      return { ok: false, reason: "That would block the path!" };
+  }
   for (const e of g.enemies) {
-    if (dist[e.nr][e.nc] === Infinity)
+    if (!e.flying && dist[e.nr][e.nc] === Infinity)
       return { ok: false, reason: "That would trap an enemy!" };
   }
   return { ok: true };
@@ -347,7 +497,7 @@ export function placeTower(
   const cost = TOWERS[type].levels[0].cost;
   g.gold -= cost;
   g.blocked[r][c] = true;
-  g.towers.push({
+  const tower: Tower = {
     id: g.nextId++,
     r,
     c,
@@ -358,9 +508,15 @@ export function placeTower(
     recoil: 0,
     flash: 0,
     spent: cost,
-  });
+    targeting: "first",
+    onHill: g.terrain[r][c] === "hill",
+    clearView: true,
+  };
+  updateView(g, tower);
+  g.towers.push(tower);
   refreshRoute(g);
   burst(g, c, r, 10, "#e7d6b0", 0.05, 2.2, "smoke");
+  if (tower.onHill) floatText(g, c, r - 0.3, "+25% range", "#bbf7d0");
   g.sfx.push("place");
   return { ok: true };
 }
@@ -376,6 +532,7 @@ export function upgradeTower(g: Game, id: number): boolean {
   g.gold -= cost;
   t.spent += cost;
   t.level = (t.level + 1) as Level;
+  updateView(g, t);
   burst(g, t.c, t.r, 18, "#fde047", 0.07, 4, "spark");
   g.particles.push(ring(t.c, t.r, "#fde047", 0.9, 0.45));
   g.sfx.push("upgrade");
@@ -397,14 +554,45 @@ export function sellTower(g: Game, id: number): boolean {
   return true;
 }
 
+export function setTargeting(g: Game, id: number, targeting: Targeting): boolean {
+  const t = g.towers.find((t) => t.id === id);
+  if (!t) return false;
+  t.targeting = targeting;
+  return true;
+}
+
+/** Pay to remove a rubble pile, turning it into open ground. */
+export function clearRubble(g: Game, r: number, c: number): PlaceResult {
+  if (g.phase === "gameover" || g.phase === "win")
+    return { ok: false, reason: "Game over" };
+  if (g.terrain[r]?.[c] !== "rubble") return { ok: false, reason: "Nothing to clear here" };
+  if (g.gold < g.map.rubbleCost) {
+    g.sfx.push("error");
+    return { ok: false, reason: "Not enough gold" };
+  }
+  g.gold -= g.map.rubbleCost;
+  g.terrain[r][c] = "grass";
+  g.blocked[r][c] = false;
+  g.opaque[r][c] = false;
+  for (const t of g.towers) updateView(g, t);
+  refreshRoute(g);
+  burst(g, c, r, 16, "#a8a29e", 0.1, 3.4, "shard");
+  burst(g, c, r, 10, "#d6d3d1", 0.14, 1.6, "smoke");
+  g.particles.push(ring(c, r, "#ffffff", 0.8, 0.35));
+  g.shake = Math.max(g.shake, 0.12);
+  g.sfx.push("clear");
+  return { ok: true };
+}
+
 export const canCallWave = (g: Game) =>
-  g.wave < TOTAL_WAVES &&
+  (g.endless || g.wave < TOTAL_WAVES) &&
   (g.phase === "build" || (g.phase === "wave" && g.spawnQueue.length === 0));
 
 export function startWave(g: Game) {
   if (!canCallWave(g)) return;
   const early = g.phase === "wave";
-  const def = WAVES[g.wave];
+  const def = waveDef(g.wave);
+  const open = openEntries(g, g.wave + 1);
   def.groups.forEach((group, gi) => {
     for (let i = 0; i < group.count; i++) {
       const first = gi === 0 && i === 0;
@@ -412,26 +600,47 @@ export function startWave(g: Game) {
         type: group.type,
         wave: g.wave,
         delay: first ? 0.3 : i === 0 ? group.interval + 0.5 : group.interval,
+        entry: open[g.spawnTurn++ % open.length],
       });
     }
   });
   g.spawnTimer = g.spawnQueue[0]?.delay ?? 0;
   g.wave++;
   g.phase = "wave";
+
+  // Introduce any enemy the player hasn't met yet.
+  const fresh = def.groups.map((gr) => gr.type).filter((t) => !g.seen.includes(t));
+  for (const t of fresh) if (!g.seen.includes(t)) g.seen.push(t);
+  const intro = g.wave > 1 && fresh.length ? ENEMIES[fresh[0]] : null;
+
+  let sub: string | undefined;
   if (early) {
     const bonus = earlyCallBonus(g.wave);
     g.gold += bonus;
-    g.banner = banner(`Wave ${g.wave}`, `Early call bonus +${bonus} gold`);
-  } else {
-    g.banner = banner(`Wave ${g.wave}`, g.wave === TOTAL_WAVES ? "Final wave!" : undefined);
+    sub = `Early call bonus +${bonus} gold`;
+  } else if (!g.endless && g.wave === TOTAL_WAVES) {
+    sub = "Final wave!";
   }
+  if (intro) sub = `New enemy: ${intro.name}. ${intro.trait}`;
+  g.banner = banner(`Wave ${g.wave}`, sub, intro ? 3.6 : 2);
+  // A portal that opens next wave lights up now as a warning.
+  refreshRoute(g);
   g.sfx.push("waveStart");
+}
+
+/** Carry on after victory: waves keep coming and keep getting harder. */
+export function continueEndless(g: Game) {
+  if (g.phase !== "win") return;
+  g.endless = true;
+  g.phase = "build";
+  g.banner = banner("Endless mode", "How long can you last?", 2.6);
+  refreshRoute(g);
 }
 
 // ─── Effects helpers ──────────────────────────────────────────────────────────
 
-function banner(text: string, sub?: string): Banner {
-  return { text, sub, life: 2, maxLife: 2 };
+function banner(text: string, sub?: string, life = 2): Banner {
+  return { text, sub, life, maxLife: life };
 }
 
 function ring(x: number, y: number, color: string, size: number, life: number): Particle {
@@ -487,7 +696,9 @@ function floatText(g: Game, x: number, y: number, text: string, color: string) {
 
 /** Lower = closer to the castle. */
 const progressLeft = (g: Game, e: Enemy) =>
-  (g.dist[e.nr]?.[e.nc] ?? 99) + Math.hypot(e.nc - e.x, e.nr - e.y);
+  e.flying
+    ? Math.hypot(e.tx - e.x, e.ty - e.y)
+    : (g.dist[e.nr]?.[e.nc] ?? 99) + Math.hypot(e.nc - e.x, e.nr - e.y);
 
 function damage(e: Enemy, amount: number, pierce: boolean) {
   const dealt = pierce
@@ -497,18 +708,36 @@ function damage(e: Enemy, amount: number, pierce: boolean) {
   e.hitFlash = 0.09;
 }
 
-function findTarget(g: Game, t: Tower, range: number): Enemy | null {
+function findTarget(g: Game, t: Tower): Enemy | null {
+  const def = TOWERS[t.type];
+  const range = towerRange(t);
   let best: Enemy | null = null;
-  let bestLeft = Infinity;
+  let bestKey = Infinity;
   for (const e of g.enemies) {
     if (e.hp <= 0) continue;
+    if (e.flying && !def.hitsAir) continue;
     const d = Math.hypot(e.x - t.c, e.y - t.r);
     if (d > range + ENEMIES[e.type].radius * 0.5) continue;
-    const left = progressLeft(g, e);
-    if (left < bestLeft) {
-      bestLeft = left;
-      best = e;
+    // Lower key wins.
+    let key: number;
+    switch (t.targeting) {
+      case "last":
+        key = -progressLeft(g, e);
+        break;
+      case "strong":
+        key = -e.hp * 1000 + progressLeft(g, e);
+        break;
+      case "close":
+        key = d;
+        break;
+      default:
+        key = progressLeft(g, e);
     }
+    if (key >= bestKey) continue;
+    // Flyers are up above the rocks, so everything can see them.
+    if (!t.clearView && !e.flying && !hasSight(g, t.c, t.r, e.x, e.y)) continue;
+    bestKey = key;
+    best = e;
   }
   return best;
 }
@@ -650,6 +879,7 @@ function impact(g: Game, p: Projectile) {
     case "bomb": {
       const radius = p.stats.splash ?? 1;
       for (const e of g.enemies) {
+        if (e.flying) continue; // explosions on the ground don't reach the sky
         const d = Math.hypot(e.x - p.x, e.y - p.y);
         if (d <= radius + ENEMIES[e.type].radius * 0.5) {
           damage(e, p.stats.dmg * (d < radius * 0.5 ? 1 : 0.7), false);
@@ -698,55 +928,120 @@ export function step(g: Game, dt: number) {
   updateEffects(g, dt);
 
   if (g.phase === "wave" && g.spawnQueue.length === 0 && g.enemies.length === 0) {
-    if (g.wave >= TOTAL_WAVES) {
+    if (!g.endless && g.wave >= TOTAL_WAVES) {
       g.phase = "win";
       g.sfx.push("win");
     } else {
       const bonus = waveClearBonus(g.wave);
       g.gold += bonus;
       g.phase = "build";
-      g.banner = banner("Wave cleared!", `+${bonus} gold`);
-      g.sfx.push("waveClear");
+      const opening = g.entries.some((e) => e.fromWave === g.wave + 1);
+      g.banner = opening
+        ? banner("Wave cleared!", `+${bonus} gold. A new portal is opening!`, 3.2)
+        : banner("Wave cleared!", `+${bonus} gold`);
+      g.sfx.push(opening ? "portal" : "waveClear");
     }
   }
 }
 
 function spawnEnemy(g: Game, entry: SpawnEntry) {
-  const wave = WAVES[entry.wave];
+  const wave = waveDef(entry.wave);
   const def = ENEMIES[entry.type];
-  const hp = Math.round(wave.baseHp * def.hpMult);
+  const diff = DIFFICULTIES[g.difficulty];
+  const portal = g.entries[entry.entry] ?? g.entries[0];
+  const baseHp = wave.baseHp * diff.hp;
+  const baseSpeed = wave.baseSpeed * diff.speed;
+  const hp = Math.max(1, Math.round(baseHp * def.hpMult));
+  const x = portal.c - portal.dc * 0.9;
+  const y = portal.r - portal.dr * 0.9;
+
+  // Flyers pick the nearest castle and never look back.
+  let tx = portal.c;
+  let ty = portal.r;
+  if (def.flying) {
+    let near = Infinity;
+    for (const exit of g.exits) {
+      const d = Math.hypot(exit.c - x, exit.r - y);
+      if (d < near) {
+        near = d;
+        tx = exit.c;
+        ty = exit.r;
+      }
+    }
+  }
+  const len = Math.hypot(tx - x, ty - y) || 1;
+
   g.enemies.push({
     id: g.nextId++,
     type: entry.type,
-    x: ENTRY.c - 0.9,
-    y: ENTRY.r,
-    cr: ENTRY.r,
-    cc: ENTRY.c - 1,
-    nr: ENTRY.r,
-    nc: ENTRY.c,
-    dirX: 1,
-    dirY: 0,
+    x,
+    y,
+    cr: portal.r - portal.dr,
+    cc: portal.c - portal.dc,
+    nr: portal.r,
+    nc: portal.c,
+    dirX: def.flying ? (tx - x) / len : portal.dc,
+    dirY: def.flying ? (ty - y) / len : portal.dr,
     hp,
     maxHp: hp,
-    speed: wave.baseSpeed * def.speedMult,
+    speed: baseSpeed * def.speedMult,
     reward: Math.round(wave.baseReward * def.rewardMult),
     armor: def.armor,
     slowUntil: 0,
     slowFactor: 1,
     hitFlash: 0,
     seed: Math.random() * 10,
+    flying: !!def.flying,
+    tx,
+    ty,
+    baseHp,
+    baseSpeed,
+    baseReward: wave.baseReward,
   });
 }
 
+/** The smaller enemies a splitter leaves behind, carrying on along its path. */
+function spawnChildren(g: Game, parent: Enemy): Enemy[] {
+  const split = ENEMIES[parent.type].split;
+  if (!split) return [];
+  const def = ENEMIES[split.into];
+  const kids: Enemy[] = [];
+  for (let i = 0; i < split.count; i++) {
+    const hp = Math.max(1, Math.round(parent.baseHp * def.hpMult));
+    kids.push({
+      ...parent,
+      id: g.nextId++,
+      type: split.into,
+      // Stagger them back along the path so they don't overlap.
+      x: parent.x - parent.dirX * 0.28 * i,
+      y: parent.y - parent.dirY * 0.28 * i,
+      hp,
+      maxHp: hp,
+      speed: parent.baseSpeed * def.speedMult * (1 - i * 0.08),
+      reward: Math.max(1, Math.round(parent.baseReward * def.rewardMult)),
+      armor: def.armor,
+      hitFlash: 0,
+      seed: Math.random() * 10,
+      flying: !!def.flying,
+    });
+  }
+  return kids;
+}
+
 function updateEnemies(g: Game, dt: number) {
-  // Healer auras
-  for (const h of g.enemies) {
-    const aura = ENEMIES[h.type].healAura;
-    if (!aura) continue;
+  // Healer auras. Standing near several Medics is no better than standing near
+  // one, so a crowd of them can't make a boss unkillable.
+  const healers = g.enemies.filter((h) => ENEMIES[h.type].healAura > 0);
+  if (healers.length) {
     for (const e of g.enemies) {
-      if (Math.hypot(e.x - h.x, e.y - h.y) <= HEAL_AURA_RANGE) {
-        e.hp = Math.min(e.maxHp, e.hp + aura * e.maxHp * dt);
+      if (e.hp >= e.maxHp) continue;
+      let aura = 0;
+      for (const h of healers) {
+        if (Math.hypot(e.x - h.x, e.y - h.y) <= HEAL_AURA_RANGE) {
+          aura = Math.max(aura, ENEMIES[h.type].healAura);
+        }
       }
+      if (aura) e.hp = Math.min(e.maxHp, e.hp + aura * e.maxHp * dt);
     }
   }
 
@@ -755,6 +1050,22 @@ function updateEnemies(g: Game, dt: number) {
     e.hitFlash = Math.max(0, e.hitFlash - dt);
     const slowed = e.slowUntil > g.time;
     let move = e.speed * (slowed ? e.slowFactor : 1) * dt;
+
+    if (e.flying) {
+      const dx = e.tx - e.x;
+      const dy = e.ty - e.y;
+      const d = Math.hypot(dx, dy);
+      if (d <= move + 0.05) {
+        escaped.add(e.id);
+      } else {
+        e.dirX = dx / d;
+        e.dirY = dy / d;
+        e.x += e.dirX * move;
+        e.y += e.dirY * move;
+      }
+      continue;
+    }
+
     while (move > 0) {
       const dx = e.nc - e.x;
       const dy = e.nr - e.y;
@@ -767,7 +1078,7 @@ function updateEnemies(g: Game, dt: number) {
         const dc = e.nc - e.cc;
         e.cr = e.nr;
         e.cc = e.nc;
-        if (e.cr === EXIT.r && e.cc === EXIT.c) {
+        if (g.dist[e.cr][e.cc] === 0) {
           escaped.add(e.id);
           break;
         }
@@ -788,8 +1099,9 @@ function updateEnemies(g: Game, dt: number) {
   if (escaped.size) {
     for (const e of g.enemies) {
       if (!escaped.has(e.id)) continue;
-      g.lives -= ENEMIES[e.type].livesCost;
-      floatText(g, EXIT.c, EXIT.r - 0.5, `-${ENEMIES[e.type].livesCost}`, "#f87171");
+      const cost = ENEMIES[e.type].livesCost;
+      g.lives -= cost;
+      floatText(g, e.x, e.y - 0.5, `-${cost}`, "#f87171");
     }
     g.enemies = g.enemies.filter((e) => !escaped.has(e.id));
     g.shake = Math.max(g.shake, 0.2);
@@ -805,7 +1117,7 @@ function updateTowers(g: Game, dt: number) {
     t.recoil = Math.max(0, t.recoil - dt * 6);
     t.flash = Math.max(0, t.flash - dt);
 
-    const target = findTarget(g, t, stats.range);
+    const target = findTarget(g, t);
     if (!target) continue;
 
     let aimed = true;
@@ -880,6 +1192,7 @@ function collectKills(g: Game) {
     g.particles.push(ring(e.x, e.y, "#ffffff", def.radius * 1.6, 0.25));
     floatText(g, e.x, e.y - 0.3, `+${e.reward}`, "#fde047");
     if (e.type === "boss") g.shake = Math.max(g.shake, 0.3);
+    alive.push(...spawnChildren(g, e));
     g.sfx.push("pop");
   }
   g.enemies = alive;

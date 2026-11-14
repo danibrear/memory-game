@@ -122,6 +122,15 @@ export function playSfx(sfx: Sfx) {
       tone(988, 0.06, { type: "square", vol: 0.08 });
       tone(1319, 0.12, { type: "square", vol: 0.08, delay: 0.06 });
       break;
+    case "clear":
+      noise(0.3, { vol: 0.3, freq: 900 });
+      tone(160, 0.22, { type: "triangle", to: 70, vol: 0.22 });
+      tone(660, 0.1, { type: "triangle", vol: 0.12, delay: 0.16 });
+      break;
+    case "portal":
+      [196, 233, 277, 370].forEach((f, i) => tone(f, 0.28, { type: "sawtooth", vol: 0.07, delay: i * 0.11 }));
+      tone(90, 0.6, { type: "sine", to: 180, vol: 0.2 });
+      break;
     case "error":
       tone(160, 0.14, { type: "square", vol: 0.1 });
       break;
