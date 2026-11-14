@@ -64,13 +64,49 @@ export function cubeSprite(c: ColorKey, size: number, dpr: number): HTMLCanvasEl
   return canvas;
 }
 
-export function drawBoard(x: CanvasRenderingContext2D, run: Run, cell: number, dpr: number) {
+/** How long the picture takes to build itself when a level starts. */
+export const BUILD_MS = 640;
+/** How long one cube takes to pop in during the build. */
+const CUBE_POP_MS = 260;
+
+function backOut(k: number): number {
+  const c1 = 1.70158, c3 = c1 + 1;
+  return 1 + c3 * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2);
+}
+
+/**
+ * Draws the picture. `sinceStartMs` is the time since the level began: for the
+ * first BUILD_MS the cubes pop in from the bottom row up, sweeping left to
+ * right. Leave it out (or pass Infinity) to draw the finished board.
+ */
+export function drawBoard(
+  x: CanvasRenderingContext2D,
+  run: Run,
+  cell: number,
+  dpr: number,
+  sinceStartMs = Infinity,
+) {
   x.setTransform(dpr, 0, 0, dpr, 0, 0);
   x.clearRect(0, 0, run.cols * cell, run.rows * cell);
+  const building = sinceStartMs < BUILD_MS;
+  const lastOrder = Math.max(1, run.rows - 1 + (run.cols - 1) * 0.4);
   for (const c of run.cells) {
     const X = c.x * cell, Y = c.y * cell;
     if (c.state === 0) {
-      x.drawImage(cubeSprite(c.c, cell, dpr), X, Y, cell, cell);
+      let s = 1;
+      if (building) {
+        const order = run.rows - 1 - c.y + c.x * 0.4;
+        const delay = (order / lastOrder) * (BUILD_MS - CUBE_POP_MS);
+        const k = (sinceStartMs - delay) / CUBE_POP_MS;
+        if (k <= 0) continue;
+        if (k < 1) s = backOut(k);
+      }
+      if (s === 1) {
+        x.drawImage(cubeSprite(c.c, cell, dpr), X, Y, cell, cell);
+      } else {
+        const d = cell * s;
+        x.drawImage(cubeSprite(c.c, cell, dpr), X + (cell - d) / 2, Y + (cell - d) / 2, d, d);
+      }
     } else {
       // Ghost of an eaten cube, so you can see the picture disappearing.
       x.fillStyle = "rgba(255,255,255,.05)";

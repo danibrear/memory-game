@@ -16,6 +16,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   Banner,
+  CountUp,
   GameShell,
   getGame,
   KitButton,
@@ -24,6 +25,7 @@ import {
   StatPill,
   Stars,
   Stepper,
+  useDealIn,
   WinScreen,
 } from "~/components/game/GameKit";
 import { clearStoredData, getStoredData, setStoredData } from "~/storage";
@@ -44,6 +46,9 @@ const BEST_KEY = "memory-game-best";
 const MIN_SIZE = 2;
 const MAX_SIZE = 15;
 const COUNT_STEP_MS = 700;
+/** Pause between the last tile and the win screen; the victory wave fills it. */
+const WIN_DELAY_MS = 700;
+const WAVE_SPREAD_MS = 240;
 
 type Phase = "START" | "COUNTDOWN" | "SHOWING" | "ACTIVE" | "ENDED";
 
@@ -84,6 +89,13 @@ export default function Memory() {
   const [count, setCount] = useState(3);
   const [best, setBest] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  /** Bumped for every fresh board so the tiles deal in. */
+  const [dealId, setDealId] = useState(0);
+  /** True between the last tile and the win screen: found tiles do a wave. */
+  const [winning, setWinning] = useState(false);
+
+  const gridRef = useRef<HTMLDivElement>(null);
+  useDealIn(gridRef, dealId, { cols: size, maxTotal: 420 });
 
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const later = (fn: () => void, ms: number) => {
@@ -111,6 +123,8 @@ export default function Memory() {
     setTargets(pickTargets(boardSize));
     setFound([]);
     setWrong([]);
+    setWinning(false);
+    setDealId((d) => d + 1);
     playReveal(boardSize);
   };
 
@@ -165,7 +179,8 @@ export default function Memory() {
           setBest(size);
           setStoredData(BEST_KEY, size);
         }
-        later(() => setPhase("ENDED"), 700);
+        setWinning(true);
+        later(() => setPhase("ENDED"), WIN_DELAY_MS);
       }
     } else {
       setWrong((w) => [...w, index]);
@@ -245,10 +260,10 @@ export default function Memory() {
               color="#dc2626"
               dim={mistakes === 0}
               label="Mistakes">
-              {mistakes} {mistakes === 1 ? "miss" : "misses"}
+              <CountUp value={mistakes} /> {mistakes === 1 ? "miss" : "misses"}
             </StatPill>
             <StatPill icon={faCheck} color="#16a34a" label="Accuracy">
-              {accuracy}%
+              <CountUp value={accuracy} />%
             </StatPill>
           </div>
           <div className="dg-row" style={{ marginTop: 8 }}>
@@ -273,6 +288,7 @@ export default function Memory() {
   const gap = size <= 5 ? 9 : size <= 8 ? 6 : size <= 11 ? 4 : 3;
   const iconSize = `calc(min(92vw, 60vh, 600px) / ${size} * 0.4)`;
   const showMs = showTimeFor(size);
+  const waveStep = WAVE_SPREAD_MS / Math.max(1, 2 * (size - 1));
 
   return (
     <GameShell game={game}>
@@ -317,7 +333,8 @@ export default function Memory() {
           </div>
         )}
         <div
-          className="mm-grid"
+          ref={gridRef}
+          className={winning ? "mm-grid is-winning" : "mm-grid"}
           style={
             {
               gridTemplateColumns: `repeat(${size}, 1fr)`,
@@ -345,6 +362,14 @@ export default function Memory() {
                   .filter(Boolean)
                   .join(" ")}
                 tabIndex={clickable ? 0 : -1}
+                style={
+                  isFound
+                    ? ({
+                        // Victory wave runs corner to corner
+                        "--wave": `${Math.round((Math.floor(index / size) + (index % size)) * waveStep)}ms`,
+                      } as CSSProperties)
+                    : undefined
+                }
                 aria-label={
                   isFound ? "Found" : isWrong ? "Miss" : isLit ? "Lit tile" : "Tile"
                 }
@@ -371,6 +396,7 @@ export default function Memory() {
           icon={faArrowsRotate}
           onClick={() => {
             clearTimers();
+            setWinning(false);
             setPhase("START");
           }}>
           Quit

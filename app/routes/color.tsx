@@ -11,6 +11,7 @@ import {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -22,6 +23,7 @@ import {
   getGame,
   KitButton,
   KitDialog,
+  prefersReducedMotion,
   type Choice,
 } from "~/components/game/GameKit";
 import { getStoredData, setStoredData } from "~/storage";
@@ -63,6 +65,18 @@ const DEFAULT_SIZE = 8;
 const EMPTY = -1;
 const MAX_UNDO = 40;
 const STORAGE_KEY = "color-game-state-v2";
+/** Fill bucket: the paint spreads outward from the tapped cell. */
+const RIPPLE_STEP_MS = 34; // per cell of distance…
+const RIPPLE_MAX_MS = 360; // …but the farthest cell never waits longer than this
+const RIPPLE_POP_MS = 300;
+
+/** A fill that is about to be painted, waiting for its cells to hit the DOM. */
+interface PendingRipple {
+  origin: number;
+  changed: number[];
+  /** What the filled area looked like before, held until the wave arrives. */
+  hold: Keyframe;
+}
 
 type Tool = "brush" | "rainbow" | "fill" | "eraser";
 
@@ -123,6 +137,55 @@ export default function ColorGame() {
   const strokeStart = useRef<number[] | null>(null);
   const lastCell = useRef<number | null>(null);
   const rainbowStep = useRef(0);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const pendingRipple = useRef<PendingRipple | null>(null);
+
+  const planRipple = (prev: number[], next: number[], origin: number): PendingRipple | null => {
+    const grid = gridRef.current;
+    if (!grid || prefersReducedMotion()) return null;
+    const changed: number[] = [];
+    for (let i = 0; i < next.length; i++) if (next[i] !== prev[i]) changed.push(i);
+    if (changed.length < 2) return null; // a single cell just pops as usual
+    // Every filled cell looked the same before. Read that look from one the
+    // pointer isn't hovering, so the hover ring doesn't get copied.
+    const sample = grid.children[changed.find((i) => i !== origin) ?? origin];
+    const hold: Keyframe = { transform: "scale(1)" };
+    if (sample instanceof HTMLElement) {
+      const cs = getComputedStyle(sample);
+      hold.backgroundColor = cs.backgroundColor;
+      hold.boxShadow = cs.boxShadow;
+    }
+    return { origin, changed, hold };
+  };
+
+  // Fill bucket ripple: each filled cell keeps its old look until the wave
+  // reaches it, then pops in. Runs before paint so the new color never flashes.
+  useLayoutEffect(() => {
+    const ripple = pendingRipple.current;
+    if (!ripple) return;
+    pendingRipple.current = null;
+    const grid = gridRef.current;
+    if (!grid) return;
+    const row0 = Math.floor(ripple.origin / size);
+    const col0 = ripple.origin % size;
+    const dist = (i: number) => Math.hypot(Math.floor(i / size) - row0, (i % size) - col0);
+    const farthest = Math.max(1, ...ripple.changed.map(dist));
+    const step = Math.min(RIPPLE_STEP_MS, RIPPLE_MAX_MS / farthest);
+    for (const i of ripple.changed) {
+      const el = grid.children[i];
+      if (!(el instanceof HTMLElement) || typeof el.animate !== "function") continue;
+      const delay = Math.round(dist(i) * step);
+      if (delay > 0) el.animate([ripple.hold, ripple.hold], { duration: delay });
+      el.animate(
+        [
+          { transform: "scale(0.55)" },
+          { transform: "scale(1.14)", offset: 0.6 },
+          { transform: "scale(1)" },
+        ],
+        { duration: RIPPLE_POP_MS, delay, easing: "ease-out" },
+      );
+    }
+  });
 
   // Restore the last canvas
   useEffect(() => {
@@ -176,9 +239,11 @@ export default function ColorGame() {
 
     if (tool === "fill") {
       const value = colorIdx;
-      const next = floodFill(cellsRef.current, size, index, value);
-      if (next !== cellsRef.current) {
-        pushHistory(cellsRef.current);
+      const prev = cellsRef.current;
+      const next = floodFill(prev, size, index, value);
+      if (next !== prev) {
+        pushHistory(prev);
+        pendingRipple.current = planRipple(prev, next, index);
         setCells(next);
       }
       return;
@@ -239,6 +304,7 @@ export default function ColorGame() {
 
         <div className="dg-tray">
           <div
+            ref={gridRef}
             className={`cg-grid ${isPainting ? "is-painting" : ""}`}
             style={
               {

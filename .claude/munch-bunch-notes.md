@@ -28,6 +28,16 @@ Original take on the "Food Hunt" style color-clearing puzzle. Route: `/munch`.
   React when something visible changes (`ev.dirty`).
 - Storage key `munch-bunch` (via `~/storage`): `{ level, muted, stars: { [levelIndex]: best } }`.
 
+## Motion (added 2026-11-14)
+- The picture builds itself for the first `BUILD_MS` of a level: `drawBoard`
+  takes `sinceStartMs` and pops cubes in from the bottom row up.
+- Sending a Munchy: `sendFrom` records where that column's Munchies are
+  (`pendingSend`), and a layout effect then hops the sent one along an arc to
+  its spot (`hopFrames`, `HOP_MS`) and slides the rest of the queue forward.
+  Every Munchy on screen registers in `munchyEls` via `trackEl(id)`.
+- The first bite lands about 590ms after a send (160ms cooldown + 430ms
+  flight), so keep the hop shorter than that.
+
 ## Ideas
 - Level-select screen with picture thumbnails and best stars.
 - Let kids draw their own picture in the Color Game and play it here.

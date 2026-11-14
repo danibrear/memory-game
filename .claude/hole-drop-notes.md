@@ -57,3 +57,17 @@ The route lowers canvas resolution automatically if frames run slow.
   re-renders when a shown value changes, so the page around the canvas no longer
   re-renders 10x/second.
 - Phaser isn't needed: the bottleneck was frame timing, not drawing speed.
+
+## Hole.io polish pass
+- Growth is mostly discrete now (22% creep inside a level, big jump on level-up)
+  and the radius is a spring (`h.rv`), so size-ups pop with a little overshoot.
+- "NEW FOOD UNLOCKED" card when the player first fits a new kind (`unlock`
+  event, `kindMinFit` per city, labels in `UNLOCK_LABELS`).
+- Objects topple: things hanging over the rim lean in (`o.pull`), big ones
+  balance on the rim for a beat (`falling.teeter`), then tip toward the hole
+  center while sinking (render foreshortens height via `View.hs/zb`).
+- Rim pulses as things drop in (`h.pulse`).
+- Contact shadows under buildings/vehicles, lit gradient faces on tall
+  buildings, soft vignette, intro camera swoop during the 3-2-1.
+- Gobble feed on the left, podium on the Classic results screen.
+- Solo stars lowered to 20/40/65%.

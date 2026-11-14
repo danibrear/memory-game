@@ -3,10 +3,16 @@ import { faMinus, faPlus, faStar } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Dialog } from "@mui/material";
 import {
+  isValidElement,
+  useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
+  useState,
   type ButtonHTMLAttributes,
   type CSSProperties,
   type ReactNode,
+  type RefObject,
 } from "react";
 import GameIconTile from "~/components/GameIconTile";
 import { GAMES, type Game } from "~/gameCatalog";
@@ -31,6 +37,150 @@ function gameVars(game: Game): CSSProperties {
 
 function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
+}
+
+/* ---------- Motion helpers ---------- */
+
+/** True when the player has asked their device for less motion. */
+export function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+/** The visible text of a node, used to notice when a shown value changes. */
+function textOf(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (
+    typeof node === "string" ||
+    typeof node === "number" ||
+    typeof node === "bigint"
+  ) {
+    return String(node);
+  }
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement(node)) {
+    return textOf((node.props as { children?: ReactNode }).children);
+  }
+  return "";
+}
+
+/**
+ * Replays the `dg-bump` pop on the returned ref's element every time `value`
+ * changes (never on first render).
+ */
+export function useBump<T extends HTMLElement>(value: unknown, enabled = true) {
+  const ref = useRef<T>(null);
+  const prev = useRef(value);
+  useEffect(() => {
+    if (prev.current === value) return;
+    prev.current = value;
+    const el = ref.current;
+    if (!el || !enabled) return;
+    el.classList.remove("is-bump");
+    void el.offsetWidth; // restart the CSS animation
+    el.classList.add("is-bump");
+  }, [value, enabled]);
+  return ref;
+}
+
+/** A number (or short label) that pops whenever it changes. */
+export function Bump({
+  value,
+  className,
+  children,
+}: {
+  /** What to watch. Defaults to the text of `children`. */
+  value?: unknown;
+  className?: string;
+  children: ReactNode;
+}) {
+  const ref = useBump<HTMLSpanElement>(value ?? textOf(children));
+  return (
+    <span ref={ref} className={cx("dg-bump", className)}>
+      {children}
+    </span>
+  );
+}
+
+/** Counts up from 0 to `value`. Used for scores and stats on win screens. */
+export function CountUp({
+  value,
+  duration = 900,
+  delay = 350,
+}: {
+  value: number;
+  /** Longest the count may take, in ms. Small numbers finish sooner. */
+  duration?: number;
+  delay?: number;
+}) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    if (value <= 0 || prefersReducedMotion()) {
+      setShown(value);
+      return;
+    }
+    const total = Math.min(duration, 180 + value * 60);
+    const start = performance.now() + delay;
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, Math.max(0, (now - start) / total));
+      setShown(Math.round(value * (1 - Math.pow(1 - t, 3))));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration, delay]);
+  return <span className="dg-count">{shown}</span>;
+}
+
+export interface DealOptions {
+  /** Deal the descendants matching this selector (default: direct children). */
+  selector?: string;
+  /** Column count of a grid: deals in a diagonal wave instead of one by one. */
+  cols?: number;
+  /** Gap between items in ms. Shrinks so the whole deal fits in `maxTotal`. */
+  step?: number;
+  duration?: number;
+  maxTotal?: number;
+}
+
+/**
+ * Deals a board in: each item under `ref` pops up in turn whenever `dealKey`
+ * changes while the board is on screen. Uses the Web Animations API, so it
+ * never fights the CSS animations (shake, match pop) on the same elements.
+ */
+export function useDealIn(
+  ref: RefObject<HTMLElement | null>,
+  dealKey: unknown,
+  { selector, cols, step = 45, duration = 360, maxTotal = 520 }: DealOptions = {},
+) {
+  useLayoutEffect(() => {
+    const root = ref.current;
+    if (!root || prefersReducedMotion()) return;
+    const items = Array.from(
+      selector ? root.querySelectorAll<HTMLElement>(selector) : root.children,
+    ) as HTMLElement[];
+    if (!items.length || typeof items[0].animate !== "function") return;
+    const order = (i: number) => (cols ? Math.floor(i / cols) + (i % cols) : i);
+    const gap = Math.min(step, maxTotal / Math.max(1, order(items.length - 1)));
+    const anims = items.map((el, i) =>
+      el.animate(
+        // Only the starting pose: each item settles into whatever it should be.
+        [{ offset: 0, opacity: 0, transform: "translateY(18px) scale(0.55)" }],
+        {
+          duration,
+          delay: order(i) * gap,
+          easing: "cubic-bezier(0.34, 1.56, 0.64, 1)",
+          fill: "backwards",
+        },
+      ),
+    );
+    return () => anims.forEach((a) => a.cancel());
+    // Options are read fresh on each deal; only a new deal should re-run this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dealKey]);
 }
 
 /* ---------- Layout ---------- */
@@ -210,20 +360,26 @@ export function StatPill({
   dim,
   children,
   label,
+  bump = true,
 }: {
   icon?: IconDefinition;
   color?: string;
   dim?: boolean;
   label?: string;
+  /** Pop the value when it changes. Turn off if the content animates itself. */
+  bump?: boolean;
   children: ReactNode;
 }) {
+  const valueRef = useBump<HTMLSpanElement>(textOf(children), bump);
   return (
     <span
       className={cx("dg-pill", dim && "dg-pill--dim")}
       style={color ? ({ "--pill-color": color } as CSSProperties) : undefined}
       aria-label={label}>
       {icon && <FontAwesomeIcon icon={icon} />}
-      {children}
+      <span ref={valueRef} className="dg-bump">
+        {children}
+      </span>
     </span>
   );
 }

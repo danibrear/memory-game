@@ -52,7 +52,12 @@ export interface Falling {
   depth: number;
   vz: number;
   g: number;
-  tilt: number;
+  /** Seconds left balancing on the rim before the drop (big things only). */
+  teeter: number;
+  teeterMax: number;
+  /** Unit direction from the object toward the hole center when it started tipping. */
+  dx: number;
+  dy: number;
 }
 
 export interface Obj {
@@ -74,6 +79,10 @@ export interface Obj {
   anim: number;
   panic: number;
   wobble: number;
+  /** 0..1 how hard a nearby hole is tugging on it (it leans toward the hole). */
+  pull: number;
+  pullX: number;
+  pullY: number;
   falling: Falling | null;
   dead: boolean;
 }
@@ -130,6 +139,9 @@ export function makeObj(
     anim: r() * 10,
     panic: 0,
     wobble: 0,
+    pull: 0,
+    pullX: 0,
+    pullY: 0,
     falling: null,
     dead: false,
   };

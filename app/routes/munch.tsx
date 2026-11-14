@@ -15,6 +15,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useReducer,
   useRef,
   useState,
@@ -22,11 +23,13 @@ import {
 } from "react";
 import {
   Banner,
+  CountUp,
   GameShell,
   getGame,
   KitButton,
   KitDialog,
   Panel,
+  prefersReducedMotion,
   StartScreen,
   StatPill,
   Stars,
@@ -81,6 +84,46 @@ const DEFAULT_SAVE: Saved = { level: 0, muted: false, stars: {} };
 
 function cx(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(" ");
+}
+
+/** How long a Munchy takes to hop from its queue to a munch spot. */
+const HOP_MS = 420;
+/** How long the rest of the queue takes to shuffle forward. */
+const QUEUE_SLIDE_MS = 300;
+
+/** A send in progress: where that column's Munchies were just before it. */
+interface PendingSend {
+  column: number;
+  sentId: number;
+  before: Map<number, DOMRect>;
+}
+
+const centerOf = (r: DOMRect) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+
+/**
+ * Path for a Munchy that starts (dx, dy) away from its spot: an arc through the
+ * air, leaning into the jump, then a little squash as it lands.
+ */
+function hopFrames(dx: number, dy: number): Keyframe[] {
+  const lift = Math.min(72, 30 + Math.hypot(dx, dy) * 0.16);
+  const lean = dx > 0 ? -1 : 1;
+  const AIR = 0.76; // share of the time spent in the air; the rest is the landing
+  const STEPS = 8;
+  const frames: Keyframe[] = [];
+  for (let i = 0; i <= STEPS; i++) {
+    const t = i / STEPS;
+    const e = t * t * (3 - 2 * t);
+    const x = dx * (1 - e);
+    const y = dy * (1 - e) - lift * Math.sin(Math.PI * t);
+    const tilt = lean * 12 * Math.sin(Math.PI * t);
+    frames.push({
+      offset: t * AIR,
+      transform: `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) rotate(${tilt.toFixed(1)}deg) scale(1, 1)`,
+    });
+  }
+  frames.push({ offset: 0.88, transform: "translate(0px, 3px) rotate(0deg) scale(1.16, 0.84)" });
+  frames.push({ offset: 1, transform: "translate(0px, 0px) rotate(0deg) scale(1, 1)" });
+  return frames;
 }
 
 function MunchyView({
@@ -171,7 +214,13 @@ export default function MunchBunch() {
   const boxRef = useRef<HTMLDivElement>(null);
   const slotsRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<(HTMLDivElement | null)[]>([]);
+  /** Every Munchy on screen (queued or in a spot), by id. */
   const munchyEls = useRef(new Map<number, HTMLDivElement>());
+  const trackEl = (id: number) => (el: HTMLDivElement | null) => {
+    if (el) munchyEls.current.set(id, el);
+    else munchyEls.current.delete(id);
+  };
+  const pendingSend = useRef<PendingSend | null>(null);
   const timers = useRef<number[]>([]);
 
   const run = runRef.current;
@@ -251,6 +300,7 @@ export default function MunchBunch() {
     if (!r || !board || !fx) return;
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const calm = prefersReducedMotion();
     const bx = board.getContext("2d")!;
     const fxx = fx.getContext("2d")!;
     const sizeFx = () => {
@@ -289,7 +339,7 @@ export default function MunchBunch() {
       if (ev.dirty) rerender();
 
       const c = board.clientWidth / r.cols;
-      drawBoard(bx, r, c, dpr);
+      drawBoard(bx, r, c, dpr, calm ? Infinity : t - r.startedAt);
       const br = board.getBoundingClientRect();
       drawFlights(
         fxx,
@@ -352,17 +402,91 @@ export default function MunchBunch() {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     board.width = r.cols * cell * dpr;
     board.height = r.rows * cell * dpr;
-    drawBoard(board.getContext("2d")!, r, cell, dpr);
+    drawBoard(
+      board.getContext("2d")!,
+      r,
+      cell,
+      dpr,
+      prefersReducedMotion() ? Infinity : performance.now() - r.startedAt,
+    );
   }, [cell, run, phase]);
+
+  // After a send: the Munchy hops from its queue to its spot, and the Munchies
+  // behind it shuffle forward. Runs before paint so nothing flashes in place.
+  useLayoutEffect(() => {
+    const send = pendingSend.current;
+    if (!send) return;
+    pendingSend.current = null;
+    const r = runRef.current;
+    if (!r) return;
+
+    const hopper = munchyEls.current.get(send.sentId);
+    const spot = slotRefs.current[r.slots.findIndex((m) => m?.id === send.sentId)];
+    const hopFrom = send.before.get(send.sentId);
+    if (hopper && spot && hopFrom && typeof hopper.animate === "function") {
+      // Measure the spot, not the Munchy: its CSS pop-in is already scaling it.
+      const from = centerOf(hopFrom);
+      const to = centerOf(spot.getBoundingClientRect());
+      hopper.style.zIndex = "6";
+      const anim = hopper.animate(hopFrames(from.x - to.x, from.y - to.y), {
+        duration: HOP_MS,
+        easing: "linear",
+      });
+      const settle = () => {
+        hopper.style.zIndex = "";
+      };
+      anim.onfinish = settle;
+      anim.oncancel = settle;
+    }
+
+    r.queues[send.column]?.slice(0, 3).forEach((m, i) => {
+      const el = munchyEls.current.get(m.id);
+      if (!el || typeof el.animate !== "function") return;
+      const was = send.before.get(m.id);
+      if (!was) {
+        // Newly visible at the back of the line
+        el.animate([{ offset: 0, opacity: 0, transform: "scale(0.2)" }], {
+          duration: 220,
+          delay: 120,
+          easing: "cubic-bezier(0.34, 1.56, 0.64, 1)",
+          fill: "backwards",
+        });
+        return;
+      }
+      const now = el.getBoundingClientRect();
+      const from = centerOf(was);
+      const to = centerOf(now);
+      const start: Keyframe = {
+        offset: 0,
+        transform: `translate(${(from.x - to.x).toFixed(1)}px, ${(from.y - to.y).toFixed(1)}px) scale(${(was.width / now.width).toFixed(3)})`,
+      };
+      // The new front Munchy grows out of its faded "next up" size
+      if (i === 0) start.opacity = 0.6;
+      el.animate([start], {
+        duration: QUEUE_SLIDE_MS,
+        easing: "cubic-bezier(0.34, 1.4, 0.64, 1)",
+      });
+    });
+  });
 
   // ── Actions ──
   const sendFrom = (column: number) => {
     unlockAudio();
     const r = runRef.current;
     if (!r || phase !== "PLAYING") return;
+    // Remember where this column's Munchies are, so they can travel from there.
+    const sent = r.queues[column]?.[0];
+    const before = new Map<number, DOMRect>();
+    if (!prefersReducedMotion()) {
+      for (const m of r.queues[column]?.slice(0, 3) ?? []) {
+        const el = munchyEls.current.get(m.id);
+        if (el) before.set(m.id, el.getBoundingClientRect());
+      }
+    }
     const res = dispatch(r, column);
     if (res === "sent") {
       sfx.send();
+      if (sent && before.size) pendingSend.current = { column, sentId: sent.id, before };
       rerender();
     } else if (res === "full") {
       sfx.nope();
@@ -451,7 +575,8 @@ export default function MunchBunch() {
           title={titles[result.stars]}
           subtitle={
             <>
-              You ate the whole <strong>{run.picture.name}</strong> in {result.secs}s.
+              You ate the whole <strong>{run.picture.name}</strong> in{" "}
+              <CountUp value={result.secs} />s.
               <br />
               {tips[result.stars]}
             </>
@@ -543,10 +668,7 @@ export default function MunchBunch() {
                   count={m.cap - m.eaten}
                   mode={m.done ? "idle" : m.mode}
                   done={m.done}
-                  elRef={(el) => {
-                    if (el) munchyEls.current.set(m.id, el);
-                    else munchyEls.current.delete(m.id);
-                  }}
+                  elRef={trackEl(m.id)}
                 />
               )}
             </div>
@@ -564,10 +686,10 @@ export default function MunchBunch() {
               onClick={() => sendFrom(k)}>
               {q.length > 0 && (
                 <>
-                  <MunchyView key={q[0].id} c={q[0].c} count={q[0].cap} />
+                  <MunchyView key={q[0].id} c={q[0].c} count={q[0].cap} elRef={trackEl(q[0].id)} />
                   <span className="mb-nexts">
                     {q.slice(1, 3).map((m: Munchy) => (
-                      <MunchyView key={m.id} c={m.c} mini />
+                      <MunchyView key={m.id} c={m.c} mini elRef={trackEl(m.id)} />
                     ))}
                     {q.length > 3 && <span className="mb-more">+{q.length - 3}</span>}
                   </span>

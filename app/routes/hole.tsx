@@ -10,7 +10,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Box, Button, ButtonBase, IconButton, Paper, TextField, Typography } from "@mui/material";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { NAV_HEIGHT } from "~/components/NavBar";
 import {
   sfxEat,
@@ -24,7 +24,7 @@ import {
   setMuted as setAudioMuted,
   unlockAudio,
 } from "~/games/hole/audio";
-import { MODES, SKINS, SOLO_STARS, TILT, type ModeId, type Skin } from "~/games/hole/config";
+import { MODES, SKINS, SOLO_STARS, TILT, UNLOCK_LABELS, type Kind, type ModeId, type Skin } from "~/games/hole/config";
 import {
   cityEaten,
   createGame,
@@ -94,6 +94,19 @@ interface Toast {
   big?: boolean;
 }
 
+interface FeedItem {
+  id: number;
+  eater: Pick<Row, "name" | "color" | "rainbow" | "isPlayer">;
+  victim: Pick<Row, "name" | "color" | "rainbow" | "isPlayer">;
+}
+
+interface Unlock {
+  id: number;
+  emoji: string;
+  label: string;
+  more: number;
+}
+
 interface Result {
   mode: ModeId;
   score: number;
@@ -161,6 +174,19 @@ const pulse = keyframes`
 const fall = keyframes`
   0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
   100% { transform: translateY(110vh) rotate(720deg); opacity: 0.9; }
+`;
+const feedIn = keyframes`
+  0% { transform: translateX(-24px); opacity: 0; }
+  6% { transform: translateX(0); opacity: 1; }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+`;
+const unlockIn = keyframes`
+  0% { transform: translateY(30px) scale(0.8); opacity: 0; }
+  10% { transform: translateY(0) scale(1.05); opacity: 1; }
+  16% { transform: scale(1); }
+  85% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: translateY(10px) scale(0.95); }
 `;
 const bob = keyframes`
   0%, 100% { transform: translateY(0); }
@@ -287,14 +313,18 @@ export default function HoleDrop() {
   const keysRef = useRef({ up: false, down: false, left: false, right: false });
   const joyRef = useRef<Joystick>({ active: false, ox: 0, oy: 0, x: 0, y: 0 });
   const mouseRef = useRef({ active: false, x: 0, y: 0 });
+  /** Whichever control was touched last wins, so a resting cursor can't fight the arrow keys. */
+  const inputModeRef = useRef<"keys" | "mouse">("mouse");
   const scaleRef = useRef(1);
 
   const [screen, setScreen] = useState<Screen>("menu");
   const [settings, setSettings] = useState<Settings>({ name: "", skinId: "aqua", mode: "classic", muted: false });
   const [best, setBest] = useState<Partial<Record<ModeId, number>>>({});
-  const [hud, setHud] = useState<Hud>(EMPTY_HUD);
+  const hudStore = useRef(createHudStore());
   const [paused, setPaused] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [unlock, setUnlock] = useState<Unlock | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [showHint, setShowHint] = useState(false);
   const [goFlash, setGoFlash] = useState(false);
@@ -322,6 +352,22 @@ export default function HoleDrop() {
     const id = Math.random();
     setToasts((t) => [...t.slice(-2), { id, text, color, big }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 1700);
+  }, []);
+
+  const pushFeed = useCallback((item: Omit<FeedItem, "id">) => {
+    const id = Math.random();
+    setFeed((f) => [...f.slice(-3), { ...item, id }]);
+    setTimeout(() => setFeed((f) => f.filter((x) => x.id !== id)), 4500);
+  }, []);
+
+  const showUnlock = useCallback((kinds: Kind[]) => {
+    const order = Object.keys(UNLOCK_LABELS) as Kind[];
+    const named = order.filter((k) => kinds.includes(k));
+    if (!named.length) return;
+    const top = UNLOCK_LABELS[named[0]]!;
+    const id = Math.random();
+    setUnlock({ id, emoji: top.emoji, label: top.label, more: named.length - 1 });
+    setTimeout(() => setUnlock((u) => (u?.id === id ? null : u)), 2800);
   }, []);
 
   // ── Demo city behind the menu ──────────────────────────────────────────────
@@ -365,7 +411,9 @@ export default function HoleDrop() {
     setResult(null);
     setPaused(false);
     setToasts([]);
-    setHud(EMPTY_HUD);
+    setFeed([]);
+    setUnlock(null);
+    hudStore.current.set(EMPTY_HUD);
     setScreen("playing");
     setShowHint(true);
     setTimeout(() => setShowHint(false), 5000);
@@ -434,6 +482,7 @@ export default function HoleDrop() {
       const k = map[e.code];
       if (k) {
         keysRef.current[k] = true;
+        inputModeRef.current = "keys";
         e.preventDefault();
       }
       if (e.code === "Escape" || e.code === "KeyP") setPaused((p) => !p);
@@ -478,6 +527,9 @@ export default function HoleDrop() {
   const onPointerMove = (e: React.PointerEvent) => {
     const p = localPoint(e);
     if (e.pointerType === "mouse") {
+      const m = mouseRef.current;
+      // Only a real mouse movement (not a tiny jitter) takes control back from the keys.
+      if (!m.active || Math.hypot(p.x - m.x, p.y - m.y) > 4) inputModeRef.current = "mouse";
       mouseRef.current = { active: true, x: p.x, y: p.y };
       return;
     }
@@ -503,7 +555,6 @@ export default function HoleDrop() {
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
-    let acc = 0;
     let hudT = 0;
     let frameAvg = 16;
     let slowFrames = 0;
@@ -525,6 +576,8 @@ export default function HoleDrop() {
         const m = Math.min(1, d / (JOY_RADIUS * 0.8));
         return { x: (dx / d) * m, y: (dy / d) * m };
       }
+      // Using the keys: no arrow held means stop, never drift toward the cursor.
+      if (inputModeRef.current === "keys") return { x: 0, y: 0 };
       const mouse = mouseRef.current;
       if (mouse.active) {
         const p = g.player;
@@ -564,9 +617,16 @@ export default function HoleDrop() {
               pushToast(`SIZE ${e.level}!`, "#a3e635", true);
             }
             break;
+          case "unlock":
+            if (e.holeId === pid) showUnlock(e.kinds);
+            break;
           case "gobble": {
             const eater = g.holes[e.eaterId];
             const victim = g.holes[e.victimId];
+            pushFeed({
+              eater: { name: eater.name, color: eater.color, rainbow: eater.rainbow, isPlayer: eater.isPlayer },
+              victim: { name: victim.name, color: victim.color, rainbow: victim.rainbow, isPlayer: victim.isPlayer },
+            });
             if (eater.isPlayer) {
               sfxGobble();
               pushToast(`You gobbled ${victim.name}! 😋`, eater.color);
@@ -614,21 +674,21 @@ export default function HoleDrop() {
       }
       setViewSize(W, H);
 
-      const dt = Math.min(0.1, (now - last) / 1000);
+      const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       const L = live.current;
       const running = !L.paused && (L.screen !== "results" || g.phase === "over");
       if (running) {
-        acc += dt;
-        let steps = 0;
+        // Advance by exactly the time this frame covers (split into small sub-steps).
+        // A fixed 1/60 step with no interpolation sometimes runs 0 or 2 steps per frame,
+        // which shows up as a stutter when the city scrolls fast.
         const input = L.screen === "playing" ? readInput(g, W, H) : { x: 0, y: 0 };
-        while (acc >= STEP && steps < 6) {
-          step(g, STEP, input);
+        const steps = Math.max(1, Math.ceil(dt / STEP));
+        const sub = dt / steps;
+        for (let i = 0; i < steps; i++) {
+          step(g, sub, input);
           handleEvents(g);
-          acc -= STEP;
-          steps++;
         }
-        if (steps === 6) acc = 0;
       }
 
       render(ctx, g, W, H, dpr, now / 1000, joyRef.current);
@@ -650,7 +710,7 @@ export default function HoleDrop() {
         hudT = 0.1;
         const p = g.player;
         const ranked = ranking(g);
-        setHud({
+        hudStore.current.set({
           score: p.score,
           level: p.level,
           progress: p.progress,
@@ -674,7 +734,7 @@ export default function HoleDrop() {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [finishGame, makeDemo, pushToast]);
+  }, [finishGame, makeDemo, pushToast, pushFeed, showUnlock]);
 
   const toggleMute = () => {
     unlockAudio();
@@ -712,107 +772,107 @@ export default function HoleDrop() {
       {/* ── HUD ─────────────────────────────────────────────────────────── */}
       {playing && (
         <>
-          <Box
-            sx={{
-              position: "absolute",
-              top: { xs: 8, sm: 14 },
-              left: { xs: 8, sm: 14 },
-              ...glass,
-              borderRadius: 4,
-              px: 1.5,
-              py: 1,
-              minWidth: { xs: 130, sm: 170 },
-              pointerEvents: "none",
-            }}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <HoleIcon skin={skin} size={26} />
-              <Typography sx={{ fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: { xs: 15, sm: 17 }, lineHeight: 1.1 }}>
-                Size {hud.level}
-              </Typography>
-            </Box>
-            <Box sx={{ mt: 0.75, height: 8, borderRadius: 99, bgcolor: "rgba(15,23,42,0.1)", overflow: "hidden" }}>
-              <Box
-                sx={{
-                  height: "100%",
-                  width: `${Math.round(hud.progress * 100)}%`,
-                  borderRadius: 99,
-                  background: skin.rainbow ? RAINBOW_RING : skin.color,
-                  transition: "width 120ms linear",
-                }}
-              />
-            </Box>
-            <Typography
-              sx={{ fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: { xs: 20, sm: 24 }, mt: 0.5, fontVariantNumeric: "tabular-nums" }}>
-              {fmtNum(hud.score)}
-            </Typography>
-          </Box>
-
-          {/* timer */}
-          <Box
-            sx={{
-              position: "absolute",
-              top: { xs: 8, sm: 14 },
-              left: "50%",
-              transform: "translateX(-50%)",
-              pointerEvents: "none",
-            }}>
-            <Box
-              sx={{
-                ...glass,
-                borderRadius: 99,
-                px: 2.25,
-                py: 0.5,
-                fontFamily: DISPLAY_FONT,
-                fontWeight: 700,
-                fontSize: { xs: 24, sm: 30 },
-                fontVariantNumeric: "tabular-nums",
-                color: MODES[gameMode].duration && hud.timeLeft <= 10 ? "#dc2626" : "#0f172a",
-                animation: MODES[gameMode].duration && hud.timeLeft <= 10 && hud.phase === "playing" ? `${pulse} 1s ease-in-out infinite` : undefined,
-              }}>
-              {MODES[gameMode].duration ? fmtTime(hud.phase === "countdown" ? MODES[gameMode].duration : hud.timeLeft) : `${Math.floor(hud.pct * 100)}%`}
-            </Box>
-          </Box>
-
-          {/* leaderboard / progress */}
-          <Box
-            sx={{
-              position: "absolute",
-              top: { xs: 8, sm: 14 },
-              right: { xs: 8, sm: 14 },
-              ...glass,
-              borderRadius: 4,
-              px: 1.5,
-              py: 1,
-              width: { xs: 140, sm: 200 },
-              pointerEvents: "none",
-            }}>
-            {gameMode === "classic" ? (
-              <Leaderboard rows={hud.rows} />
-            ) : (
-              <>
-                <Typography sx={{ fontFamily: DISPLAY_FONT, fontWeight: 600, fontSize: 13, color: "#475569" }}>City eaten</Typography>
-                <Typography sx={{ fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 22, lineHeight: 1.2 }}>
-                  {Math.floor(hud.pct * 100)}%
-                </Typography>
-                <Box sx={{ mt: 0.5, height: 8, borderRadius: 99, bgcolor: "rgba(15,23,42,0.1)", overflow: "hidden" }}>
-                  <Box sx={{ height: "100%", width: `${hud.pct * 100}%`, bgcolor: "#22c55e", borderRadius: 99 }} />
-                </Box>
-                {gameMode === "solo" && (
-                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.75, fontSize: 14 }}>
-                    {SOLO_STARS.map((t) => (
-                      <FontAwesomeIcon key={t} icon={faStar} style={{ color: hud.pct >= t ? "#f59e0b" : "#cbd5e1" }} />
-                    ))}
-                  </Box>
-                )}
-              </>
-            )}
-          </Box>
+          <HudView store={hudStore.current} skin={skin} gameMode={gameMode} showHint={showHint} isTouch={isTouch} goFlash={goFlash} />
 
           {/* buttons */}
           <Box sx={{ position: "absolute", bottom: { xs: 12, sm: 18 }, right: { xs: 12, sm: 18 }, display: "flex", gap: 1 }}>
             <RoundButton label={settings.muted ? "Unmute" : "Mute"} icon={settings.muted ? faVolumeXmark : faVolumeHigh} onClick={toggleMute} />
             <RoundButton label="Pause" icon={faPause} onClick={() => setPaused(true)} />
           </Box>
+
+          {/* gobble feed */}
+          <Box
+            sx={{
+              position: "absolute",
+              top: { xs: 104, sm: 136 },
+              left: { xs: 8, sm: 14 },
+              display: "flex",
+              flexDirection: "column",
+              gap: 0.5,
+              pointerEvents: "none",
+              maxWidth: { xs: 190, sm: 260 },
+            }}>
+            {feed.map((f) => (
+              <Box
+                key={f.id}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.6,
+                  px: 1.1,
+                  py: 0.4,
+                  borderRadius: 99,
+                  bgcolor: "rgba(15,23,42,0.72)",
+                  color: "#fff",
+                  fontFamily: DISPLAY_FONT,
+                  fontWeight: 600,
+                  fontSize: { xs: 12, sm: 13.5 },
+                  whiteSpace: "nowrap",
+                  animation: `${feedIn} 4.5s ease-out forwards`,
+                }}>
+                <ColorDot row={f.eater} size={10} />
+                <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {f.eater.isPlayer ? "You" : f.eater.name}
+                </Box>
+                <Box component="span" sx={{ opacity: 0.75 }}>
+                  gobbled
+                </Box>
+                <ColorDot row={f.victim} size={10} />
+                <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {f.victim.isPlayer ? "you" : f.victim.name}
+                </Box>
+              </Box>
+            ))}
+          </Box>
+
+          {/* unlock card */}
+          {unlock && (
+            <Box
+              key={unlock.id}
+              sx={{
+                position: "absolute",
+                bottom: { xs: 84, sm: 34 },
+                left: "50%",
+                transform: "translateX(-50%)",
+                pointerEvents: "none",
+              }}>
+              <Box
+                sx={{
+                  ...glass,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1.5,
+                  pl: 1.25,
+                  pr: 2.5,
+                  py: 1,
+                  borderRadius: 99,
+                  border: "3px solid #a3e635",
+                  animation: `${unlockIn} 2.8s ease-out forwards`,
+                  whiteSpace: "nowrap",
+                }}>
+                <Box
+                  sx={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: "50%",
+                    display: "grid",
+                    placeItems: "center",
+                    fontSize: 28,
+                    bgcolor: "#ecfccb",
+                  }}>
+                  {unlock.emoji}
+                </Box>
+                <Box sx={{ textAlign: "left" }}>
+                  <Typography sx={{ fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 12, color: "#65a30d", letterSpacing: "0.08em" }}>
+                    NEW FOOD UNLOCKED
+                  </Typography>
+                  <Typography sx={{ fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: { xs: 17, sm: 20 }, lineHeight: 1.1 }}>
+                    Now you can eat {unlock.label}!{unlock.more > 0 ? ` +${unlock.more} more` : ""}
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+          )}
 
           {/* toasts */}
           <Box
@@ -845,66 +905,6 @@ export default function HoleDrop() {
               </Box>
             ))}
           </Box>
-
-          {/* countdown */}
-          {(hud.phase === "countdown" || goFlash) && (
-            <Box
-              key={goFlash ? "go" : Math.ceil(hud.countdown)}
-              sx={{
-                position: "absolute",
-                inset: 0,
-                display: "grid",
-                placeItems: "center",
-                pointerEvents: "none",
-              }}>
-              <Box
-                sx={{
-                  fontFamily: DISPLAY_FONT,
-                  fontWeight: 700,
-                  fontSize: { xs: 110, sm: 150 },
-                  textShadow: "0 6px 0 rgba(15,23,42,0.5)",
-                  color: goFlash ? "#a3e635" : "#fff",
-                  animation: `${pop} ${goFlash ? 0.9 : 1}s ease-out forwards`,
-                }}>
-                {goFlash ? "GO!" : Math.max(1, Math.ceil(hud.countdown))}
-              </Box>
-            </Box>
-          )}
-
-          {/* respawn */}
-          {!hud.alive && hud.phase === "playing" && (
-            <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", pointerEvents: "none" }}>
-              <Box sx={{ ...glass, borderRadius: 4, px: 3, py: 2, textAlign: "center" }}>
-                <Typography sx={{ fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 24 }}>Oh no! 😵</Typography>
-                <Typography sx={{ fontFamily: DISPLAY_FONT, fontSize: 18, color: "#475569" }}>
-                  Back in {Math.max(1, Math.ceil(hud.respawnIn))}…
-                </Typography>
-              </Box>
-            </Box>
-          )}
-
-          {/* first-time hint */}
-          {showHint && hud.phase !== "countdown" && (
-            <Box
-              sx={{
-                position: "absolute",
-                bottom: { xs: 80, sm: 30 },
-                left: "50%",
-                transform: "translateX(-50%)",
-                ...glass,
-                borderRadius: 99,
-                px: 2.5,
-                py: 1,
-                fontFamily: DISPLAY_FONT,
-                fontWeight: 600,
-                fontSize: { xs: 15, sm: 17 },
-                whiteSpace: "nowrap",
-                pointerEvents: "none",
-                animation: `${bob} 1.6s ease-in-out infinite`,
-              }}>
-              {isTouch ? "👆 Drag anywhere to move" : "🖱️ Point where you want to go (or use arrow keys)"}
-            </Box>
-          )}
 
           {paused && (
             <Overlay>
@@ -1089,6 +1089,307 @@ export default function HoleDrop() {
   );
 }
 
+function Podium({ rows }: { rows: Row[] }) {
+  const order = [1, 0, 2].filter((i) => rows[i]);
+  const heights = [96, 68, 48];
+  const medals = ["🥇", "🥈", "🥉"];
+  return (
+    <Box sx={{ width: "100%", mt: 2 }}>
+      <Box sx={{ display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 1 }}>
+        {order.map((i) => {
+          const r = rows[i];
+          return (
+            <Box key={r.id} sx={{ flex: 1, maxWidth: 120, display: "flex", flexDirection: "column", alignItems: "center", minWidth: 0 }}>
+              <HoleIcon skin={{ id: String(r.id), name: r.name, color: r.color, rainbow: r.rainbow }} size={i === 0 ? 52 : 42} />
+              <Typography
+                sx={{
+                  fontFamily: DISPLAY_FONT,
+                  fontWeight: 700,
+                  fontSize: i === 0 ? 16 : 14,
+                  mt: 0.5,
+                  maxWidth: "100%",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  color: r.isPlayer ? "#7c3aed" : "#0f172a",
+                }}>
+                {r.isPlayer ? `${r.name} (you)` : r.name}
+              </Typography>
+              <Typography sx={{ fontFamily: DISPLAY_FONT, fontSize: 13, color: "#64748b", fontVariantNumeric: "tabular-nums" }}>
+                {fmtNum(r.score)}
+              </Typography>
+              <Box
+                sx={{
+                  mt: 0.5,
+                  width: "100%",
+                  height: heights[i],
+                  borderRadius: "12px 12px 4px 4px",
+                  display: "grid",
+                  placeItems: "start center",
+                  pt: 0.75,
+                  fontSize: 26,
+                  background: r.isPlayer
+                    ? "linear-gradient(180deg, #c4b5fd, #8b5cf6)"
+                    : ["linear-gradient(180deg, #fde68a, #f59e0b)", "linear-gradient(180deg, #e2e8f0, #94a3b8)", "linear-gradient(180deg, #fed7aa, #ea580c)"][i],
+                  boxShadow: "inset 0 -4px 0 rgba(0,0,0,0.12)",
+                }}>
+                {medals[i]}
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
+      <Box sx={{ mt: 1.25, textAlign: "left" }}>
+        {rows.slice(3).map((r, k) => (
+          <Box
+            key={r.id}
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              py: 0.4,
+              px: 1.25,
+              borderRadius: 2,
+              bgcolor: r.isPlayer ? "rgba(124,58,237,0.12)" : "transparent",
+              fontFamily: DISPLAY_FONT,
+              fontWeight: r.isPlayer ? 700 : 500,
+              fontSize: 15,
+            }}>
+            <Box sx={{ width: 22, textAlign: "center", color: "#64748b" }}>{k + 4}</Box>
+            <ColorDot row={r} size={12} />
+            <Box sx={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</Box>
+            <Box sx={{ fontVariantNumeric: "tabular-nums" }}>{fmtNum(r.score)}</Box>
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+// ─── HUD (re-renders on its own so the canvas page never does) ────────────────
+
+function createHudStore() {
+  let value = EMPTY_HUD;
+  const subs = new Set<() => void>();
+  return {
+    get: () => value,
+    set(next: Hud) {
+      if (sameHud(value, next)) return;
+      value = next;
+      subs.forEach((f) => f());
+    },
+    subscribe(f: () => void) {
+      subs.add(f);
+      return () => {
+        subs.delete(f);
+      };
+    },
+  };
+}
+type HudStore = ReturnType<typeof createHudStore>;
+
+/** Only compare what the HUD actually shows, rounded the way it is displayed. */
+function sameHud(a: Hud, b: Hud) {
+  if (
+    a.score !== b.score ||
+    a.level !== b.level ||
+    Math.round(a.progress * 100) !== Math.round(b.progress * 100) ||
+    Math.ceil(a.timeLeft) !== Math.ceil(b.timeLeft) ||
+    a.rank !== b.rank ||
+    Math.floor(a.pct * 100) !== Math.floor(b.pct * 100) ||
+    a.alive !== b.alive ||
+    Math.ceil(a.respawnIn) !== Math.ceil(b.respawnIn) ||
+    Math.ceil(a.countdown) !== Math.ceil(b.countdown) ||
+    a.phase !== b.phase ||
+    a.rows.length !== b.rows.length
+  )
+    return false;
+  for (let i = 0; i < a.rows.length; i++) {
+    if (a.rows[i].id !== b.rows[i].id || a.rows[i].score !== b.rows[i].score) return false;
+  }
+  return true;
+}
+
+function HudView({
+  store,
+  skin,
+  gameMode,
+  showHint,
+  isTouch,
+  goFlash,
+}: {
+  store: HudStore;
+  skin: Skin;
+  gameMode: ModeId;
+  showHint: boolean;
+  isTouch: boolean;
+  goFlash: boolean;
+}) {
+  const hud = useSyncExternalStore(store.subscribe, store.get, store.get);
+  return (
+    <>
+      <Box
+        sx={{
+          position: "absolute",
+          top: { xs: 8, sm: 14 },
+          left: { xs: 8, sm: 14 },
+          ...glass,
+          borderRadius: 4,
+          px: 1.5,
+          py: 1,
+          minWidth: { xs: 130, sm: 170 },
+          pointerEvents: "none",
+        }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <HoleIcon skin={skin} size={26} />
+          <Typography sx={{ fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: { xs: 15, sm: 17 }, lineHeight: 1.1 }}>
+            Size {hud.level}
+          </Typography>
+        </Box>
+        <Box sx={{ mt: 0.75, height: 8, borderRadius: 99, bgcolor: "rgba(15,23,42,0.1)", overflow: "hidden" }}>
+          <Box
+            sx={{
+              height: "100%",
+              width: `${Math.round(hud.progress * 100)}%`,
+              borderRadius: 99,
+              background: skin.rainbow ? RAINBOW_RING : skin.color,
+              transition: "width 120ms linear",
+            }}
+          />
+        </Box>
+        <Typography
+          sx={{ fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: { xs: 20, sm: 24 }, mt: 0.5, fontVariantNumeric: "tabular-nums" }}>
+          {fmtNum(hud.score)}
+        </Typography>
+      </Box>
+
+      {/* timer */}
+      <Box
+        sx={{
+          position: "absolute",
+          top: { xs: 8, sm: 14 },
+          left: "50%",
+          transform: "translateX(-50%)",
+          pointerEvents: "none",
+        }}>
+        <Box
+          sx={{
+            ...glass,
+            borderRadius: 99,
+            px: 2.25,
+            py: 0.5,
+            fontFamily: DISPLAY_FONT,
+            fontWeight: 700,
+            fontSize: { xs: 24, sm: 30 },
+            fontVariantNumeric: "tabular-nums",
+            color: MODES[gameMode].duration && hud.timeLeft <= 10 ? "#dc2626" : "#0f172a",
+            animation: MODES[gameMode].duration && hud.timeLeft <= 10 && hud.phase === "playing" ? `${pulse} 1s ease-in-out infinite` : undefined,
+          }}>
+          {MODES[gameMode].duration ? fmtTime(hud.phase === "countdown" ? MODES[gameMode].duration : hud.timeLeft) : `${Math.floor(hud.pct * 100)}%`}
+        </Box>
+      </Box>
+
+      {/* leaderboard / progress */}
+      <Box
+        sx={{
+          position: "absolute",
+          top: { xs: 8, sm: 14 },
+          right: { xs: 8, sm: 14 },
+          ...glass,
+          borderRadius: 4,
+          px: 1.5,
+          py: 1,
+          width: { xs: 140, sm: 200 },
+          pointerEvents: "none",
+        }}>
+        {gameMode === "classic" ? (
+          <Leaderboard rows={hud.rows} />
+        ) : (
+          <>
+            <Typography sx={{ fontFamily: DISPLAY_FONT, fontWeight: 600, fontSize: 13, color: "#475569" }}>City eaten</Typography>
+            <Typography sx={{ fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 22, lineHeight: 1.2 }}>
+              {Math.floor(hud.pct * 100)}%
+            </Typography>
+            <Box sx={{ mt: 0.5, height: 8, borderRadius: 99, bgcolor: "rgba(15,23,42,0.1)", overflow: "hidden" }}>
+              <Box sx={{ height: "100%", width: `${hud.pct * 100}%`, bgcolor: "#22c55e", borderRadius: 99 }} />
+            </Box>
+            {gameMode === "solo" && (
+              <Box sx={{ display: "flex", gap: 0.5, mt: 0.75, fontSize: 14 }}>
+                {SOLO_STARS.map((t) => (
+                  <FontAwesomeIcon key={t} icon={faStar} style={{ color: hud.pct >= t ? "#f59e0b" : "#cbd5e1" }} />
+                ))}
+              </Box>
+            )}
+          </>
+        )}
+      </Box>
+
+      {/* countdown */}
+      {(hud.phase === "countdown" || goFlash) && (
+        <Box
+          key={goFlash ? "go" : Math.ceil(hud.countdown)}
+          sx={{
+            position: "absolute",
+            inset: 0,
+            display: "grid",
+            placeItems: "center",
+            pointerEvents: "none",
+          }}>
+          <Box
+            sx={{
+              fontFamily: DISPLAY_FONT,
+              fontWeight: 700,
+              fontSize: { xs: 110, sm: 150 },
+              textShadow: "0 6px 0 rgba(15,23,42,0.5)",
+              WebkitTextStroke: "3px rgba(15,23,42,0.55)",
+              paintOrder: "stroke fill",
+              color: goFlash ? "#a3e635" : "#fff",
+              animation: `${pop} ${goFlash ? 0.9 : 1}s ease-out forwards`,
+            }}>
+            {goFlash ? "GO!" : Math.max(1, Math.ceil(hud.countdown))}
+          </Box>
+        </Box>
+      )}
+
+      {/* respawn */}
+      {!hud.alive && hud.phase === "playing" && (
+        <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", pointerEvents: "none" }}>
+          <Box sx={{ ...glass, borderRadius: 4, px: 3, py: 2, textAlign: "center" }}>
+            <Typography sx={{ fontFamily: DISPLAY_FONT, fontWeight: 700, fontSize: 24 }}>Oh no! 😵</Typography>
+            <Typography sx={{ fontFamily: DISPLAY_FONT, fontSize: 18, color: "#475569" }}>
+              Back in {Math.max(1, Math.ceil(hud.respawnIn))}…
+            </Typography>
+          </Box>
+        </Box>
+      )}
+
+      {/* first-time hint */}
+      {showHint && hud.phase !== "countdown" && (
+        <Box
+          sx={{
+            position: "absolute",
+            bottom: { xs: 80, sm: 30 },
+            left: "50%",
+            transform: "translateX(-50%)",
+            ...glass,
+            borderRadius: 99,
+            px: 2.5,
+            py: 1,
+            fontFamily: DISPLAY_FONT,
+            fontWeight: 600,
+            fontSize: { xs: 15, sm: 17 },
+            whiteSpace: "nowrap",
+            pointerEvents: "none",
+            animation: `${bob} 1.6s ease-in-out infinite`,
+          }}>
+          {isTouch ? "👆 Drag anywhere to move" : "🖱️ Point where you want to go (or use arrow keys)"}
+        </Box>
+      )}
+
+    </>
+  );
+}
+
 // ─── Layout helpers ───────────────────────────────────────────────────────────
 
 function Overlay({ children, dim = 0.35 }: { children: React.ReactNode; dim?: number }) {
@@ -1246,31 +1547,7 @@ function ResultsBody({ result }: { result: Result }) {
         {result.newBest ? " · New best! 🎉" : ` · Best ${fmtNum(result.best)}`}
       </Typography>
 
-      {result.mode === "classic" && (
-        <Box sx={{ width: "100%", mt: 2, textAlign: "left" }}>
-          {result.rows.map((r, i) => (
-            <Box
-              key={r.id}
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
-                py: 0.6,
-                px: 1.25,
-                borderRadius: 2,
-                bgcolor: r.isPlayer ? "rgba(124,58,237,0.12)" : i % 2 ? "transparent" : "#f8fafc",
-                fontFamily: DISPLAY_FONT,
-                fontWeight: r.isPlayer ? 700 : 500,
-                fontSize: 16,
-              }}>
-              <Box sx={{ width: 26, textAlign: "center" }}>{["🥇", "🥈", "🥉"][i] ?? i + 1}</Box>
-              <ColorDot row={r} size={14} />
-              <Box sx={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</Box>
-              <Box sx={{ fontVariantNumeric: "tabular-nums" }}>{fmtNum(r.score)}</Box>
-            </Box>
-          ))}
-        </Box>
-      )}
+      {result.mode === "classic" && <Podium rows={result.rows} />}
     </>
   );
 }

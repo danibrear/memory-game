@@ -10,6 +10,27 @@ one family of casual mobile games (chunky 3D buttons, glossy tiles, confetti).
 - `app/game-kit.css` — all styles (imported once in `root.tsx`).
   `dg-*` = shared kit, `cg-*` = Color, `mg-*` = Match, `mm-*` = Memory.
 
+## Motion building blocks (added 2026-11-14)
+All in `GameKit.tsx`; CSS in the `dg-*` part of `game-kit.css`.
+- `StatPill` pops its value whenever the text changes. Pass `bump={false}` if
+  the content animates itself (Bubble Pop's score does).
+- `<Bump>` wraps any other number that should pop on change (Match 2-player
+  scores, Ball Sort moves). `useBump(value)` is the hook underneath.
+- `<CountUp value={n} />` counts up from 0. Use it for numbers on win screens.
+  It has no children, so it never triggers a `StatPill` bump while counting.
+- `useDealIn(ref, dealKey, { cols })` deals a board in. Bump `dealKey` (a
+  counter in state) when a fresh board starts. Pass `cols` for a diagonal wave,
+  or `selector` when the items aren't direct children (Ball Sort tubes).
+- `WinScreen` children rise in one after another (nth-child delays, 70ms
+  apart). The icon, stars and banners keep their own entrances.
+- `dgWave` keyframes + an `is-winning` class on the board give the victory
+  wave; each item sets its delay with a `--wave` custom property.
+- `prefersReducedMotion()` guards everything done in script.
+
+Rule of thumb: entrances and one-off moves that share an element with CSS
+animations (shake, match pop) use the Web Animations API (`el.animate`), so
+removing a class later can't replay them. State-driven loops stay in CSS.
+
 ## How theming works
 `GameShell` reads the game's colors from `gameCatalog.ts` and sets
 `--g-from` / `--g-to` on the wrapper; every button, chip and highlight uses

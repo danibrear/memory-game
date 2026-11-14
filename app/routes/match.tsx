@@ -36,7 +36,9 @@ import shuffle from "lodash/shuffle";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   Banner,
+  Bump,
   ChoiceGroup,
+  CountUp,
   GameShell,
   getGame,
   KitButton,
@@ -45,6 +47,7 @@ import {
   StatPill,
   Stars,
   Stepper,
+  useDealIn,
   WinScreen,
   type BannerTone,
 } from "~/components/game/GameKit";
@@ -97,6 +100,10 @@ const EMPTY_CELL_VALUE = -1;
 const MIN_SIZE = 2;
 const MAX_SIZE = 7;
 
+/** Pause between the last match and the win screen; the victory wave fills it. */
+const WIN_DELAY_MS = 900;
+const WAVE_SPREAD_MS = 380;
+
 type Phase = "START" | "ACTIVE" | "FINISHED";
 type PlayerId = 1 | 2;
 /** 0 = matched before player tracking existed (older saves) */
@@ -135,6 +142,13 @@ export default function Match() {
   const [shaking, setShaking] = useState<number[]>([]);
   const [flash, setFlash] = useState<{ id: number; text: string; tone: BannerTone } | null>(null);
   const [loaded, setLoaded] = useState(false);
+  /** Bumped for every fresh board so the cards deal in. */
+  const [dealId, setDealId] = useState(0);
+  /** True between the last match and the win screen: the cards do a wave. */
+  const [winning, setWinning] = useState(false);
+
+  const boardRef = useRef<HTMLDivElement>(null);
+  useDealIn(boardRef, dealId, { cols: size });
 
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const later = (fn: () => void, ms: number) => {
@@ -208,6 +222,8 @@ export default function Match() {
     setTries(0);
     setShaking([]);
     setFlash(null);
+    setWinning(false);
+    setDealId((d) => d + 1);
     setPhase("ACTIVE");
   };
 
@@ -231,7 +247,8 @@ export default function Match() {
         setSelected([]);
         const done = matchedPairs + 1 >= totalPairs;
         if (done) {
-          later(() => setPhase("FINISHED"), 900);
+          setWinning(true);
+          later(() => setPhase("FINISHED"), WIN_DELAY_MS);
         } else {
           showFlash(players === 2 ? "Match! Go again!" : "Match!", "good");
         }
@@ -310,7 +327,9 @@ export default function Match() {
                     <FontAwesomeIcon icon={!tie && winner === p ? faCrown : PLAYER_ICONS[p]} />
                   </span>
                   <span className="mg-player-name">Player {p}</span>
-                  <span className="mg-player-score">{scores[p]}</span>
+                  <span className="mg-player-score">
+                    <CountUp value={scores[p]} />
+                  </span>
                 </div>
               ))}
             </div>
@@ -323,7 +342,10 @@ export default function Match() {
             subtitle={
               <>
                 Found all <strong>{totalPairs}</strong> pairs in{" "}
-                <strong>{tries}</strong> tries.
+                <strong>
+                  <CountUp value={tries} />
+                </strong>{" "}
+                tries.
               </>
             }>
             <Stars count={soloStars(totalPairs, tries)} />
@@ -337,6 +359,7 @@ export default function Match() {
   // ── Playing ──
   const iconSize = `calc(min(92vw, 58vh, 600px) / ${size} * 0.42)`;
   const gap = size <= 4 ? 10 : size <= 5 ? 8 : 6;
+  const waveStep = Math.min(60, WAVE_SPREAD_MS / Math.max(1, 2 * (size - 1)));
 
   return (
     <GameShell game={game}>
@@ -352,12 +375,14 @@ export default function Match() {
               </span>
               <span>
                 <div className="mg-player-name">Player {p}</div>
-                <div className="mg-player-score">{scores[p]}</div>
+                <div className="mg-player-score">
+                  <Bump>{scores[p]}</Bump>
+                </div>
               </span>
             </div>
           ))}
           <div className="mg-mid" style={{ gridColumn: 2, gridRow: 1 }}>
-            {totalPairs - matchedPairs}
+            <Bump>{totalPairs - matchedPairs}</Bump>
             <small>left</small>
           </div>
         </div>
@@ -388,7 +413,8 @@ export default function Match() {
 
       <div className="dg-tray">
         <div
-          className="mg-board"
+          ref={boardRef}
+          className={winning ? "mg-board is-winning" : "mg-board"}
           style={
             {
               gridTemplateColumns: `repeat(${size}, 1fr)`,
@@ -400,6 +426,10 @@ export default function Match() {
             if (value === EMPTY_CELL_VALUE) {
               return <div key={index} className="mg-card mg-card--empty" aria-hidden />;
             }
+            // Victory wave runs corner to corner
+            const waveMs = Math.round(
+              (Math.floor(index / size) + (index % size)) * waveStep,
+            );
             const card = CARDS[(value - 1) % CARDS.length];
             const owner = matchedBy[index];
             const isMatched = owner !== undefined;
@@ -424,6 +454,7 @@ export default function Match() {
                 style={
                   {
                     "--card-c": card.color,
+                    "--wave": `${waveMs}ms`,
                     ...(ownerColor ? { "--owner": ownerColor } : {}),
                   } as CSSProperties
                 }>

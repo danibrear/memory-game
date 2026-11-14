@@ -12,6 +12,7 @@ import {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Box, Container, Typography } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bump, CountUp, useDealIn } from "~/components/game/GameKit";
 import { clearStoredData, getStoredData, setStoredData } from "~/storage";
 import { useRemoteConfig } from "~/utils/useRemoteConfig";
 import ballsortStyles from "~/styles/ballsort.css?url";
@@ -433,6 +434,8 @@ function GameScreen({
   const animating = flyingBalls.length > 0;
   const tubeRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const gridRef = useRef<HTMLDivElement>(null);
+  // This screen remounts for every new puzzle, so the tubes deal in each time.
+  useDealIn(gridRef, 0, { selector: ".ballsort-tube", step: 55 });
 
   const FLY_MS = 420;
   const FLY_STAGGER_MS = 45;
@@ -628,12 +631,16 @@ function GameScreen({
         <div className="ballsort-hud">
           <span className="ballsort-pill">
             <span className="ballsort-pill-label">Moves</span>
-            <span className="ballsort-pill-value">{moveCount}</span>
+            <span className="ballsort-pill-value">
+              <Bump>{moveCount}</Bump>
+            </span>
           </span>
           <span className="ballsort-pill">
             <span className="ballsort-pill-label">Sorted</span>
             <span className="ballsort-pill-value">
-              {completedCount}/{numColors}
+              <Bump>
+                {completedCount}/{numColors}
+              </Bump>
             </span>
           </span>
           <span className="ballsort-pill">
@@ -802,7 +809,7 @@ function WinScreen({
           variant="h5"
           className="ballsort-title"
           sx={{ opacity: 0.9, mb: 0.5 }}>
-          {moveCount} moves
+          <CountUp value={moveCount} /> moves
         </Typography>
         {optimalMoves != null && !isPerfect && (
           <Typography variant="body2" sx={{ opacity: 0.65 }}>

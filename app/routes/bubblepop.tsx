@@ -45,6 +45,7 @@ import {
 import {
   Banner,
   ChoiceGroup,
+  CountUp,
   GameShell,
   getGame,
   KitButton,
@@ -557,7 +558,11 @@ export default function BubblePop() {
           title={title}
           subtitle={
             <>
-              You popped <strong>{popped}</strong> bubble{popped !== 1 ? "s" : ""}!
+              You popped{" "}
+              <strong>
+                <CountUp value={popped} />
+              </strong>{" "}
+              bubble{popped !== 1 ? "s" : ""}!
             </>
           }>
           <Stars count={stars} />
@@ -568,10 +573,10 @@ export default function BubblePop() {
           )}
           <div className="dg-row">
             <StatPill icon={faStar} color="#f59e0b" label="Score">
-              {score} pts
+              <CountUp value={score} /> pts
             </StatPill>
             <StatPill icon={faFire} color="#f97316" label="Best combo">
-              ×{bestCombo} combo
+              ×<CountUp value={bestCombo} /> combo
             </StatPill>
             {!newBest && best > 0 && (
               <StatPill icon={faCrown} color="#f59e0b" label="Best score">
@@ -599,7 +604,7 @@ export default function BubblePop() {
   return (
     <GameShell game={game}>
       <div className="dg-hud" style={{ maxWidth: 900 }}>
-        <StatPill icon={faStar} color="#f59e0b" label="Score">
+        <StatPill icon={faStar} color="#f59e0b" label="Score" bump={false}>
           <span key={score} className="bp-score">
             {score}
           </span>

@@ -39,7 +39,8 @@ export function levelInfo(mass: number): LevelInfo {
   const lo = LEVEL_MASS[i];
   const hi = LEVEL_MASS[i + 1];
   const p = Math.min(1, Math.max(0, (mass - lo) / (hi - lo)));
-  return { level: i + 1, progress: p, radius: rAt(i) + (rAt(i + 1) - rAt(i)) * p };
+  // Mostly discrete, like hole.io: a little creep inside a level, then a big jump on level-up.
+  return { level: i + 1, progress: p, radius: rAt(i) + (rAt(i + 1) - rAt(i)) * p * 0.22 };
 }
 
 /** An object fits in a hole when its fit radius * FIT_MARGIN <= hole radius. */
@@ -223,5 +224,24 @@ export const MODES: Record<ModeId, ModeDef> = {
   },
 };
 
+/** Friendly names for the "Now you can eat…" announcement, biggest first. */
+export const UNLOCK_LABELS: Partial<Record<Kind, { emoji: string; label: string }>> = {
+  skyscraper: { emoji: "🌆", label: "Skyscrapers" },
+  tower: { emoji: "🏙️", label: "Towers" },
+  office: { emoji: "🏢", label: "Office buildings" },
+  shop: { emoji: "🏪", label: "Shops" },
+  house: { emoji: "🏠", label: "Houses" },
+  fountain: { emoji: "⛲", label: "Fountains" },
+  bus: { emoji: "🚌", label: "Buses" },
+  bigtree: { emoji: "🌳", label: "Big trees" },
+  van: { emoji: "🚐", label: "Vans" },
+  car: { emoji: "🚗", label: "Cars" },
+  cart: { emoji: "🌭", label: "Food carts" },
+  pine: { emoji: "🌲", label: "Pine trees" },
+  tree: { emoji: "🌳", label: "Trees" },
+  umbrella: { emoji: "⛱️", label: "Umbrellas" },
+  bench: { emoji: "🪑", label: "Benches" },
+};
+
 /** Solo stars: fraction of the city eaten. */
-export const SOLO_STARS = [0.25, 0.5, 0.8];
+export const SOLO_STARS = [0.2, 0.4, 0.65];

@@ -332,6 +332,17 @@
 .dg-pill--dim {
   opacity: 0.55;
 }
+/* A value that pops when it changes (see useBump / <Bump> in GameKit.tsx) */
+.dg-bump {
+  display: inline-block;
+  transform-origin: 50% 60%;
+}
+.dg-bump.is-bump {
+  animation: dgBump 0.34s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.dg-count {
+  font-variant-numeric: tabular-nums;
+}
 
 .dg-banner {
   --banner-from: var(--g-from);
@@ -392,7 +403,38 @@
   align-items: center;
   gap: 16px;
   text-align: center;
-  animation: dgRise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* Each piece rises in turn. The icon, stars and banners keep their own entrances. */
+.dg-win > :not(.dg-confetti):not(.dg-win-icon):not(.dg-stars):not(.dg-banner) {
+  animation: dgRise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--dg-i, 0) * 70ms);
+}
+.dg-win > :nth-child(3) {
+  --dg-i: 1;
+}
+.dg-win > :nth-child(4) {
+  --dg-i: 2;
+}
+.dg-win > :nth-child(5) {
+  --dg-i: 3;
+}
+.dg-win > :nth-child(6) {
+  --dg-i: 4;
+}
+.dg-win > :nth-child(7) {
+  --dg-i: 5;
+}
+.dg-win > :nth-child(8) {
+  --dg-i: 6;
+}
+.dg-win > :nth-child(n + 9) {
+  --dg-i: 7;
+}
+.dg-win > .dg-stars {
+  animation: dgFade 0.25s ease both;
+}
+.dg-win > .dg-banner {
+  animation-delay: 0.5s;
 }
 .dg-win-icon {
   font-size: 4.6rem;
@@ -508,6 +550,38 @@
     transform: translateY(0);
   }
 }
+@keyframes dgFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes dgBump {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.3);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+/* A little hop, used for the victory wave across a finished board */
+@keyframes dgWave {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    transform: translateY(-18%) scale(1.08);
+  }
+  70% {
+    transform: translateY(0) scale(0.96);
+  }
+}
 @keyframes dgPopIn {
   0% {
     opacity: 0;
@@ -578,6 +652,9 @@
   }
   .dg-confetti {
     display: none;
+  }
+  .dg-bump.is-bump {
+    animation: none;
   }
 }
 
@@ -914,6 +991,10 @@
 .mg-card.is-shake {
   animation: dgShake 0.45s ease;
 }
+/* Last pair found: every card hops in a wave before the win screen */
+.mg-board.is-winning .mg-card:not(.mg-card--empty) {
+  animation: dgWave 0.5s ease-in-out var(--wave, 0ms) both;
+}
 .mg-owner {
   position: absolute;
   top: 8%;
@@ -1099,6 +1180,10 @@
 }
 .mm-tile.is-good {
   animation: mgMatch 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+/* Last tile found: the found tiles hop in a wave before the win screen */
+.mm-grid.is-winning .mm-tile.is-good {
+  animation: dgWave 0.45s ease-in-out var(--wave, 0ms) both;
 }
 .mm-countdown {
   position: absolute;

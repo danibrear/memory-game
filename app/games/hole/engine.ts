@@ -10,6 +10,7 @@ import {
   ROAD,
   TILT,
   levelInfo,
+  type Kind,
   type ModeId,
 } from "./config";
 import { generateCity, ringPerimeter, ringPos, rng, spawnWalker, type Obj, type World } from "./world";
@@ -24,8 +25,13 @@ export interface Hole {
   y: number;
   vx: number;
   vy: number;
-  /** Displayed radius (eases toward target). */
+  /** Displayed radius (springs toward the size for its mass). */
   r: number;
+  rv: number;
+  /** 0..1 flash on the rim each time something drops in. */
+  pulse: number;
+  /** Object kinds this hole has grown big enough to eat (player announcements). */
+  unlocked: Set<Kind>;
   mass: number;
   score: number;
   level: number;
@@ -48,6 +54,7 @@ export type GameEvent =
   | { type: "eat"; holeId: number; value: number; fit: number; combo: number; x: number; y: number }
   | { type: "fall"; holeId: number; fit: number }
   | { type: "levelup"; holeId: number; level: number }
+  | { type: "unlock"; holeId: number; kinds: Kind[] }
   | { type: "gobble"; eaterId: number; victimId: number }
   | { type: "respawn"; holeId: number }
   | { type: "tick"; secondsLeft: number }
@@ -120,6 +127,8 @@ export interface Game {
   smallTarget: number;
   lastTick: number;
   clearedAt: number | null;
+  /** Smallest fit radius of each kind in this city (for unlock announcements). */
+  kindMinFit: Map<Kind, number>;
 }
 
 export interface Input {
@@ -163,7 +172,13 @@ export function createGame(opts: NewGameOpts): Game {
   }
 
   let totalValue = 0;
-  for (const o of objs) totalValue += o.value;
+  const kindMinFit = new Map<Kind, number>();
+  for (const o of objs) {
+    totalValue += o.value;
+    kindMinFit.set(o.kind, Math.min(kindMinFit.get(o.kind) ?? Infinity, o.fit));
+  }
+  // Whatever the player can already eat at the start isn't news.
+  for (const [k, f] of kindMinFit) if (f * FIT_MARGIN <= player.r) player.unlocked.add(k);
 
   return {
     mode: opts.mode,
@@ -183,7 +198,7 @@ export function createGame(opts: NewGameOpts): Game {
     floaters: [],
     rings: [],
     events: [],
-    cam: { x: player.x, y: player.y, zoom: 1.6, shake: 0 },
+    cam: { x: player.x, y: player.y, zoom: 0.5, shake: 0 },
     hint: null,
     hintT: 0,
     rand,
@@ -191,6 +206,7 @@ export function createGame(opts: NewGameOpts): Game {
     smallTarget: objs.filter(isSmall).length,
     lastTick: -1,
     clearedAt: null,
+    kindMinFit,
   };
 }
 
@@ -206,6 +222,9 @@ function makeHole(id: number, name: string, color: string, rainbow: boolean, isP
     vx: 0,
     vy: 0,
     r: BASE_R,
+    rv: 0,
+    pulse: 0,
+    unlocked: new Set(),
     mass: 0,
     score: 0,
     level: 1,
@@ -376,12 +395,25 @@ function updateHole(g: Game, h: Hole, dt: number, input: Input | null) {
   h.y = Math.max(pad, Math.min(g.world.size - pad, h.y));
 
   const info = levelInfo(h.mass);
-  h.r += (info.radius - h.r) * Math.min(1, dt * 4);
+  // Springy growth with a little overshoot, so a level-up "pops" like hole.io.
+  h.rv += ((info.radius - h.r) * 70 - h.rv * 10) * dt;
+  h.r += h.rv * dt;
+  h.pulse = Math.max(0, h.pulse - dt * 3.5);
   h.progress = info.progress;
   if (info.level > h.level) {
     h.level = info.level;
     g.events.push({ type: "levelup", holeId: h.id, level: h.level });
     g.rings.push({ holeId: h.id, t: 0, color: h.color });
+  }
+  if (h.isPlayer && !g.demo) {
+    const fresh: Kind[] = [];
+    for (const [k, f] of g.kindMinFit) {
+      if (!h.unlocked.has(k) && f * FIT_MARGIN <= info.radius) {
+        h.unlocked.add(k);
+        fresh.push(k);
+      }
+    }
+    if (fresh.length) g.events.push({ type: "unlock", holeId: h.id, kinds: fresh });
   }
 }
 
@@ -409,6 +441,7 @@ function respawn(g: Game, h: Hole) {
   h.invulnT = 3;
   const info = levelInfo(h.mass);
   h.r = info.radius * 0.6;
+  h.rv = 0;
   h.level = info.level;
   g.events.push({ type: "respawn", holeId: h.id });
 }
@@ -522,6 +555,7 @@ function updateObjects(g: Game, dt: number) {
   for (const o of g.objs) {
     if (o.dead || o.falling) continue;
     o.wobble = Math.max(0, o.wobble - dt * 2.5);
+    o.pull = Math.max(0, o.pull - dt * 4);
     const m = o.motion;
     if (m.type === "none") continue;
 
@@ -630,7 +664,16 @@ function eatObjects(g: Game) {
       const d = Math.hypot(dx, dy);
       if (d > h.r + o.fit) continue;
       if (fits(o, h)) {
-        if (d < h.r - o.fit * 0.4) startFall(g, o, h);
+        if (d < h.r - o.fit * 0.4) startFall(g, o, h, d);
+        else if (d < h.r + o.fit * 0.7) {
+          // Hanging over the rim: lean toward the hole before tipping in.
+          const p = Math.min(1, 1 - (d - (h.r - o.fit * 0.4)) / (o.fit * 1.1));
+          if (p > o.pull) {
+            o.pull = p;
+            o.pullX = -dx / (d || 1);
+            o.pullY = -dy / (d || 1);
+          }
+        }
       } else if (d < h.r + o.fit * 0.3) {
         o.wobble = 1;
       }
@@ -638,16 +681,24 @@ function eatObjects(g: Game) {
   }
 }
 
-function startFall(g: Game, o: Obj, h: Hole) {
+function startFall(g: Game, o: Obj, h: Hole, d: number) {
   const fallDepth = o.h + o.fit * 0.6 + 12;
   const T = 0.42 + Math.min(0.75, o.h / 500);
+  // Big things balance on the rim for a beat before they tip in.
+  const overhang = Math.max(0, (d + o.fit - h.r) / o.fit);
+  const teeter = o.fit > 16 ? Math.min(0.32, 0.08 + overhang * 0.3 + o.fit / 900) : 0;
+  const len = d || 1;
   o.falling = {
     holeId: h.id,
     depth: 0,
     vz: 0,
     g: (2 * fallDepth) / (T * T),
-    tilt: (o.x < h.x ? -1 : 1) * (0.25 + g.rand() * 0.25),
+    teeter,
+    teeterMax: teeter,
+    dx: d > 0.5 ? (h.x - o.x) / len : 0,
+    dy: d > 0.5 ? (h.y - o.y) / len : 1,
   };
+  o.pull = 0;
   if (o.fit > 18) {
     for (let i = 0; i < Math.min(14, 4 + o.fit / 6); i++) {
       const a = g.rand() * Math.PI * 2;
@@ -675,6 +726,13 @@ function updateFalling(g: Game, dt: number) {
     const f = o.falling;
     if (!f || o.dead) continue;
     const h = g.holes[f.holeId];
+    if (f.teeter > 0) {
+      f.teeter -= dt;
+      const creep = Math.min(1, dt * 2);
+      o.x += (h.x - o.x) * creep;
+      o.y += (h.y - o.y) * creep;
+      continue;
+    }
     // Slide toward the middle of the hole while dropping.
     const pull = Math.min(1, dt * (4 + 60 / (o.fit + 10)));
     o.x += (h.x - o.x) * pull;
@@ -696,6 +754,7 @@ function updateFalling(g: Game, dt: number) {
 
 function consume(g: Game, o: Obj, h: Hole) {
   h.combo = g.time - h.lastEatT < 0.9 ? h.combo + 1 : 1;
+  h.pulse = Math.min(1, h.pulse + 0.2 + o.fit / 120);
   h.lastEatT = g.time;
   h.mass += o.value;
   h.score += o.value;
@@ -826,11 +885,21 @@ export function setViewSize(w: number, h: number) {
 
 function updateCamera(g: Game, dt: number) {
   const target = g.player;
-  const k = Math.min(1, dt * 6);
+  // Stay locked on the hole so it never slides around the screen (that slide also fed
+  // back into mouse steering and made the speed pump). Only glide for big jumps like respawns.
+  const far = Math.hypot(target.x - g.cam.x, target.y - g.cam.y) > 200;
+  const k = far ? Math.min(1, dt * 5) : 1;
   g.cam.x += (target.x - g.cam.x) * k;
   g.cam.y += (target.y - g.cam.y) * k;
   const z = g.demo ? targetZoom(g, viewDims.w, viewDims.h) * 0.7 : targetZoom(g, viewDims.w, viewDims.h);
-  g.cam.zoom += (z - g.cam.zoom) * Math.min(1, dt * 2.5);
+  if (g.phase === "countdown" && !g.demo) {
+    // Intro: start high over the city and swoop down onto your hole by "GO!".
+    const t = Math.min(1, Math.max(0, 1 - (g.countdown - 0.4) / 2.6));
+    const ease = t * t * (3 - 2 * t);
+    g.cam.zoom = z * (0.32 + 0.68 * ease);
+  } else {
+    g.cam.zoom += (z - g.cam.zoom) * Math.min(1, dt * 2.5);
+  }
   // Don't show much more than a strip of beach past the city edge.
   const size = g.world.size;
   const halfW = viewDims.w / 2 / g.cam.zoom;

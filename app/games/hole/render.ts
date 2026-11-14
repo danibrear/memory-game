@@ -13,6 +13,9 @@ interface View {
   camY: number;
   zoom: number;
   time: number;
+  /** Height scale around zb, used to foreshorten things as they topple. */
+  hs: number;
+  zb: number;
 }
 
 export interface Joystick {
@@ -60,6 +63,7 @@ export function holeColor(h: Hole, time: number) {
 // ─── Projection ───────────────────────────────────────────────────────────────
 
 function pr(v: View, x: number, y: number, z: number): Pt {
+  if (v.hs !== 1) z = v.zb + (z - v.zb) * v.hs;
   const bx = (x - v.camX) * v.zoom + v.cx;
   const by = (y - v.camY) * v.zoom * TILT + v.cy;
   if (z === 0) return [bx, by];
@@ -67,7 +71,7 @@ function pr(v: View, x: number, y: number, z: number): Pt {
   return [bx + (bx - v.cx) * k, by - z * v.zoom * HK + (by - v.cy) * k * 0.35];
 }
 
-function poly(ctx: CanvasRenderingContext2D, pts: Pt[], fill: string) {
+function poly(ctx: CanvasRenderingContext2D, pts: Pt[], fill: string | CanvasGradient) {
   ctx.beginPath();
   ctx.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
@@ -114,6 +118,7 @@ function box(
   z1: number,
   color: string,
   topColor?: string,
+  lit = false,
 ): Faces {
   const bSW = pr(v, x0, y1, z0);
   const bSE = pr(v, x1, y1, z0);
@@ -124,15 +129,23 @@ function box(
   const tNE = pr(v, x1, y0, z1);
   const tNW = pr(v, x0, y0, z1);
   let side: Quad | null = null;
+  // Tall buildings get a soft top-to-bottom light falloff, which reads much more "3D".
+  const faceFill = (top: Pt, bottom: Pt, hi: number, lo: number): string | CanvasGradient => {
+    if (!lit) return shade(color, (hi + lo) / 2);
+    const gr = ctx.createLinearGradient(top[0], top[1], bottom[0], bottom[1]);
+    gr.addColorStop(0, shade(color, hi));
+    gr.addColorStop(1, shade(color, lo));
+    return gr;
+  };
   if (tSE[0] < bSE[0] - 0.4) {
     side = [bSE, bNE, tNE, tSE];
-    poly(ctx, side, shade(color, 0.72));
+    poly(ctx, side, faceFill(tSE, bSE, 0.8, 0.62));
   } else if (tSW[0] > bSW[0] + 0.4) {
     side = [bNW, bSW, tSW, tNW];
-    poly(ctx, side, shade(color, 0.72));
+    poly(ctx, side, faceFill(tSW, bSW, 0.8, 0.62));
   }
   const front: Quad = [bSW, bSE, tSE, tSW];
-  poly(ctx, front, shade(color, 0.88));
+  poly(ctx, front, faceFill(tSW, bSW, lit ? 0.98 : 0.88, lit ? 0.78 : 0.88));
   const top: Quad = [tSW, tSE, tNE, tNW];
   poly(ctx, top, topColor ?? shade(color, 1.08));
   return { front, side, top };
@@ -565,7 +578,7 @@ function drawShop(ctx: CanvasRenderingContext2D, v: View, o: Obj, z: number) {
   const x1 = o.x + o.w / 2;
   const y0 = o.y - o.d / 2;
   const y1 = o.y + o.d / 2;
-  const f = box(ctx, v, x0, y0, x1, y1, z, z + o.h, o.c1);
+  const f = box(ctx, v, x0, y0, x1, y1, z, z + o.h, o.c1, undefined, true);
   // big ground floor windows
   ctx.beginPath();
   subQuad(ctx, f.front, 0.06, 0.4, 0.04, 0.38);
@@ -623,7 +636,7 @@ function drawOffice(ctx: CanvasRenderingContext2D, v: View, o: Obj, z: number) {
   const x1 = o.x + o.w / 2;
   const y0 = o.y - o.d / 2;
   const y1 = o.y + o.d / 2;
-  const f = box(ctx, v, x0, y0, x1, y1, z, z + o.h, o.c1);
+  const f = box(ctx, v, x0, y0, x1, y1, z, z + o.h, o.c1, undefined, true);
   const rows = Math.max(3, Math.floor(o.h / 24));
   const detail = v.zoom > 0.35;
   if (detail) {
@@ -639,7 +652,7 @@ function drawTower(ctx: CanvasRenderingContext2D, v: View, o: Obj, z: number) {
   const y0 = o.y - o.d / 2;
   const y1 = o.y + o.d / 2;
   const hMain = o.h * 0.82;
-  const f = box(ctx, v, x0, y0, x1, y1, z, z + hMain, o.c1);
+  const f = box(ctx, v, x0, y0, x1, y1, z, z + hMain, o.c1, undefined, true);
   const ribbons = (q: Quad, n: number, color: string) => {
     ctx.beginPath();
     for (let i = 0; i < n; i++) {
@@ -677,7 +690,7 @@ function drawSkyscraper(ctx: CanvasRenderingContext2D, v: View, o: Obj, z: numbe
   const x1 = o.x + o.w / 2;
   const y0 = o.y - o.d / 2;
   const y1 = o.y + o.d / 2;
-  const f = box(ctx, v, x0, y0, x1, y1, z, z + o.h, o.c1);
+  const f = box(ctx, v, x0, y0, x1, y1, z, z + o.h, o.c1, undefined, true);
   const bands = (q: Quad, light: string) => {
     const n = Math.floor(o.h / 20);
     ctx.beginPath();
@@ -1095,6 +1108,15 @@ function lotDetails(ctx: CanvasRenderingContext2D, b: Block) {
 const ROUND_SHADOW = new Set(["tree", "bigtree", "pine", "bush", "umbrella", "fountain", "person", "ball", "lamp", "hydrant", "cone", "trash", "flower"]);
 
 function drawShadows(ctx: CanvasRenderingContext2D, objs: Obj[], zoom: number) {
+  // Contact shadow hugging the base of buildings and vehicles (cheap ambient occlusion).
+  ctx.beginPath();
+  for (const o of objs) {
+    if (o.falling || ROUND_SHADOW.has(o.kind) || o.h < 18) continue;
+    const pad = Math.min(10, 3 + o.h * 0.03);
+    ctx.roundRect(o.x - o.w / 2 - pad, o.y - o.d / 2 - pad * 0.6, o.w + pad * 2, o.d + pad * 1.6, pad);
+  }
+  ctx.fillStyle = "rgba(30,41,82,0.14)";
+  ctx.fill("nonzero");
   ctx.beginPath();
   for (const o of objs) {
     if (o.falling) continue;
@@ -1129,7 +1151,7 @@ function drawShadows(ctx: CanvasRenderingContext2D, objs: Obj[], zoom: number) {
 
 function holeRim(h: Hole, v: View) {
   const rx = h.r * v.zoom;
-  return { rx, ry: rx * TILT, lw: Math.max(3, rx * 0.12) };
+  return { rx, ry: rx * TILT, lw: Math.max(3, rx * 0.12) * (1 + h.pulse * 0.45) };
 }
 
 function holeAlpha(h: Hole, time: number) {
@@ -1144,7 +1166,7 @@ function drawHoleBack(ctx: CanvasRenderingContext2D, v: View, h: Hole) {
   ctx.beginPath();
   ctx.ellipse(x, y, rx + lw * 1.4, ry + lw * 1.4, 0, 0, Math.PI * 2);
   ctx.fillStyle = col;
-  ctx.globalAlpha *= 0.22;
+  ctx.globalAlpha *= 0.22 + h.pulse * 0.25;
   ctx.fill();
   ctx.globalAlpha = holeAlpha(h, v.time);
   ctx.beginPath();
@@ -1179,13 +1201,21 @@ function drawHoleFront(ctx: CanvasRenderingContext2D, v: View, g: Game, h: Hole,
       const f = o.falling!;
       const total = o.h + o.fit * 0.6 + 12;
       const t = Math.min(1, f.depth / total);
+      // Topple toward the middle of the hole: balance on the rim, then tip and drop.
+      const tt = f.teeterMax > 0 ? 1 - Math.max(0, f.teeter) / f.teeterMax : 1;
+      const wob = f.teeter > 0 ? Math.sin(v.time * 40 + o.seed * 9) * 0.03 : 0;
+      const tip = (f.teeterMax > 0 ? 0.22 * tt : 0) + 1.0 * t;
       ctx.globalAlpha = 1 - Math.pow(t, 1.6) * 0.92;
       const [gx, gy] = pr(v, o.x, o.y, 0);
       ctx.save();
       ctx.translate(gx, gy);
-      ctx.rotate(f.tilt * t);
+      ctx.rotate(tip * f.dx * 0.9 + wob);
       ctx.translate(-gx, -gy);
+      v.hs = Math.max(0.2, Math.cos(Math.min(1.35, tip * (0.35 + Math.abs(f.dy) * 0.9))));
+      v.zb = -f.depth;
       drawObj(ctx, v, o, -f.depth);
+      v.hs = 1;
+      v.zb = 0;
       ctx.restore();
     }
     ctx.restore();
@@ -1359,6 +1389,8 @@ export function render(ctx: CanvasRenderingContext2D, g: Game, W: number, H: num
     camY: g.cam.y,
     zoom: g.cam.zoom,
     time,
+    hs: 1,
+    zb: 0,
   };
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1410,7 +1442,7 @@ export function render(ctx: CanvasRenderingContext2D, g: Game, W: number, H: num
   type Entry = { key: number; o?: Obj; h?: Hole };
   const entries: Entry[] = [];
   for (const o of visible) {
-    if (isBlob(o, v.zoom) && o.wobble <= 0) addBlob(blobs, v, o);
+    if (isBlob(o, v.zoom) && o.wobble <= 0 && o.pull <= 0.02) addBlob(blobs, v, o);
     else entries.push({ key: o.y + o.d / 2, o });
   }
   for (const [color, path] of blobs) {
@@ -1427,12 +1459,15 @@ export function render(ctx: CanvasRenderingContext2D, g: Game, W: number, H: num
       continue;
     }
     const o = e.o!;
-    if (o.wobble > 0) {
+    if (o.wobble > 0 || o.pull > 0.02) {
       const [gx, gy] = pr(v, o.x, o.y, 0);
+      const lean = o.pull * 0.2 * o.pullX + Math.sin(time * 45 + o.seed * 10) * (0.05 * o.wobble + 0.03 * o.pull);
       ctx.translate(gx, gy);
-      ctx.rotate(Math.sin(time * 38 + o.seed * 10) * 0.05 * o.wobble);
+      ctx.rotate(lean);
       ctx.translate(-gx, -gy);
+      v.hs = 1 - o.pull * 0.15 * Math.abs(o.pullY);
       drawObj(ctx, v, o, 0);
+      v.hs = 1;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     } else {
       drawObj(ctx, v, o, 0);
@@ -1467,5 +1502,19 @@ export function render(ctx: CanvasRenderingContext2D, g: Game, W: number, H: num
   drawFx(ctx, v, g);
   drawTags(ctx, v, g);
   drawHint(ctx, v, g);
+  drawVignette(ctx, W, H);
   drawJoystick(ctx, joy);
+}
+
+let vignetteCache: { w: number; h: number; grad: CanvasGradient } | null = null;
+function drawVignette(ctx: CanvasRenderingContext2D, W: number, H: number) {
+  if (!vignetteCache || vignetteCache.w !== W || vignetteCache.h !== H) {
+    const r = Math.hypot(W, H) / 2;
+    const grad = ctx.createRadialGradient(W / 2, H / 2, r * 0.55, W / 2, H / 2, r);
+    grad.addColorStop(0, "rgba(15,23,42,0)");
+    grad.addColorStop(1, "rgba(15,23,42,0.22)");
+    vignetteCache = { w: W, h: H, grad };
+  }
+  ctx.fillStyle = vignetteCache.grad;
+  ctx.fillRect(0, 0, W, H);
 }
