@@ -1,1264 +1,795 @@
-import { Box, Typography } from "@mui/material";
+import {
+  faArrowUp,
+  faCoins,
+  faFlag,
+  faForward,
+  faHeart,
+  faPause,
+  faPlay,
+  faRotateRight,
+  faSkull,
+  faTrophy,
+  faVolumeHigh,
+  faVolumeXmark,
+  faXmark,
+} from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  Box,
+  Button,
+  IconButton,
+  Paper,
+  ToggleButton,
+  ToggleButtonGroup,
+  Tooltip,
+  Typography,
+} from "@mui/material";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { playSfx, unlockAudio } from "~/games/towerdefense/audio";
+import {
+  COLS,
+  ENEMIES,
+  MAX_LIVES,
+  ROWS,
+  TOTAL_WAVES,
+  TOWERS,
+  TOWER_ORDER,
+  WAVES,
+  type EnemyType,
+  type TowerType,
+} from "~/games/towerdefense/config";
+import {
+  canCallWave,
+  canPlace,
+  createGame,
+  placeTower,
+  sellTower,
+  sellValue,
+  startWave,
+  step,
+  towerAt,
+  upgradeCost,
+  upgradeTower,
+  type Game,
+  type Level,
+  type Phase,
+  type Tower,
+} from "~/games/towerdefense/engine";
+import {
+  drawBoard,
+  drawEnemySprite,
+  drawTower,
+  renderFrame,
+} from "~/games/towerdefense/sprites";
 import type { Route } from "./+types/towerdefense";
 
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Tower Defense - Games by DaniB" },
-    { name: "description", content: "Stop the waves of enemies!" },
+    { name: "description", content: "Build a maze of towers and stop the waves!" },
   ];
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+const STEP = 1 / 60;
+const MUTE_KEY = "td-muted";
 
-const ROWS = 11;
-const COLS = 20;
-const ENTRY: [number, number] = [5, 0];
-const EXIT: [number, number] = [5, 19];
-const MAX_LIVES = 20;
-const START_GOLD = 150;
-const TOTAL_WAVES = 20;
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type EnemyType =
-  | "normal"
-  | "fast"
-  | "tank"
-  | "swarm"
-  | "boss"
-  | "healer"
-  | "armored";
-type TowerType = "basic" | "sniper" | "splash";
-type Tool = TowerType | "sell";
-type Phase = "build" | "wave" | "gameover" | "win";
-
-interface EnemyTypeDef {
-  emoji: string;
-  color: string;
-  hpMult: number;
-  speedMult: number;
-  rewardMult: number;
-  armor: number;
-  regen: number; // fraction of maxHp per second
-  sizeMult: number;
-}
-
-const ENEMY_TYPES: Record<EnemyType, EnemyTypeDef> = {
-  normal: {
-    emoji: "👾",
-    color: "#4ade80",
-    hpMult: 1,
-    speedMult: 1,
-    rewardMult: 1,
-    armor: 0,
-    regen: 0,
-    sizeMult: 1,
-  },
-  fast: {
-    emoji: "⚡",
-    color: "#38bdf8",
-    hpMult: 0.5,
-    speedMult: 1.8,
-    rewardMult: 0.8,
-    armor: 0,
-    regen: 0,
-    sizeMult: 0.8,
-  },
-  tank: {
-    emoji: "🛡️",
-    color: "#a78bfa",
-    hpMult: 3,
-    speedMult: 0.6,
-    rewardMult: 2,
-    armor: 0,
-    regen: 0,
-    sizeMult: 1.2,
-  },
-  swarm: {
-    emoji: "🐜",
-    color: "#fb923c",
-    hpMult: 0.3,
-    speedMult: 1.5,
-    rewardMult: 0.4,
-    armor: 0,
-    regen: 0,
-    sizeMult: 0.7,
-  },
-  boss: {
-    emoji: "👹",
-    color: "#f43f5e",
-    hpMult: 8,
-    speedMult: 0.5,
-    rewardMult: 5,
-    armor: 15,
-    regen: 0,
-    sizeMult: 1.4,
-  },
-  healer: {
-    emoji: "💚",
-    color: "#34d399",
-    hpMult: 1.5,
-    speedMult: 0.9,
-    rewardMult: 1.5,
-    armor: 0,
-    regen: 0.03,
-    sizeMult: 1,
-  },
-  armored: {
-    emoji: "🔩",
-    color: "#94a3b8",
-    hpMult: 1.5,
-    speedMult: 0.8,
-    rewardMult: 1.5,
-    armor: 20,
-    regen: 0,
-    sizeMult: 1,
-  },
-};
-
-interface TowerDef {
-  label: string;
-  emoji: string;
-  color: string;
-  cost: number;
-  upgCost: number;
-  dmg: number;
-  range: number;
-  rate: number; // shots/sec
-  splash: boolean;
-}
-
-const DEFS: Record<TowerType, TowerDef> = {
-  basic: {
-    label: "Basic",
-    emoji: "🗼",
-    color: "#3b82f6",
-    cost: 50,
-    upgCost: 40,
-    dmg: 30,
-    range: 3,
-    rate: 1.5,
-    splash: false,
-  },
-  sniper: {
-    label: "Sniper",
-    emoji: "🎯",
-    color: "#8b5cf6",
-    cost: 100,
-    upgCost: 80,
-    dmg: 100,
-    range: 6,
-    rate: 0.5,
-    splash: false,
-  },
-  splash: {
-    label: "Splash",
-    emoji: "💣",
-    color: "#ef4444",
-    cost: 75,
-    upgCost: 60,
-    dmg: 20,
-    range: 2.5,
-    rate: 2.0,
-    splash: true,
-  },
-};
-
-interface WaveGroup {
-  type: EnemyType;
-  count: number;
-  interval: number; // sec between spawns within this group
-}
-
-interface WaveDef {
-  groups: WaveGroup[];
-  baseHp: number;
-  baseSpeed: number;
-  baseReward: number;
-}
-
-interface SpawnEntry {
-  type: EnemyType;
-  delay: number; // seconds before spawning this enemy
-}
-
-const WAVES: WaveDef[] = [
-  // 1 – Intro
-  {
-    groups: [{ type: "normal", count: 6, interval: 1.2 }],
-    baseHp: 60,
-    baseSpeed: 2.0,
-    baseReward: 8,
-  },
-  // 2 – More normals
-  {
-    groups: [{ type: "normal", count: 8, interval: 1.0 }],
-    baseHp: 80,
-    baseSpeed: 2.1,
-    baseReward: 9,
-  },
-  // 3 – Introduce fast
-  {
-    groups: [
-      { type: "normal", count: 5, interval: 1.0 },
-      { type: "fast", count: 4, interval: 0.7 },
-    ],
-    baseHp: 100,
-    baseSpeed: 2.2,
-    baseReward: 10,
-  },
-  // 4 – Fast rush
-  {
-    groups: [{ type: "fast", count: 8, interval: 0.6 }],
-    baseHp: 90,
-    baseSpeed: 2.3,
-    baseReward: 10,
-  },
-  // 5 – Introduce tanks
-  {
-    groups: [
-      { type: "normal", count: 5, interval: 1.0 },
-      { type: "tank", count: 2, interval: 2.0 },
-    ],
-    baseHp: 120,
-    baseSpeed: 2.3,
-    baseReward: 12,
-  },
-  // 6 – Introduce swarm
-  {
-    groups: [{ type: "swarm", count: 15, interval: 0.4 }],
-    baseHp: 130,
-    baseSpeed: 2.4,
-    baseReward: 10,
-  },
-  // 7 – Swarm + fast
-  {
-    groups: [
-      { type: "swarm", count: 10, interval: 0.4 },
-      { type: "fast", count: 5, interval: 0.6 },
-    ],
-    baseHp: 150,
-    baseSpeed: 2.5,
-    baseReward: 11,
-  },
-  // 8 – Introduce armored
-  {
-    groups: [
-      { type: "armored", count: 5, interval: 1.2 },
-      { type: "normal", count: 5, interval: 0.9 },
-    ],
-    baseHp: 180,
-    baseSpeed: 2.5,
-    baseReward: 13,
-  },
-  // 9 – Fast + armored
-  {
-    groups: [
-      { type: "fast", count: 6, interval: 0.6 },
-      { type: "armored", count: 4, interval: 1.0 },
-    ],
-    baseHp: 210,
-    baseSpeed: 2.6,
-    baseReward: 14,
-  },
-  // 10 – First boss!
-  {
-    groups: [
-      { type: "normal", count: 8, interval: 0.8 },
-      { type: "boss", count: 1, interval: 2.0 },
-    ],
-    baseHp: 250,
-    baseSpeed: 2.6,
-    baseReward: 15,
-  },
-  // 11 – Introduce healer
-  {
-    groups: [
-      { type: "healer", count: 4, interval: 1.0 },
-      { type: "normal", count: 8, interval: 0.8 },
-    ],
-    baseHp: 300,
-    baseSpeed: 2.7,
-    baseReward: 16,
-  },
-  // 12 – Tank parade
-  {
-    groups: [
-      { type: "tank", count: 5, interval: 1.5 },
-      { type: "healer", count: 3, interval: 1.0 },
-    ],
-    baseHp: 350,
-    baseSpeed: 2.7,
-    baseReward: 18,
-  },
-  // 13 – Big swarm
-  {
-    groups: [
-      { type: "swarm", count: 20, interval: 0.3 },
-      { type: "fast", count: 6, interval: 0.5 },
-    ],
-    baseHp: 380,
-    baseSpeed: 2.8,
-    baseReward: 15,
-  },
-  // 14 – Armored + tank
-  {
-    groups: [
-      { type: "armored", count: 8, interval: 1.0 },
-      { type: "tank", count: 4, interval: 1.5 },
-    ],
-    baseHp: 420,
-    baseSpeed: 2.8,
-    baseReward: 20,
-  },
-  // 15 – Boss + escort
-  {
-    groups: [
-      { type: "armored", count: 6, interval: 0.8 },
-      { type: "boss", count: 1, interval: 2.0 },
-      { type: "healer", count: 4, interval: 0.8 },
-    ],
-    baseHp: 480,
-    baseSpeed: 2.9,
-    baseReward: 22,
-  },
-  // 16 – Mixed assault
-  {
-    groups: [
-      { type: "fast", count: 6, interval: 0.5 },
-      { type: "normal", count: 6, interval: 0.7 },
-      { type: "armored", count: 4, interval: 1.0 },
-    ],
-    baseHp: 550,
-    baseSpeed: 3.0,
-    baseReward: 22,
-  },
-  // 17 – Healer heavy
-  {
-    groups: [
-      { type: "healer", count: 6, interval: 0.8 },
-      { type: "tank", count: 4, interval: 1.2 },
-      { type: "healer", count: 4, interval: 0.8 },
-    ],
-    baseHp: 620,
-    baseSpeed: 3.0,
-    baseReward: 25,
-  },
-  // 18 – Swarm flood
-  {
-    groups: [
-      { type: "swarm", count: 25, interval: 0.25 },
-      { type: "fast", count: 8, interval: 0.4 },
-    ],
-    baseHp: 700,
-    baseSpeed: 3.1,
-    baseReward: 20,
-  },
-  // 19 – Hard mixed
-  {
-    groups: [
-      { type: "tank", count: 4, interval: 1.2 },
-      { type: "armored", count: 6, interval: 0.8 },
-      { type: "healer", count: 4, interval: 0.8 },
-      { type: "fast", count: 8, interval: 0.4 },
-    ],
-    baseHp: 800,
-    baseSpeed: 3.2,
-    baseReward: 28,
-  },
-  // 20 – Final boss rush
-  {
-    groups: [
-      { type: "armored", count: 8, interval: 0.6 },
-      { type: "boss", count: 2, interval: 3.0 },
-      { type: "healer", count: 6, interval: 0.6 },
-      { type: "tank", count: 4, interval: 1.0 },
-    ],
-    baseHp: 1000,
-    baseSpeed: 3.3,
-    baseReward: 35,
-  },
-];
-
-interface Enemy {
-  id: number;
-  type: EnemyType;
-  progress: number; // float index along path
-  hp: number;
-  maxHp: number;
-  speed: number;
-  reward: number;
-  armor: number;
-  regen: number; // fraction of maxHp per second
-}
-
-interface Tower {
-  id: number;
-  row: number;
-  col: number;
-  type: TowerType;
-  level: 1 | 2;
-  cooldown: number; // sec until next shot
-}
-
-interface GState {
-  phase: Phase;
-  grid: boolean[][];
-  towers: Tower[];
-  enemies: Enemy[];
-  path: [number, number][] | null;
+interface Hud {
   gold: number;
   lives: number;
   wave: number;
-  spawnQueue: SpawnEntry[];
-  spawnTimer: number;
-  nextEId: number;
-  nextTId: number;
+  phase: Phase;
+  canCall: boolean;
+  remaining: number;
 }
 
-interface ShotHit {
-  row: number;
-  col: number;
-  dmg: number;
+const snapshot = (g: Game): Hud => ({
+  gold: g.gold,
+  lives: g.lives,
+  wave: g.wave,
+  phase: g.phase,
+  canCall: canCallWave(g),
+  remaining: g.enemies.length + g.spawnQueue.length,
+});
+
+const sameHud = (a: Hud, b: Hud) =>
+  a.gold === b.gold &&
+  a.lives === b.lives &&
+  a.wave === b.wave &&
+  a.phase === b.phase &&
+  a.canCall === b.canCall &&
+  a.remaining === b.remaining;
+
+// ─── Sprite icons (small static canvases) ─────────────────────────────────────
+
+function useSpriteCanvas(size: number, draw: (ctx: CanvasRenderingContext2D) => void, deps: unknown[]) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+    draw(ctx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [size, ...deps]);
+  return ref;
 }
 
-interface ShotEvent {
-  fromRow: number;
-  fromCol: number;
-  toRow: number;
-  toCol: number;
-  type: TowerType;
-  splash: boolean;
-  hits: ShotHit[];
-}
-
-interface VisProjectile {
-  id: number;
-  fromRow: number;
-  fromCol: number;
-  toRow: number;
-  toCol: number;
-  type: TowerType;
-  splash: boolean;
-  born: number;
-  duration: number;
-}
-
-interface VisDamageNum {
-  id: number;
-  row: number;
-  col: number;
-  dmg: number;
-  born: number;
-  color: string;
-}
-
-let visId = 0;
-
-// ─── Pure helpers (defined outside component) ─────────────────────────────────
-
-function findPath(grid: boolean[][]): [number, number][] | null {
-  const [sr, sc] = ENTRY;
-  const [er, ec] = EXIT;
-  const queue: [[number, number], [number, number][]][] = [
-    [[sr, sc], [[sr, sc]]],
-  ];
-  const seen = new Set<string>([`${sr},${sc}`]);
-  while (queue.length) {
-    const [[r, c], path] = queue.shift()!;
-    if (r === er && c === ec) return path;
-    for (const [dr, dc] of [
-      [0, 1],
-      [0, -1],
-      [1, 0],
-      [-1, 0],
-    ] as [number, number][]) {
-      const nr = r + dr,
-        nc = c + dc;
-      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
-      const k = `${nr},${nc}`;
-      if (seen.has(k) || grid[nr][nc]) continue;
-      seen.add(k);
-      queue.push([
-        [nr, nc],
-        [...path, [nr, nc]],
-      ]);
-    }
-  }
-  return null;
-}
-
-function enemyXY(enemy: Enemy, path: [number, number][]): [number, number] {
-  const maxI = path.length - 1;
-  const i = Math.min(Math.floor(enemy.progress), maxI - 1);
-  const f = enemy.progress - Math.floor(enemy.progress);
-  const [r0, c0] = path[i];
-  const [r1, c1] = path[Math.min(i + 1, maxI)];
-  return [r0 + (r1 - r0) * f, c0 + (c1 - c0) * f];
-}
-
-function buildSpawnQueue(wave: WaveDef): SpawnEntry[] {
-  const queue: SpawnEntry[] = [];
-  for (let gi = 0; gi < wave.groups.length; gi++) {
-    const group = wave.groups[gi];
-    for (let i = 0; i < group.count; i++) {
-      const isFirst = queue.length === 0;
-      const isGroupStart = i === 0 && gi > 0;
-      queue.push({
-        type: group.type,
-        delay: isFirst
-          ? 0
-          : isGroupStart
-            ? group.interval + 0.5
-            : group.interval,
-      });
-    }
-  }
-  return queue;
-}
-
-function initState(): GState {
-  const grid = Array.from(
-    { length: ROWS },
-    () => Array(COLS).fill(false) as boolean[],
+function TowerIcon({ type, level = 0, size = 48 }: { type: TowerType; level?: Level; size?: number }) {
+  const ref = useSpriteCanvas(
+    size,
+    (ctx) =>
+      drawTower(ctx, type, level, { angle: -Math.PI / 4, recoil: 0, flash: 0 }, size / 2, size / 2 - size * 0.04, size * 0.95, 0.6),
+    [type, level],
   );
-  return {
-    phase: "build",
-    grid,
-    towers: [],
-    enemies: [],
-    path: findPath(grid),
-    gold: START_GOLD,
-    lives: MAX_LIVES,
-    wave: 0,
-    spawnQueue: [],
-    spawnTimer: 0,
-    nextEId: 0,
-    nextTId: 0,
-  };
+  return <canvas ref={ref} style={{ width: size, height: size, display: "block" }} />;
 }
 
-function tickGame(g: GState, dt: number, shots: ShotEvent[]) {
-  const wave = WAVES[g.wave];
-
-  // Spawn from queue
-  if (g.spawnQueue.length > 0) {
-    g.spawnTimer -= dt;
-    if (g.spawnTimer <= 0) {
-      const entry = g.spawnQueue.shift()!;
-      const typeDef = ENEMY_TYPES[entry.type];
-      g.enemies.push({
-        id: g.nextEId++,
-        type: entry.type,
-        progress: 0,
-        hp: Math.round(wave.baseHp * typeDef.hpMult),
-        maxHp: Math.round(wave.baseHp * typeDef.hpMult),
-        speed: wave.baseSpeed * typeDef.speedMult,
-        reward: Math.round(wave.baseReward * typeDef.rewardMult),
-        armor: typeDef.armor,
-        regen: typeDef.regen,
-      });
-      if (g.spawnQueue.length > 0) {
-        g.spawnTimer = g.spawnQueue[0].delay;
-      }
-    }
-  }
-
-  // Regen
-  for (const e of g.enemies) {
-    if (e.regen > 0) {
-      e.hp = Math.min(e.maxHp, e.hp + e.regen * e.maxHp * dt);
-    }
-  }
-
-  // Move enemies
-  if (g.path) {
-    const maxP = g.path.length - 1;
-    const escaped: number[] = [];
-    for (const e of g.enemies) {
-      e.progress = Math.min(e.progress + e.speed * dt, maxP + 0.01);
-      if (e.progress >= maxP) escaped.push(e.id);
-    }
-    if (escaped.length) {
-      g.enemies = g.enemies.filter((e) => !escaped.includes(e.id));
-      g.lives = Math.max(0, g.lives - escaped.length);
-      if (g.lives === 0) {
-        g.phase = "gameover";
-        g.enemies = [];
-        return;
-      }
-    }
-  }
-
-  // Towers fire
-  for (const tower of g.towers) {
-    tower.cooldown -= dt;
-    if (tower.cooldown > 0) continue;
-    if (!g.path) continue;
-
-    const def = DEFS[tower.type];
-    const lm = tower.level === 2 ? 2 : 1;
-    const range = def.range * (tower.level === 2 ? 1.3 : 1);
-    const dmg = def.dmg * lm;
-
-    // Target: enemy furthest along path (closest to exit) within range
-    let target: Enemy | null = null;
-    for (const e of g.enemies) {
-      const [er, ec] = enemyXY(e, g.path);
-      if (Math.hypot(ec - tower.col, er - tower.row) <= range) {
-        if (!target || e.progress > target.progress) target = e;
-      }
-    }
-    if (!target) continue;
-
-    tower.cooldown = 1 / (def.rate * lm);
-
-    const [ter, tec] = enemyXY(target, g.path);
-    const shotHits: ShotHit[] = [];
-
-    if (def.splash) {
-      for (const e of g.enemies) {
-        const [er, ec] = enemyXY(e, g.path);
-        if (Math.hypot(ec - tower.col, er - tower.row) <= range) {
-          const d = Math.max(1, dmg - e.armor);
-          e.hp -= d;
-          shotHits.push({ row: er, col: ec, dmg: d });
-        }
-      }
-    } else {
-      const d = Math.max(1, dmg - target.armor);
-      target.hp -= d;
-      shotHits.push({ row: ter, col: tec, dmg: d });
-    }
-
-    shots.push({
-      fromRow: tower.row,
-      fromCol: tower.col,
-      toRow: ter,
-      toCol: tec,
-      type: tower.type,
-      splash: def.splash,
-      hits: shotHits,
-    });
-
-    // Collect kills
-    const dead = g.enemies.filter((e) => e.hp <= 0);
-    for (const e of dead) g.gold += e.reward;
-    g.enemies = g.enemies.filter((e) => e.hp > 0);
-  }
-
-  // Wave complete?
-  if (g.spawnQueue.length === 0 && g.enemies.length === 0) {
-    if (g.wave >= TOTAL_WAVES - 1) {
-      g.phase = "win";
-    } else {
-      g.phase = "build";
-      g.wave++;
-      g.gold += 30 + g.wave * 5; // between-wave gold bonus
-    }
-  }
+function EnemyIcon({ type, size = 26 }: { type: EnemyType; size?: number }) {
+  const ref = useSpriteCanvas(
+    size,
+    (ctx) => {
+      const r = ENEMIES[type].radius;
+      const s = (size * 0.8) / (r * 2.9);
+      drawEnemySprite(ctx, type, size / 2, size / 2 + size * 0.08, s, 0, { dirX: 1, dirY: 0.3, seed: 1.2 });
+    },
+    [type],
+  );
+  return <canvas ref={ref} style={{ width: size, height: size, display: "block" }} />;
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Small UI pieces ──────────────────────────────────────────────────────────
+
+function Stat({ icon, color, children }: { icon: typeof faCoins; color: string; children: React.ReactNode }) {
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 1,
+        px: 1.5,
+        py: 0.5,
+        borderRadius: 99,
+        bgcolor: "action.hover",
+        fontWeight: 800,
+        fontSize: { xs: "0.95rem", md: "1.1rem" },
+        fontVariantNumeric: "tabular-nums",
+      }}>
+      <FontAwesomeIcon icon={icon} style={{ color }} />
+      {children}
+    </Box>
+  );
+}
+
+function describeLevel(type: TowerType, level: Level) {
+  const s = TOWERS[type].levels[level];
+  const rows: { label: string; value: string }[] = [
+    { label: "Damage", value: String(s.dmg) },
+    { label: "Range", value: s.range.toFixed(1) },
+    { label: "Speed", value: `${s.rate}/s` },
+  ];
+  if (s.splash) rows.push({ label: "Blast", value: s.splash.toFixed(1) });
+  if (s.slow) rows.push({ label: "Slow", value: `${Math.round((1 - s.slow) * 100)}% · ${s.slowDur}s` });
+  if (s.chains) rows.push({ label: "Chains", value: String(s.chains) });
+  return rows;
+}
+
+function TowerPanel({
+  tower,
+  gold,
+  onUpgrade,
+  onSell,
+  onClose,
+}: {
+  tower: Tower;
+  gold: number;
+  onUpgrade: () => void;
+  onSell: () => void;
+  onClose: () => void;
+}) {
+  const def = TOWERS[tower.type];
+  const cost = upgradeCost(tower);
+  const now = describeLevel(tower.type, tower.level);
+  const next = tower.level < 2 ? describeLevel(tower.type, (tower.level + 1) as Level) : null;
+  return (
+    <Paper
+      elevation={3}
+      sx={{
+        p: 2,
+        borderRadius: 3,
+        minWidth: 260,
+        flex: { xs: "1 1 100%", md: "0 0 300px" },
+        borderTop: `4px solid ${def.color}`,
+      }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
+        <TowerIcon type={tower.type} level={tower.level} size={56} />
+        <Box sx={{ flex: 1 }}>
+          <Typography sx={{ fontWeight: 900, lineHeight: 1.1 }}>{def.name}</Typography>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            Level {tower.level + 1} of 3
+          </Typography>
+        </Box>
+        <IconButton size="small" onClick={onClose} aria-label="Close">
+          <FontAwesomeIcon icon={faXmark} />
+        </IconButton>
+      </Box>
+      <Box sx={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 2, rowGap: 0.25, mb: 1.5 }}>
+        {now.map((row, i) => {
+          const upgraded = next && next[i] && next[i].value !== row.value ? next[i].value : null;
+          return (
+            <Box key={row.label} sx={{ display: "contents" }}>
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                {row.label}
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                {row.value}
+                {upgraded && (
+                  <Box component="span" sx={{ color: "success.main", ml: 1 }}>
+                    → {upgraded}
+                  </Box>
+                )}
+              </Typography>
+            </Box>
+          );
+        })}
+        {next && next.length > now.length && (
+          <>
+            {next.slice(now.length).map((row) => (
+              <Box key={row.label} sx={{ display: "contents" }}>
+                <Typography variant="body2" sx={{ color: "success.main" }}>
+                  {row.label}
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 700, color: "success.main" }}>
+                  NEW · {row.value}
+                </Typography>
+              </Box>
+            ))}
+          </>
+        )}
+        {def.pierce && (
+          <Typography variant="body2" sx={{ gridColumn: "1 / -1", color: "text.secondary" }}>
+            Shots ignore armor
+          </Typography>
+        )}
+      </Box>
+      <Box sx={{ display: "flex", gap: 1 }}>
+        <Button
+          fullWidth
+          variant="contained"
+          color="success"
+          disabled={cost === null || gold < cost}
+          onClick={onUpgrade}
+          startIcon={<FontAwesomeIcon icon={faArrowUp} />}
+          sx={{ fontWeight: 800 }}>
+          {cost === null ? "Max level" : `Upgrade · ${cost}`}
+        </Button>
+        <Button
+          variant="outlined"
+          color="inherit"
+          onClick={onSell}
+          sx={{ fontWeight: 800, whiteSpace: "nowrap" }}>
+          Sell +{sellValue(tower)}
+        </Button>
+      </Box>
+    </Paper>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TowerDefense() {
-  const [tick, setTick] = useState(0);
-  const [tool, setTool] = useState<Tool>("basic");
-  const gRef = useRef<GState>(initState());
-  const rafRef = useRef<number>(0);
-  const lastT = useRef(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [cellSize, setCellSize] = useState(40);
-  const projRef = useRef<VisProjectile[]>([]);
-  const dmgRef = useRef<VisDamageNum[]>([]);
+  const gameRef = useRef<Game>(createGame());
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const boardRef = useRef<{ canvas: HTMLCanvasElement; key: string } | null>(null);
+  const hoverRef = useRef<{ r: number; c: number } | null>(null);
+
+  const [cs, setCs] = useState(40);
+  const [hud, setHud] = useState<Hud>(() => snapshot(gameRef.current));
+  const [tool, setTool] = useState<TowerType | null>("blaster");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [speed, setSpeed] = useState<1 | 2>(1);
+  const [paused, setPaused] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [, bump] = useState(0);
+
+  // Live values the animation loop reads without re-subscribing
+  const live = useRef({ tool, selectedId, speed, paused, muted, cs });
+  live.current = { tool, selectedId, speed, paused, muted, cs };
+
+  useEffect(() => {
+    try {
+      setMuted(localStorage.getItem(MUTE_KEY) === "1");
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
 
   // Responsive cell size
   useEffect(() => {
-    const update = () => {
-      const w = containerRef.current?.clientWidth ?? 840;
-      setCellSize(Math.max(26, Math.min(44, Math.floor((w - 8) / COLS))));
-    };
+    const el = wrapRef.current;
+    if (!el) return;
+    const update = () => setCs(Math.max(16, Math.min(52, Math.floor(el.clientWidth / COLS))));
     update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
-  // RAF game loop
+  // Toast auto-hide
   useEffect(() => {
-    const loop = (t: number) => {
-      const dt = Math.min((t - lastT.current) / 1000, 0.1);
-      lastT.current = t;
-      if (gRef.current.phase === "wave") {
-        const shots: ShotEvent[] = [];
-        tickGame(gRef.current, dt, shots);
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 1600);
+    return () => clearTimeout(id);
+  }, [toast]);
 
-        const now = performance.now();
-
-        // Convert shot events → visual projectiles + damage numbers
-        for (const s of shots) {
-          const duration = s.type === "sniper" ? 0.12 : s.type === "splash" ? 0.35 : 0.18;
-          projRef.current.push({
-            id: visId++,
-            fromRow: s.fromRow,
-            fromCol: s.fromCol,
-            toRow: s.toRow,
-            toCol: s.toCol,
-            type: s.type,
-            splash: s.splash,
-            born: now,
-            duration,
-          });
-          for (const h of s.hits) {
-            dmgRef.current.push({
-              id: visId++,
-              row: h.row,
-              col: h.col,
-              dmg: h.dmg,
-              born: now,
-              color: s.type === "sniper" ? "#a78bfa" : s.type === "splash" ? "#ef4444" : "#60a5fa",
-            });
-          }
+  // Game loop
+  useEffect(() => {
+    let raf = 0;
+    let last = performance.now();
+    let acc = 0;
+    const loop = (now: number) => {
+      raf = requestAnimationFrame(loop);
+      const g = gameRef.current;
+      const L = live.current;
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      if (!L.paused) {
+        acc += dt * L.speed;
+        let steps = 0;
+        while (acc >= STEP && steps < 8) {
+          step(g, STEP);
+          acc -= STEP;
+          steps++;
         }
-
-        // Expire old visuals
-        projRef.current = projRef.current.filter((p) => now - p.born < p.duration * 1000);
-        dmgRef.current = dmgRef.current.filter((d) => now - d.born < 900);
-
-        setTick((n) => n + 1);
+        if (steps === 8) acc = 0;
       }
-      rafRef.current = requestAnimationFrame(loop);
+
+      // Sound
+      if (g.sfx.length) {
+        if (!L.muted) for (const s of new Set(g.sfx)) playSfx(s);
+        g.sfx.length = 0;
+      }
+
+      // Render
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext("2d");
+      if (canvas && ctx) {
+        const s = L.cs;
+        const dpr = window.devicePixelRatio || 1;
+        const pw = Math.round(COLS * s * dpr);
+        const ph = Math.round(ROWS * s * dpr);
+        if (canvas.width !== pw || canvas.height !== ph) {
+          canvas.width = pw;
+          canvas.height = ph;
+        }
+        const key = `${g.routeVersion}:${s}:${dpr}`;
+        if (!boardRef.current || boardRef.current.key !== key) {
+          const board = boardRef.current?.canvas ?? document.createElement("canvas");
+          board.width = pw;
+          board.height = ph;
+          const bctx = board.getContext("2d");
+          if (bctx) {
+            bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            drawBoard(bctx, g, s);
+          }
+          boardRef.current = { canvas: board, key };
+        }
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, COLS * s, ROWS * s);
+
+        const hover = hoverRef.current;
+        const selected = L.selectedId !== null ? g.towers.find((t) => t.id === L.selectedId) ?? null : null;
+        const building = L.tool !== null && g.phase !== "gameover" && g.phase !== "win";
+        const showGhost = building && hover && !towerAt(g, hover.r, hover.c);
+        renderFrame(ctx, g, {
+          s,
+          board: boardRef.current.canvas,
+          showGrid: building,
+          hover: showGhost ? hover : null,
+          ghost:
+            showGhost && L.tool
+              ? { type: L.tool, ok: canPlace(g, L.tool, hover!.r, hover!.c).ok }
+              : null,
+          selected,
+          maxLives: MAX_LIVES,
+        });
+      }
+
+      const snap = snapshot(g);
+      setHud((prev) => (sameHud(prev, snap) ? prev : snap));
     };
-    lastT.current = performance.now();
-    rafRef.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafRef.current);
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
   }, []);
 
-  const handleCellClick = useCallback(
-    (row: number, col: number) => {
-      const g = gRef.current;
-      if (g.phase !== "build") return;
-      if (row === ENTRY[0] && col === ENTRY[1]) return;
-      if (row === EXIT[0] && col === EXIT[1]) return;
+  // ── Actions ─────────────────────────────────────────────────────────────────
 
-      if (tool === "sell") {
-        const idx = g.towers.findIndex((t) => t.row === row && t.col === col);
-        if (idx !== -1) {
-          const t = g.towers[idx];
-          const refund = Math.floor(
-            DEFS[t.type].cost * (t.level === 2 ? 1.5 : 0.5),
-          );
-          g.towers.splice(idx, 1);
-          g.grid[row][col] = false;
-          g.gold += refund;
-          g.path = findPath(g.grid);
-          setTick((n) => n + 1);
-        }
-        return;
-      }
-
-      if (g.grid[row][col]) {
-        // Upgrade existing tower
-        const t = g.towers.find((t) => t.row === row && t.col === col);
-        if (t && t.level === 1 && g.gold >= DEFS[t.type].upgCost) {
-          g.gold -= DEFS[t.type].upgCost;
-          t.level = 2;
-          setTick((n) => n + 1);
-        }
-        return;
-      }
-
-      // Place tower
-      const def = DEFS[tool];
-      if (g.gold < def.cost) return;
-      g.grid[row][col] = true;
-      const newPath = findPath(g.grid);
-      if (!newPath) {
-        g.grid[row][col] = false;
-        return;
-      } // would block path
-      g.gold -= def.cost;
-      g.path = newPath;
-      g.towers.push({
-        id: g.nextTId++,
-        row,
-        col,
-        type: tool,
-        level: 1,
-        cooldown: 0,
-      });
-      setTick((n) => n + 1);
-    },
-    [tool],
-  );
-
-  const startWave = () => {
-    const g = gRef.current;
-    if (g.phase !== "build" || !g.path) return;
-    g.phase = "wave";
-    g.spawnQueue = buildSpawnQueue(WAVES[g.wave]);
-    g.spawnTimer = g.spawnQueue.length > 0 ? g.spawnQueue[0].delay : 0;
-    setTick((n) => n + 1);
+  const cellFromEvent = (e: React.PointerEvent | React.MouseEvent) => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const c = Math.floor(((e.clientX - rect.left) / rect.width) * COLS);
+    const r = Math.floor(((e.clientY - rect.top) / rect.height) * ROWS);
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return null;
+    return { r, c };
   };
 
-  const reset = () => {
-    gRef.current = initState();
-    setTick((n) => n + 1);
+  /** Pick a tower to build. `toggle` lets a second tap on the same shop card cancel it. */
+  const chooseTool = useCallback((t: TowerType, toggle = false) => {
+    setTool((cur) => (toggle && cur === t ? null : t));
+    setSelectedId(null);
+  }, []);
+
+  const handleClick = (e: React.MouseEvent) => {
+    unlockAudio();
+    const cell = cellFromEvent(e);
+    if (!cell) return;
+    const g = gameRef.current;
+    const existing = towerAt(g, cell.r, cell.c);
+    if (existing) {
+      setSelectedId(existing.id);
+      setTool(null);
+      return;
+    }
+    if (tool) {
+      const res = placeTower(g, tool, cell.r, cell.c);
+      if (!res.ok) setToast(res.reason);
+      bump((n) => n + 1);
+      return;
+    }
+    setSelectedId(null);
   };
+
+  const callWave = useCallback(() => {
+    unlockAudio();
+    startWave(gameRef.current);
+    setPaused(false);
+  }, []);
+
+  const upgradeSelected = useCallback(() => {
+    if (selectedId === null) return;
+    upgradeTower(gameRef.current, selectedId);
+    bump((n) => n + 1);
+  }, [selectedId]);
+
+  const sellSelected = useCallback(() => {
+    if (selectedId === null) return;
+    sellTower(gameRef.current, selectedId);
+    setSelectedId(null);
+  }, [selectedId]);
+
+  const restart = () => {
+    gameRef.current = createGame();
+    boardRef.current = null;
+    setSelectedId(null);
+    setTool("blaster");
+    setPaused(false);
+    setHud(snapshot(gameRef.current));
+  };
+
+  const toggleMute = () => {
+    unlockAudio();
+    setMuted((m) => {
+      try {
+        localStorage.setItem(MUTE_KEY, m ? "0" : "1");
+      } catch {
+        /* ignore */
+      }
+      return !m;
+    });
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey) return;
+      const idx = Number(e.key) - 1;
+      if (idx >= 0 && idx < TOWER_ORDER.length) {
+        chooseTool(TOWER_ORDER[idx]);
+      } else if (e.key === "Escape") {
+        setTool(null);
+        setSelectedId(null);
+      } else if (e.key === " ") {
+        e.preventDefault();
+        callWave();
+      } else if (e.key.toLowerCase() === "u") {
+        upgradeSelected();
+      } else if (e.key.toLowerCase() === "p") {
+        setPaused((p) => !p);
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        sellSelected();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chooseTool, callWave, upgradeSelected, sellSelected]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  const g = gRef.current;
-
-  const towerMap = new Map(g.towers.map((t) => [`${t.row},${t.col}`, t]));
-  const pathSet = new Set((g.path ?? []).map(([r, c]) => `${r},${c}`));
-  const cs = cellSize;
-  const gridW = cs * COLS;
-  const gridH = cs * ROWS;
+  const g = gameRef.current;
+  const selected = selectedId !== null ? g.towers.find((t) => t.id === selectedId) ?? null : null;
+  const nextWave = hud.wave < TOTAL_WAVES ? WAVES[hud.wave] : null;
+  const over = hud.phase === "gameover" || hud.phase === "win";
 
   return (
-    <Box sx={{ pb: 6 }}>
+    <Box sx={{ pb: 6, pt: 1, maxWidth: COLS * 52 + 16, mx: "auto" }}>
       {/* HUD */}
-      <Box
+      <Paper
+        elevation={2}
         sx={{
           display: "flex",
           alignItems: "center",
           flexWrap: "wrap",
-          gap: { xs: 1.5, md: 3 },
-          px: 2,
-          py: 1.5,
-          bgcolor: "background.paper",
-          borderBottom: "1px solid",
-          borderColor: "divider",
-          position: "sticky",
-          top: 0,
-          zIndex: 10,
+          gap: { xs: 1, md: 1.5 },
+          px: 1.5,
+          py: 1,
+          mb: 1.5,
+          borderRadius: 3,
         }}>
-        <Typography variant="h6" sx={{ fontWeight: 700 }}>
-          💰 {g.gold}
-        </Typography>
-        <Typography variant="h6" sx={{ fontWeight: 700 }}>
-          ❤️ {g.lives} / {MAX_LIVES}
-        </Typography>
-        <Typography variant="h6" sx={{ fontWeight: 500, opacity: 0.7 }}>
-          Wave {g.wave + 1} / {TOTAL_WAVES}
-        </Typography>
-        {g.phase === "build" && (
-          <Typography variant="body2" sx={{ opacity: 0.6 }}>
-            {WAVES[g.wave].groups.map((gr, i) => (
-              <span key={i}>
-                {i > 0 ? " + " : ""}
-                {ENEMY_TYPES[gr.type].emoji}×{gr.count}
-              </span>
+        <Stat icon={faCoins} color="#f59e0b">
+          {hud.gold}
+        </Stat>
+        <Stat icon={faHeart} color="#ef4444">
+          {hud.lives}
+        </Stat>
+        <Stat icon={faFlag} color="#6366f1">
+          {Math.max(1, hud.wave)}/{TOTAL_WAVES}
+        </Stat>
+        {nextWave && hud.canCall && (
+          <Box sx={{ display: { xs: "none", sm: "flex" }, alignItems: "center", gap: 0.75, ml: 0.5 }}>
+            <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 700, mr: 0.25 }}>
+              NEXT
+            </Typography>
+            {nextWave.groups.map((gr, i) => (
+              <Tooltip key={i} title={ENEMIES[gr.type].name} arrow>
+                <Box sx={{ display: "flex", alignItems: "center", fontWeight: 800, fontSize: "0.85rem" }}>
+                  <EnemyIcon type={gr.type} />×{gr.count}
+                </Box>
+              </Tooltip>
             ))}
+          </Box>
+        )}
+        {hud.phase === "wave" && !hud.canCall && (
+          <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 600 }}>
+            {hud.remaining} enemies left
           </Typography>
         )}
         <Box sx={{ flex: 1 }} />
-        {g.phase === "build" && g.path && (
-          <button className="btn" onClick={startWave}>
-            ▶ Start Wave {g.wave + 1}
-          </button>
-        )}
-        {g.phase === "build" && !g.path && (
-          <Typography sx={{ color: "error.main", fontWeight: 600 }}>
-            ⚠ Path blocked!
-          </Typography>
-        )}
-        {g.phase === "wave" && (
-          <Typography variant="body2" sx={{ opacity: 0.6 }}>
-            👾 {g.enemies.length} active · {g.spawnQueue.length} incoming
-          </Typography>
-        )}
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={speed}
+          onChange={(_, v) => v && setSpeed(v)}
+          aria-label="Game speed">
+          <ToggleButton value={1} sx={{ fontWeight: 800, px: 1.25 }}>
+            1×
+          </ToggleButton>
+          <ToggleButton value={2} sx={{ fontWeight: 800, px: 1.25 }}>
+            2×
+          </ToggleButton>
+        </ToggleButtonGroup>
+        <Tooltip title={paused ? "Resume (P)" : "Pause (P)"}>
+          <IconButton onClick={() => setPaused((p) => !p)} disabled={over}>
+            <FontAwesomeIcon icon={paused ? faPlay : faPause} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title={muted ? "Sound on" : "Mute"}>
+          <IconButton onClick={toggleMute}>
+            <FontAwesomeIcon icon={muted ? faVolumeXmark : faVolumeHigh} />
+          </IconButton>
+        </Tooltip>
+        <Button
+          variant="contained"
+          disabled={!hud.canCall}
+          onClick={callWave}
+          startIcon={<FontAwesomeIcon icon={hud.phase === "wave" ? faForward : faPlay} />}
+          sx={{
+            fontWeight: 900,
+            borderRadius: 99,
+            px: 2.5,
+            background: hud.canCall ? "linear-gradient(135deg, #22c55e 0%, #15803d 100%)" : undefined,
+            boxShadow: hud.canCall ? "0 4px 14px rgba(34,197,94,0.45)" : undefined,
+          }}>
+          {hud.phase === "wave" ? "Send next" : hud.wave === 0 ? "Start" : `Wave ${hud.wave + 1}`}
+        </Button>
+      </Paper>
+
+      {/* Board */}
+      <Box ref={wrapRef} sx={{ width: "100%" }}>
+        <Box
+          sx={{
+            position: "relative",
+            width: COLS * cs,
+            height: ROWS * cs,
+            mx: "auto",
+            borderRadius: 3,
+            overflow: "hidden",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.25), inset 0 0 0 3px rgba(0,0,0,0.15)",
+            touchAction: "manipulation",
+          }}>
+          <canvas
+            ref={canvasRef}
+            style={{
+              width: COLS * cs,
+              height: ROWS * cs,
+              display: "block",
+              cursor: tool ? "crosshair" : "pointer",
+            }}
+            onPointerMove={(e) => {
+              if (e.pointerType === "mouse") hoverRef.current = cellFromEvent(e);
+            }}
+            onPointerLeave={() => (hoverRef.current = null)}
+            onClick={handleClick}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setTool(null);
+              setSelectedId(null);
+            }}
+          />
+
+          {toast && (
+            <Box
+              sx={{
+                position: "absolute",
+                top: 10,
+                left: "50%",
+                transform: "translateX(-50%)",
+                bgcolor: "rgba(17,24,39,0.88)",
+                color: "white",
+                px: 2,
+                py: 0.75,
+                borderRadius: 99,
+                fontWeight: 700,
+                fontSize: "0.9rem",
+                pointerEvents: "none",
+                whiteSpace: "nowrap",
+              }}>
+              {toast}
+            </Box>
+          )}
+
+          {paused && !over && (
+            <Box
+              onClick={() => setPaused(false)}
+              sx={{
+                position: "absolute",
+                inset: 0,
+                bgcolor: "rgba(15,23,42,0.45)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}>
+              <Typography sx={{ color: "white", fontWeight: 900, fontSize: "2rem", textShadow: "0 2px 8px #000" }}>
+                <FontAwesomeIcon icon={faPause} /> Paused
+              </Typography>
+            </Box>
+          )}
+
+          {over && (
+            <Box
+              sx={{
+                position: "absolute",
+                inset: 0,
+                bgcolor: "rgba(15,23,42,0.6)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                p: 2,
+              }}>
+              <Paper sx={{ p: { xs: 2.5, md: 4 }, borderRadius: 4, textAlign: "center", maxWidth: 340 }}>
+                <Box sx={{ fontSize: "3rem", color: hud.phase === "win" ? "#f59e0b" : "#64748b", mb: 1 }}>
+                  <FontAwesomeIcon icon={hud.phase === "win" ? faTrophy : faSkull} />
+                </Box>
+                <Typography variant="h4" sx={{ fontWeight: 900, mb: 0.5 }}>
+                  {hud.phase === "win" ? "You Won!" : "Game Over"}
+                </Typography>
+                <Typography sx={{ mb: 3, color: "text.secondary" }}>
+                  {hud.phase === "win"
+                    ? `All ${TOTAL_WAVES} waves defeated with ${hud.lives} lives left!`
+                    : `You made it to wave ${hud.wave}.`}
+                </Typography>
+                <Button
+                  variant="contained"
+                  size="large"
+                  onClick={restart}
+                  startIcon={<FontAwesomeIcon icon={faRotateRight} />}
+                  sx={{ fontWeight: 900, borderRadius: 99, px: 3 }}>
+                  Play again
+                </Button>
+              </Paper>
+            </Box>
+          )}
+        </Box>
       </Box>
 
-      {/* Grid + enemies */}
-      <Box ref={containerRef} sx={{ px: 1, pt: 2, overflowX: "auto" }}>
-        <Box sx={{ position: "relative", width: gridW, height: gridH }}>
-          {/* Cells */}
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: `repeat(${COLS}, ${cs}px)`,
-              gridTemplateRows: `repeat(${ROWS}, ${cs}px)`,
-              border: "2px solid",
-              borderColor: "divider",
-              position: "absolute",
-              inset: 0,
-            }}>
-            {Array.from({ length: ROWS }, (_, row) =>
-              Array.from({ length: COLS }, (_, col) => {
-                const key = `${row},${col}`;
-                const tower = towerMap.get(key);
-                const isEntry = row === ENTRY[0] && col === ENTRY[1];
-                const isExit = row === EXIT[0] && col === EXIT[1];
-                const onPath = pathSet.has(key) && !tower;
-                const def = tower ? DEFS[tower.type] : null;
-
-                return (
-                  <Box
-                    key={key}
-                    onClick={() => handleCellClick(row, col)}
-                    sx={{
-                      width: cs,
-                      height: cs,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: cs * 0.44,
-                      position: "relative",
-                      bgcolor: isEntry
-                        ? "#86efac"
-                        : isExit
-                          ? "#fca5a5"
-                          : tower
-                            ? `${def!.color}30`
-                            : onPath
-                              ? "rgba(0,0,0,0.04)"
-                              : "background.paper",
-                      border: "0.5px solid",
-                      borderColor: tower ? def!.color + "88" : "divider",
-                      cursor: g.phase === "build" ? "pointer" : "default",
-                      userSelect: "none",
-                      "&:hover":
-                        g.phase === "build" && !tower
-                          ? {
-                              bgcolor:
-                                tool !== "sell"
-                                  ? `${DEFS[tool as TowerType]?.color ?? "#ccc"}20`
-                                  : "action.hover",
-                            }
-                          : {},
-                    }}>
-                    {isEntry ? (
-                      <span style={{ fontSize: cs * 0.5 }}>▶</span>
-                    ) : isExit ? (
-                      <span style={{ fontSize: cs * 0.5 }}>🏁</span>
-                    ) : tower ? (
-                      <>
-                        {def!.emoji}
-                        {tower.level === 2 && (
-                          <Box
-                            sx={{
-                              position: "absolute",
-                              top: 1,
-                              right: 1,
-                              width: cs * 0.28,
-                              height: cs * 0.28,
-                              borderRadius: "50%",
-                              bgcolor: "#f59e0b",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: cs * 0.18,
-                              fontWeight: 900,
-                              color: "white",
-                            }}>
-                            ★
-                          </Box>
-                        )}
-                      </>
-                    ) : null}
-                  </Box>
-                );
-              }),
-            )}
-          </Box>
-
-          {/* Projectile SVG overlay */}
-          <svg
-            style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 6, overflow: "visible" }}
-            width={gridW}
-            height={gridH}>
-            {projRef.current.map((p) => {
-              const now = performance.now();
-              const t = Math.min(1, (now - p.born) / (p.duration * 1000));
-              const x1 = (p.fromCol + 0.5) * cs;
-              const y1 = (p.fromRow + 0.5) * cs;
-              const x2 = (p.toCol + 0.5) * cs;
-              const y2 = (p.toRow + 0.5) * cs;
-
-              if (p.type === "sniper") {
-                // Laser beam: full line, fades out
-                return (
-                  <line
-                    key={p.id}
-                    x1={x1} y1={y1} x2={x2} y2={y2}
-                    stroke="#a78bfa"
-                    strokeWidth={2.5}
-                    strokeLinecap="round"
-                    opacity={1 - t}
-                  />
-                );
-              }
-
-              if (p.type === "splash") {
-                // Arc bomb: circle travels along parabolic arc, then ring explosion
-                const bx = x1 + (x2 - x1) * t;
-                const by = y1 + (y2 - y1) * t - Math.sin(t * Math.PI) * cs * 1.2;
-                if (t < 0.85) {
-                  return (
-                    <g key={p.id}>
-                      <circle cx={bx} cy={by} r={cs * 0.18} fill="#ef4444" opacity={0.9} />
-                      <circle cx={bx} cy={by} r={cs * 0.10} fill="#fbbf24" opacity={0.95} />
-                    </g>
-                  );
-                }
-                // Impact ring
-                const boom = (t - 0.85) / 0.15;
-                return (
-                  <g key={p.id}>
-                    <circle cx={x2} cy={y2} r={cs * 0.8 * boom} fill="none" stroke="#ef4444" strokeWidth={3} opacity={1 - boom} />
-                    <circle cx={x2} cy={y2} r={cs * 0.4 * boom} fill="#fbbf24" opacity={(1 - boom) * 0.5} />
-                  </g>
-                );
-              }
-
-              // Basic: bullet dot travelling from tower to enemy
-              const bx = x1 + (x2 - x1) * t;
-              const by = y1 + (y2 - y1) * t;
-              return (
-                <g key={p.id}>
-                  <circle cx={bx} cy={by} r={cs * 0.14} fill="#60a5fa" opacity={0.95} />
-                  <circle cx={bx} cy={by} r={cs * 0.07} fill="white" opacity={0.9} />
-                </g>
-              );
-            })}
-          </svg>
-
-          {/* Damage numbers */}
-          {dmgRef.current.map((d) => {
-            const now = performance.now();
-            const t = Math.min(1, (now - d.born) / 900);
-            const x = (d.col + 0.5) * cs;
-            const y = (d.row + 0.5) * cs - t * cs * 1.4;
+      {/* Shop + selected tower */}
+      <Box sx={{ display: "flex", gap: 1.5, mt: 2, flexWrap: "wrap", alignItems: "stretch" }}>
+        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", flex: 1, alignContent: "flex-start" }}>
+          {TOWER_ORDER.map((type, i) => {
+            const def = TOWERS[type];
+            const cost = def.levels[0].cost;
+            const active = tool === type;
+            const affordable = hud.gold >= cost;
             return (
-              <div
-                key={d.id}
-                style={{
-                  position: "absolute",
-                  left: x,
-                  top: y,
-                  transform: "translate(-50%, -50%)",
-                  pointerEvents: "none",
-                  zIndex: 8,
-                  fontWeight: 900,
-                  fontSize: Math.max(10, cs * 0.38),
-                  color: d.color,
-                  opacity: t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4,
-                  textShadow: "0 1px 3px rgba(0,0,0,0.7)",
-                  whiteSpace: "nowrap",
+              <Paper
+                key={type}
+                elevation={active ? 6 : 1}
+                onClick={() => chooseTool(type, true)}
+                sx={{
+                  position: "relative",
+                  width: { xs: "calc(33.33% - 6px)", sm: 132 },
+                  p: 1,
+                  borderRadius: 3,
+                  cursor: "pointer",
+                  textAlign: "center",
+                  border: "2px solid",
+                  borderColor: active ? def.color : "transparent",
+                  bgcolor: active ? `${def.color}1f` : "background.paper",
+                  opacity: affordable ? 1 : 0.55,
+                  transition: "transform 0.12s ease, box-shadow 0.12s ease",
                   userSelect: "none",
+                  "@media (hover: hover)": { "&:hover": { transform: "translateY(-2px)" } },
+                  "&:active": { transform: "scale(0.97)" },
                 }}>
-                -{d.dmg}
-              </div>
-            );
-          })}
-
-          {/* Enemies */}
-          {g.path &&
-            g.enemies.map((enemy) => {
-              const [er, ec] = enemyXY(enemy, g.path!);
-              const hpPct = Math.max(0, enemy.hp / enemy.maxHp);
-              const typeDef = ENEMY_TYPES[enemy.type];
-              const eSize = cs * 0.68 * typeDef.sizeMult;
-              return (
                 <Box
-                  key={enemy.id}
                   sx={{
                     position: "absolute",
-                    left: ec * cs + cs / 2 - eSize / 2,
-                    top: er * cs + cs / 2 - eSize / 2,
-                    width: eSize,
-                    height: eSize,
-                    borderRadius: "50%",
-                    bgcolor: typeDef.color,
-                    border:
-                      enemy.type === "boss"
-                        ? "3px solid #b91c1c"
-                        : enemy.type === "armored"
-                          ? "2px solid #64748b"
-                          : "2px solid rgba(0,0,0,0.25)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: eSize * 0.5,
-                    pointerEvents: "none",
-                    zIndex: 5,
-                    opacity: hpPct > 0.3 ? 1 : 0.7,
+                    top: 6,
+                    left: 8,
+                    fontSize: "0.7rem",
+                    fontWeight: 800,
+                    color: "text.disabled",
+                    display: { xs: "none", md: "block" },
                   }}>
-                  {typeDef.emoji}
-                  <Box
-                    sx={{
-                      position: "absolute",
-                      bottom: -3,
-                      left: 0,
-                      right: 0,
-                      height: 3,
-                      bgcolor: "rgba(0,0,0,0.2)",
-                      borderRadius: 1,
-                      overflow: "hidden",
-                    }}>
-                    <Box
-                      sx={{
-                        width: `${hpPct * 100}%`,
-                        height: "100%",
-                        borderRadius: 1,
-                        bgcolor:
-                          hpPct > 0.6
-                            ? "#16a34a"
-                            : hpPct > 0.3
-                              ? "#ca8a04"
-                              : "#dc2626",
-                      }}
-                    />
-                  </Box>
+                  {i + 1}
                 </Box>
-              );
-            })}
-        </Box>
-
-        {/* Tower picker */}
-        <Box sx={{ display: "flex", gap: 1.5, mt: 2, flexWrap: "wrap" }}>
-          {(Object.entries(DEFS) as [TowerType, TowerDef][]).map(
-            ([type, def]) => (
-              <Box
-                key={type}
-                onClick={() => setTool(type)}
-                sx={{
-                  border: "2px solid",
-                  borderColor: tool === type ? def.color : "divider",
-                  borderRadius: 2,
-                  p: 1.5,
-                  minWidth: 90,
-                  cursor: "pointer",
-                  bgcolor:
-                    tool === type ? `${def.color}20` : "background.paper",
-                  opacity: g.gold < def.cost ? 0.45 : 1,
-                  "&:hover": { bgcolor: `${def.color}15` },
-                }}>
-                <Typography sx={{ fontSize: "1.6rem", textAlign: "center" }}>
-                  {def.emoji}
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{ fontWeight: 700, textAlign: "center" }}>
-                  {def.label}
-                </Typography>
+                <Box sx={{ display: "flex", justifyContent: "center" }}>
+                  <TowerIcon type={type} size={52} />
+                </Box>
+                <Typography sx={{ fontWeight: 900, fontSize: "0.95rem", lineHeight: 1.2 }}>{def.name}</Typography>
+                <Box
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 0.5,
+                    fontWeight: 800,
+                    fontSize: "0.85rem",
+                    color: affordable ? "#d97706" : "text.disabled",
+                  }}>
+                  <FontAwesomeIcon icon={faCoins} /> {cost}
+                </Box>
                 <Typography
                   variant="caption"
-                  sx={{ display: "block", textAlign: "center", opacity: 0.6 }}>
-                  💰{def.cost} · ⬆️{def.upgCost}
+                  sx={{ display: { xs: "none", sm: "block" }, color: "text.secondary", lineHeight: 1.25, mt: 0.25 }}>
+                  {def.tagline}
                 </Typography>
-              </Box>
-            ),
-          )}
-          <Box
-            onClick={() => setTool("sell")}
-            sx={{
-              border: "2px solid",
-              borderColor: tool === "sell" ? "#f59e0b" : "divider",
-              borderRadius: 2,
-              p: 1.5,
-              minWidth: 90,
-              cursor: "pointer",
-              bgcolor: tool === "sell" ? "#f59e0b20" : "background.paper",
-              "&:hover": { bgcolor: "#f59e0b15" },
-            }}>
-            <Typography sx={{ fontSize: "1.6rem", textAlign: "center" }}>
-              💸
-            </Typography>
-            <Typography
-              variant="body2"
-              sx={{ fontWeight: 700, textAlign: "center" }}>
-              Sell
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{ display: "block", textAlign: "center", opacity: 0.6 }}>
-              50% back
-            </Typography>
-          </Box>
+              </Paper>
+            );
+          })}
         </Box>
-
-        {/* Tips */}
-        <Box sx={{ mt: 1.5, display: "flex", gap: 2, flexWrap: "wrap" }}>
-          <Typography variant="caption" sx={{ opacity: 0.5 }}>
-            Click empty cell to place · Click your own tower to upgrade (Lv★)
-          </Typography>
-          <Typography variant="caption" sx={{ opacity: 0.5 }}>
-            🗼 steady damage &nbsp;·&nbsp; 🎯 long range, high burst
-            &nbsp;·&nbsp; 💣 hits all nearby enemies
-          </Typography>
-        </Box>
+        {selected && (
+          <TowerPanel
+            tower={selected}
+            gold={hud.gold}
+            onUpgrade={upgradeSelected}
+            onSell={sellSelected}
+            onClose={() => setSelectedId(null)}
+          />
+        )}
       </Box>
 
-      {/* Game Over overlay */}
-      {g.phase === "gameover" && (
-        <Box
-          sx={{
-            position: "fixed",
-            inset: 0,
-            bgcolor: "rgba(0,0,0,0.72)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 200,
-          }}>
-          <Box
-            sx={{
-              bgcolor: "background.paper",
-              borderRadius: 4,
-              p: 4,
-              textAlign: "center",
-              maxWidth: 300,
-            }}>
-            <Typography sx={{ fontSize: "3rem" }}>💀</Typography>
-            <Typography variant="h4" sx={{ fontWeight: 900, mb: 1 }}>
-              Game Over
-            </Typography>
-            <Typography variant="body1" sx={{ mb: 3, opacity: 0.6 }}>
-              You made it to Wave {g.wave + 1}
-            </Typography>
-            <button className="btn" onClick={reset}>
-              Play Again
-            </button>
-          </Box>
-        </Box>
-      )}
-
-      {/* Win overlay */}
-      {g.phase === "win" && (
-        <Box
-          sx={{
-            position: "fixed",
-            inset: 0,
-            bgcolor: "rgba(0,0,0,0.72)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 200,
-          }}>
-          <Box
-            sx={{
-              bgcolor: "background.paper",
-              borderRadius: 4,
-              p: 4,
-              textAlign: "center",
-              maxWidth: 300,
-            }}>
-            <div className="cooking-stars">🏆 ⭐ 🏆</div>
-            <Typography variant="h4" sx={{ fontWeight: 900, mb: 1 }}>
-              You Won!
-            </Typography>
-            <Typography variant="body1" sx={{ mb: 3, opacity: 0.6 }}>
-              All {TOTAL_WAVES} waves defeated!
-            </Typography>
-            <button className="btn" onClick={reset}>
-              Play Again
-            </button>
-          </Box>
-        </Box>
-      )}
+      <Typography variant="body2" sx={{ mt: 1.5, color: "text.secondary" }}>
+        Build towers on the grass to make a maze. Enemies always take the shortest way to your castle, and
+        you can keep building during a wave. Tap a tower to upgrade or sell it.
+      </Typography>
+      <Typography variant="caption" sx={{ display: { xs: "none", md: "block" }, color: "text.disabled", mt: 0.5 }}>
+        Shortcuts: 1–5 pick a tower · Space start / send wave · U upgrade · Delete sell · P pause · Esc cancel
+      </Typography>
     </Box>
   );
 }

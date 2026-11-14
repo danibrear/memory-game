@@ -10,6 +10,9 @@ export const WARNING = "#e6c36a";
 export const BACKGROUND = "#f3eddf";
 export const DARK_BACKGROUND = "#000";
 
+/** Rounded, playful display face for headings and buttons. */
+export const DISPLAY_FONT = '"Fredoka", "Inter", system-ui, sans-serif';
+
 export const theme = createTheme({
   colorSchemes: {
     dark: true,
