@@ -506,6 +506,7 @@ export function KitDialog({
   onClose,
   icon,
   title,
+  className,
   children,
 }: {
   game: Game;
@@ -513,6 +514,8 @@ export function KitDialog({
   onClose: () => void;
   icon: IconDefinition;
   title: ReactNode;
+  /** Extra class for the dialog surface, e.g. to make a roomier menu. */
+  className?: string;
   children: ReactNode;
 }) {
   return (
@@ -520,7 +523,7 @@ export function KitDialog({
       open={open}
       onClose={onClose}
       slotProps={{
-        paper: { className: "dg-vars dg-dialog", style: gameVars(game) },
+        paper: { className: cx("dg-vars dg-dialog", className), style: gameVars(game) },
       }}>
       <div className="dg-dialog-icon">
         <FontAwesomeIcon icon={icon} />

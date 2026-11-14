@@ -13,4 +13,5 @@ export default [
   route("/e", "routes/el.tsx"),
   route("/arrows", "routes/arrows.tsx"),
   route("/munch", "routes/munch.tsx"),
+  route("/eggs", "routes/eggs.tsx"),
 ] satisfies RouteConfig;
