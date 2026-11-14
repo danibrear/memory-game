@@ -5,6 +5,7 @@
 // are in pixels; `s` is the size of one grid cell in pixels.
 
 import {
+  ABILITIES,
   COLS,
   ENEMIES,
   HEAL_AURA_RANGE,
@@ -19,7 +20,7 @@ import {
   type ThemeId,
   type TowerType,
 } from "./config";
-import { coverageOutline, createGame, isGate, rangeAt, towerRange } from "./engine";
+import { coverageOutline, createGame, isGate, needsSight, rangeAt, towerRange, towerStats } from "./engine";
 import type { Bolt, Enemy, Game, Level, Particle, Projectile, Tower } from "./engine";
 
 type Ctx = CanvasRenderingContext2D;
@@ -198,6 +199,50 @@ const THEMES: Record<ThemeId, Theme> = {
     hillSide: "#4f9f3e",
     cobble: "#a8a29e",
     cobbleStone: "#d6d3d1",
+  },
+  shore: {
+    groundA: "#f2dfa8",
+    groundB: "#ecd69a",
+    vignette: "rgba(120,90,20,0.16)",
+    tuft: "rgba(120,150,70,0.6)",
+    flowers: ["#ffffff", "#fda4af"],
+    pathEdge: "#c9a35e",
+    path: "#fbeecb",
+    pathLight: "rgba(255,250,230,0.6)",
+    pathPebble: "rgba(160,120,60,0.4)",
+    water: "#2bb5d6",
+    waterDeep: "#1588b0",
+    foam: "rgba(255,255,255,0.9)",
+    rockTop: "#cdd2d8",
+    rockMid: "#8f98a3",
+    rockDark: "#525b66",
+    rockCap: null,
+    hillTop: "#fff3cf",
+    hillSide: "#c79a52",
+    cobble: "#b9a58a",
+    cobbleStone: "#e2d3bb",
+  },
+  ash: {
+    groundA: "#655c57",
+    groundB: "#5d5450",
+    vignette: "rgba(20,8,6,0.32)",
+    tuft: "rgba(35,28,25,0.6)",
+    flowers: null,
+    pathEdge: "#8a6a45",
+    path: "#dcc09a",
+    pathLight: "rgba(246,230,204,0.55)",
+    pathPebble: "rgba(110,80,50,0.45)",
+    water: "#f97316",
+    waterDeep: "#c2410c",
+    foam: "rgba(254,215,170,0.9)",
+    rockTop: "#a17a68",
+    rockMid: "#6b473b",
+    rockDark: "#2b1a16",
+    rockCap: null,
+    hillTop: "#c4b2a5",
+    hillSide: "#4a3a33",
+    cobble: "#7a6a60",
+    cobbleStone: "#b3a296",
   },
 };
 
@@ -786,6 +831,12 @@ const BASE_COLORS: Record<Level, { top: string; side: string; rim: string }> = {
   2: { top: "#fcd34d", side: "#b45309", rim: "#92400e" },
 };
 
+/** Final forms stand on their own platforms: dark steel or white marble. */
+const SPEC_COLORS: [{ top: string; side: string; rim: string; pip: string }, { top: string; side: string; rim: string; pip: string }] = [
+  { top: "#4b5563", side: "#111827", rim: "#030712", pip: "#f87171" },
+  { top: "#f8fafc", side: "#94a3b8", rim: "#475569", pip: "#38bdf8" },
+];
+
 export interface TowerPose {
   angle: number;
   recoil: number;
@@ -801,9 +852,10 @@ export function drawTower(
   y: number,
   s: number,
   time: number,
+  spec: 0 | 1 | null = null,
 ) {
   const def = TOWERS[type];
-  const bc = BASE_COLORS[level];
+  const bc = spec !== null ? SPEC_COLORS[spec] : BASE_COLORS[level];
   const half = s * 0.4;
 
   // Platform
@@ -817,26 +869,47 @@ export function drawTower(
   ctx.roundRect(x - half, y - half, half * 2, half * 2 - s * 0.02, s * 0.14);
   ctx.fill();
   // Bricks / bevel
-  ctx.strokeStyle = "rgba(0,0,0,0.12)";
-  ctx.lineWidth = Math.max(1, s * 0.02);
+  ctx.strokeStyle = spec !== null ? def.color : "rgba(0,0,0,0.12)";
+  ctx.lineWidth = Math.max(1, s * (spec !== null ? 0.035 : 0.02));
   ctx.beginPath();
   ctx.roundRect(x - half * 0.78, y - half * 0.78, half * 1.56, half * 1.56, s * 0.1);
   ctx.stroke();
-  // Tower-colour ring
-  circle(ctx, x, y, s * 0.27, bc.rim);
-  circle(ctx, x, y, s * 0.24, shadeHex(def.color, -0.35));
+  if (def.role === "attack") {
+    // Tower-colour ring
+    circle(ctx, x, y, s * 0.27, bc.rim);
+    circle(ctx, x, y, s * 0.24, shadeHex(def.color, -0.35));
+  }
 
-  // Level pips
+  // Level pips (a row of gems once the tower has its final form)
   for (let i = 0; i <= level; i++) {
     const px = x + (i - level / 2) * s * 0.13;
     const py = y + half + s * 0.02;
-    circle(ctx, px, py, s * 0.055, "#78350f");
-    circle(ctx, px, py, s * 0.04, "#fde047");
+    if (spec !== null) {
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(-s * 0.055, -s * 0.055, s * 0.11, s * 0.11);
+      ctx.fillStyle = SPEC_COLORS[spec].pip;
+      ctx.fillRect(-s * 0.038, -s * 0.038, s * 0.076, s * 0.076);
+      ctx.restore();
+    } else {
+      circle(ctx, px, py, s * 0.055, "#78350f");
+      circle(ctx, px, py, s * 0.04, "#fde047");
+    }
   }
 
   ctx.save();
   ctx.translate(x, y);
+  // Final forms are a touch bigger.
+  if (spec !== null && def.role === "attack") ctx.scale(1.12, 1.12);
   switch (type) {
+    case "beacon":
+      drawBeacon(ctx, level, s, time, spec);
+      break;
+    case "mine":
+      drawMine(ctx, level, s, time, spec);
+      break;
     case "blaster":
       drawBlaster(ctx, def.color, level, pose, s);
       break;
@@ -854,6 +927,141 @@ export function drawTower(
       break;
   }
   ctx.restore();
+}
+
+function drawBeacon(ctx: Ctx, level: Level, s: number, time: number, spec: 0 | 1 | null) {
+  const tall = s * (0.26 + level * 0.02 + (spec === 1 ? 0.05 : 0));
+  const lampY = -tall - s * 0.02;
+  const lamp = spec === 0 ? "#fb923c" : "#fde68a";
+  // Sweeping light
+  ctx.save();
+  ctx.translate(0, lampY);
+  ctx.rotate(time * 1.6);
+  for (const dir of [0, Math.PI]) {
+    const g = ctx.createLinearGradient(0, 0, Math.cos(dir) * s * 0.55, Math.sin(dir) * s * 0.55);
+    g.addColorStop(0, "rgba(254,240,138,0.6)");
+    g.addColorStop(1, "rgba(254,240,138,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, s * 0.55, dir - 0.28, dir + 0.28);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+  // Striped tower
+  const bw = s * 0.17;
+  const tw = s * 0.11;
+  ctx.fillStyle = "#f8fafc";
+  ctx.strokeStyle = "#334155";
+  ctx.lineWidth = Math.max(1, s * 0.025);
+  ctx.beginPath();
+  ctx.moveTo(-bw, s * 0.2);
+  ctx.lineTo(-tw, -tall + s * 0.08);
+  ctx.lineTo(tw, -tall + s * 0.08);
+  ctx.lineTo(bw, s * 0.2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = spec === 0 ? "#dc2626" : "#10b981";
+  for (let i = 0; i < 3; i++) ctx.fillRect(-bw, s * 0.12 - i * s * 0.15, bw * 2, s * 0.07);
+  ctx.restore();
+  // Gallery and lamp
+  ctx.fillStyle = "#334155";
+  ctx.fillRect(-tw - s * 0.04, -tall + s * 0.04, tw * 2 + s * 0.08, s * 0.05);
+  const glow = 0.75 + 0.25 * Math.sin(time * 4);
+  ctx.save();
+  ctx.globalAlpha = 0.45 * glow;
+  circle(ctx, 0, lampY, s * (0.17 + level * 0.015), lamp);
+  ctx.restore();
+  circle(ctx, 0, lampY, s * 0.1, "#334155");
+  circle(ctx, 0, lampY, s * 0.075, lamp);
+  circle(ctx, -s * 0.02, lampY - s * 0.02, s * 0.025, "#ffffff");
+  // Roof
+  ctx.fillStyle = spec === 0 ? "#7f1d1d" : "#065f46";
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.11, lampY - s * 0.07);
+  ctx.lineTo(0, lampY - s * 0.2);
+  ctx.lineTo(s * 0.11, lampY - s * 0.07);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawMine(ctx: Ctx, level: Level, s: number, time: number, spec: 0 | 1 | null) {
+  // Tunnel mouth
+  ctx.fillStyle = "#1c1917";
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.2, s * 0.2);
+  ctx.lineTo(-s * 0.2, -s * 0.06);
+  ctx.arc(0, -s * 0.06, s * 0.2, Math.PI, 0);
+  ctx.lineTo(s * 0.2, s * 0.2);
+  ctx.closePath();
+  ctx.fill();
+  // Timber frame
+  ctx.strokeStyle = "#92400e";
+  ctx.lineWidth = Math.max(2, s * 0.07);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.23, s * 0.2);
+  ctx.lineTo(-s * 0.2, -s * 0.2);
+  ctx.moveTo(s * 0.23, s * 0.2);
+  ctx.lineTo(s * 0.2, -s * 0.2);
+  ctx.moveTo(-s * 0.26, -s * 0.21);
+  ctx.lineTo(s * 0.26, -s * 0.21);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.lineWidth = Math.max(1, s * 0.02);
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.24, -s * 0.23);
+  ctx.lineTo(s * 0.24, -s * 0.23);
+  ctx.stroke();
+  // Gold: more of it at each level
+  const nuggets: [number, number, number][] = [
+    [-0.07, 0.16, 0.07],
+    [0.06, 0.17, 0.065],
+    [0, 0.08, 0.07],
+    [-0.14, 0.2, 0.05],
+    [0.14, 0.21, 0.05],
+    [0.07, 0.05, 0.055],
+    [-0.07, 0.04, 0.055],
+    [0, -0.04, 0.06],
+  ];
+  const count = spec !== null ? nuggets.length : 3 + level * 2;
+  for (let i = 0; i < count; i++) {
+    const [nx, ny, nr] = nuggets[i];
+    circle(ctx, nx * s, ny * s + s * 0.015, nr * s, "#a16207");
+    circle(ctx, nx * s, ny * s, nr * s * 0.92, "#facc15");
+    circle(ctx, nx * s - nr * s * 0.3, ny * s - nr * s * 0.3, nr * s * 0.3, "#fef9c3");
+  }
+  if (spec === 1) {
+    // Bounty Board: a wanted poster nailed to the frame
+    ctx.fillStyle = "#fef3c7";
+    ctx.fillRect(s * 0.08, -s * 0.36, s * 0.16, s * 0.2);
+    ctx.fillStyle = "#b91c1c";
+    ctx.fillRect(s * 0.11, -s * 0.33, s * 0.1, s * 0.03);
+    circle(ctx, s * 0.16, -s * 0.24, s * 0.035, "#78350f");
+  }
+  // Twinkle
+  const tw = (time * 0.9) % 1;
+  const sx = (tw < 0.5 ? -0.07 : 0.07) * s;
+  const sy = (tw < 0.5 ? 0.1 : 0.02) * s;
+  const size = Math.sin((tw % 0.5) * 2 * Math.PI) * s * 0.07;
+  if (size > 0) {
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.moveTo(sx, sy - size);
+    ctx.lineTo(sx + size * 0.25, sy - size * 0.25);
+    ctx.lineTo(sx + size, sy);
+    ctx.lineTo(sx + size * 0.25, sy + size * 0.25);
+    ctx.lineTo(sx, sy + size);
+    ctx.lineTo(sx - size * 0.25, sy + size * 0.25);
+    ctx.lineTo(sx - size, sy);
+    ctx.lineTo(sx - size * 0.25, sy - size * 0.25);
+    ctx.closePath();
+    ctx.fill();
+  }
 }
 
 function turretHead(ctx: Ctx, r: number, color: string) {
@@ -1119,6 +1327,19 @@ function bodyPath(ctx: Ctx, type: EnemyType, r: number, squash: number) {
     case "flyer":
       ctx.ellipse(0, 0, rx, ry * 0.92, 0, 0, TAU);
       break;
+    case "shade": {
+      // Ghost: domed head, ragged hem
+      ctx.moveTo(-rx, ry);
+      ctx.bezierCurveTo(-rx * 1.1, -ry * 1.5, rx * 1.1, -ry * 1.5, rx, ry);
+      ctx.quadraticCurveTo(rx * 0.75, ry * 0.55, rx * 0.5, ry);
+      ctx.quadraticCurveTo(rx * 0.25, ry * 1.35, 0, ry);
+      ctx.quadraticCurveTo(-rx * 0.25, ry * 0.55, -rx * 0.5, ry);
+      ctx.quadraticCurveTo(-rx * 0.75, ry * 1.35, -rx, ry);
+      break;
+    }
+    case "jammer":
+      ctx.roundRect(-rx * 0.95, -ry * 0.85, rx * 1.9, ry * 1.8, r * 0.32);
+      break;
     case "splitter":
       ctx.roundRect(-rx * 1.12, -ry * 0.95, rx * 2.24, ry * 1.9, r * 0.8);
       break;
@@ -1182,6 +1403,12 @@ export function drawEnemySprite(
     speed?: number;
     hitFlash?: number;
     slowed?: boolean;
+    /** A Shade nothing is lighting up: drawn as a faint outline. */
+    hidden?: boolean;
+    burning?: boolean;
+    frozen?: boolean;
+    /** 0..1, how worked up a Rager is. */
+    rage?: number;
   } = {},
 ) {
   const def = ENEMIES[type];
@@ -1211,7 +1438,19 @@ export function drawEnemySprite(
   else shadow(ctx, x, y + r * 0.85, r * 0.85 * (1 - hop / (r * 0.6)), r * 0.28);
 
   ctx.save();
+  if (opts.hidden) ctx.globalAlpha = 0.3;
   ctx.translate(x, y - hop - lift);
+
+  // A Rager's temper shows as a growing red glow.
+  if (opts.rage && opts.rage > 0.05) {
+    const glow = ctx.createRadialGradient(0, 0, r * 0.4, 0, 0, r * (1.5 + opts.rage));
+    glow.addColorStop(0, `rgba(248,113,113,${0.55 * opts.rage})`);
+    glow.addColorStop(1, "rgba(248,113,113,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * (1.5 + opts.rage), 0, TAU);
+    ctx.fill();
+  }
 
   // Speed streaks for fast enemies
   if (type === "fast") {
@@ -1252,6 +1491,57 @@ export function drawEnemySprite(
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+    }
+  } else if (type === "charger") {
+    // Flame mohawk and forward horns
+    const flick = Math.sin(time * 18 + (opts.seed ?? 0));
+    for (const [fx, fh, col] of [[-0.3, 1.5, "#f97316"], [0.05, 1.85, "#fb923c"], [0.4, 1.45, "#f97316"], [0.05, 1.45, "#fde047"]] as const) {
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo((fx - 0.22) * r, -r * 0.6);
+      ctx.quadraticCurveTo((fx - 0.1 + flick * 0.08) * r, -r * fh * 0.8, (fx + flick * 0.12) * r, -r * fh);
+      ctx.quadraticCurveTo((fx + 0.16) * r, -r * fh * 0.75, (fx + 0.22) * r, -r * 0.6);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = "#fef3c7";
+    ctx.strokeStyle = "#78350f";
+    ctx.lineWidth = Math.max(1, r * 0.06);
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(side * r * 0.55, -r * 0.55);
+      ctx.quadraticCurveTo(side * r * 1.25, -r * 0.75, side * r * 1.2, -r * 1.15);
+      ctx.quadraticCurveTo(side * r * 0.95, -r * 0.75, side * r * 0.35, -r * 0.8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  } else if (type === "jammer") {
+    // Antenna with a blinking tip
+    ctx.strokeStyle = def.shade;
+    ctx.lineWidth = Math.max(1, r * 0.1);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 0.8);
+    ctx.lineTo(0, -r * 1.5);
+    ctx.stroke();
+    const blink = 0.5 + 0.5 * Math.sin(time * 9 + (opts.seed ?? 0));
+    ctx.save();
+    ctx.globalAlpha *= 0.35 + 0.4 * blink;
+    circle(ctx, 0, -r * 1.55, r * 0.34, "#fde047");
+    ctx.restore();
+    circle(ctx, 0, -r * 1.55, r * 0.17, "#facc15");
+  } else if (type === "emperor") {
+    // A ruff of dark spikes
+    ctx.fillStyle = def.shade;
+    for (let i = 0; i < 7; i++) {
+      const a = Math.PI + ((i + 0.5) / 7) * Math.PI;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a - 0.2) * r * 0.9, Math.sin(a - 0.2) * r * 0.9);
+      ctx.lineTo(Math.cos(a) * r * 1.4, Math.sin(a) * r * 1.4);
+      ctx.lineTo(Math.cos(a + 0.2) * r * 0.9, Math.sin(a + 0.2) * r * 0.9);
+      ctx.closePath();
+      ctx.fill();
     }
   } else if (type === "flyer") {
     const flap = Math.sin(time * 22 + (opts.seed ?? 0) * 3);
@@ -1330,6 +1620,61 @@ export function drawEnemySprite(
     case "mini":
       eyes(ctx, r, lookX, lookY, { size: 0.3, y: -0.1 });
       break;
+    case "shade":
+      // Blank glowing eyes and a small round mouth
+      for (const side of [-1, 1]) {
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.ellipse(side * r * 0.34 + lookX * r * 0.1, -r * 0.25 + lookY * r * 0.06, r * 0.17, r * 0.24, 0, 0, TAU);
+        ctx.fill();
+      }
+      ctx.fillStyle = def.shade;
+      ctx.beginPath();
+      ctx.ellipse(lookX * r * 0.1, r * 0.25, r * 0.13, r * 0.17, 0, 0, TAU);
+      ctx.fill();
+      break;
+    case "charger":
+      eyes(ctx, r, lookX, lookY, { angry: true, size: 0.24, y: -0.15 });
+      // Gritted teeth
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#450a0a";
+      ctx.lineWidth = Math.max(1, r * 0.07);
+      ctx.beginPath();
+      ctx.roundRect(-r * 0.38 + lookX * r * 0.08, r * 0.2, r * 0.76, r * 0.26, r * 0.08);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      for (const tx of [-0.19, 0, 0.19]) {
+        ctx.moveTo(tx * r + lookX * r * 0.08, r * 0.2);
+        ctx.lineTo(tx * r + lookX * r * 0.08, r * 0.46);
+      }
+      ctx.stroke();
+      break;
+    case "jammer": {
+      // Dark visor with two lit eyes and a lightning bolt on the chest
+      ctx.fillStyle = "#0f172a";
+      ctx.beginPath();
+      ctx.roundRect(-r * 0.7, -r * 0.5, r * 1.4, r * 0.5, r * 0.2);
+      ctx.fill();
+      const lit = 0.6 + 0.4 * Math.sin(time * 9 + (opts.seed ?? 0));
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.globalAlpha *= lit;
+        circle(ctx, side * r * 0.3 + lookX * r * 0.1, -r * 0.25, r * 0.13, "#fde047");
+        ctx.restore();
+      }
+      ctx.fillStyle = "#facc15";
+      ctx.beginPath();
+      ctx.moveTo(r * 0.12, r * 0.1);
+      ctx.lineTo(-r * 0.2, r * 0.45);
+      ctx.lineTo(-r * 0.02, r * 0.45);
+      ctx.lineTo(-r * 0.14, r * 0.78);
+      ctx.lineTo(r * 0.22, r * 0.36);
+      ctx.lineTo(r * 0.03, r * 0.36);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
     case "flyer":
       eyes(ctx, r, lookX, lookY, { size: 0.26, y: -0.12 });
       // Beak
@@ -1413,7 +1758,8 @@ export function drawEnemySprite(
       for (const rx of [-0.6, 0, 0.6]) circle(ctx, rx * r, -r * 0.4, r * 0.07, "#334155");
       break;
     }
-    case "boss": {
+    case "boss":
+    case "emperor": {
       eyes(ctx, r, lookX, lookY, { angry: true, size: 0.22, y: -0.2 });
       ctx.fillStyle = "#7f1d1d";
       ctx.beginPath();
@@ -1459,6 +1805,37 @@ export function drawEnemySprite(
       ctx.restore();
     }
   }
+  // On fire
+  if (opts.burning) {
+    for (let i = 0; i < 3; i++) {
+      const ph = time * 9 + i * 2.1 + (opts.seed ?? 0);
+      const fx = (i - 1) * r * 0.5 + Math.sin(ph) * r * 0.1;
+      const fh = r * (0.55 + 0.25 * Math.sin(ph * 1.7));
+      ctx.fillStyle = i === 1 ? "#fde047" : "#fb923c";
+      ctx.beginPath();
+      ctx.moveTo(fx - r * 0.2, -r * 0.55);
+      ctx.quadraticCurveTo(fx - r * 0.05, -r * 0.55 - fh * 0.6, fx, -r * 0.55 - fh);
+      ctx.quadraticCurveTo(fx + r * 0.22, -r * 0.55 - fh * 0.5, fx + r * 0.2, -r * 0.55);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  // Frozen solid: a block of ice around it
+  if (opts.frozen) {
+    ctx.fillStyle = "rgba(186,230,253,0.55)";
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.lineWidth = Math.max(1, r * 0.1);
+    ctx.beginPath();
+    ctx.roundRect(-r * 1.15, -r * 1.2, r * 2.3, r * 2.35, r * 0.25);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.8, -r * 0.7);
+    ctx.lineTo(-r * 0.3, -r * 0.95);
+    ctx.moveTo(r * 0.4, r * 0.8);
+    ctx.lineTo(r * 0.85, r * 0.45);
+    ctx.stroke();
+  }
   // Hit flash
   if (opts.hitFlash && opts.hitFlash > 0) {
     bodyPath(ctx, type, r, squash);
@@ -1469,6 +1846,7 @@ export function drawEnemySprite(
 }
 
 function drawEnemy(ctx: Ctx, e: Enemy, s: number, time: number) {
+  const def = ENEMIES[e.type];
   const x = (e.x + 0.5) * s;
   const y = (e.y + 0.5) * s;
   drawEnemySprite(ctx, e.type, x, y, s, time, {
@@ -1478,9 +1856,13 @@ function drawEnemy(ctx: Ctx, e: Enemy, s: number, time: number) {
     speed: e.speed,
     hitFlash: e.hitFlash,
     slowed: e.slowUntil > time,
+    hidden: !!def.stealth && !e.revealed,
+    burning: e.burnUntil > time,
+    frozen: e.stunUntil > time,
+    rage: def.enrage ? 1 - Math.max(0, e.hp) / e.maxHp : 0,
   });
   // Health bar
-  if (e.hp < e.maxHp) {
+  if (e.hp < e.maxHp && !(def.stealth && !e.revealed)) {
     const r = ENEMIES[e.type].radius * s;
     const w = Math.max(s * 0.5, r * 1.8);
     const h = Math.max(3, s * 0.08);
@@ -1489,7 +1871,8 @@ function drawEnemy(ctx: Ctx, e: Enemy, s: number, time: number) {
       y -
       r * 1.25 -
       h -
-      (e.type === "boss" || e.type === "armored" || e.type === "tank" ? r * 0.35 : 0) -
+      (e.type === "boss" || e.type === "emperor" || e.type === "armored" || e.type === "tank" || e.type === "charger" ? r * 0.35 : 0) -
+      (e.type === "jammer" ? r * 0.7 : 0) -
       (e.flying ? s * FLY_HEIGHT + r * 0.6 : 0);
     const pct = Math.max(0, e.hp / e.maxHp);
     ctx.fillStyle = "rgba(17,24,39,0.75)";
@@ -1761,6 +2144,153 @@ function drawRubbleTags(ctx: Ctx, g: Game, s: number) {
   ctx.restore();
 }
 
+/** Tiles a flood or rockslide is going to change, with the wave it happens on. */
+function drawEventMarkers(ctx: Ctx, g: Game, s: number, now: number) {
+  g.events.forEach((ev, i) => {
+    const next = i === 0;
+    const flood = ev.kind === "flood";
+    const pulse = next ? 0.75 + 0.25 * Math.sin(now * 3) : 0.5;
+    ctx.save();
+    ctx.fillStyle = flood ? `rgba(14,116,144,${0.2 * pulse})` : `rgba(234,88,12,${0.28 * pulse})`;
+    ctx.strokeStyle = flood ? `rgba(224,242,254,${0.75 * pulse})` : `rgba(254,215,170,${0.9 * pulse})`;
+    ctx.lineWidth = Math.max(1.5, s * 0.05);
+    ctx.setLineDash([s * 0.16, s * 0.12]);
+    let minR = Infinity;
+    let maxR = -Infinity;
+    let minC = Infinity;
+    let maxC = -Infinity;
+    for (const { r, c } of ev.cells) {
+      minR = Math.min(minR, r);
+      maxR = Math.max(maxR, r);
+      minC = Math.min(minC, c);
+      maxC = Math.max(maxC, c);
+    }
+    const x = minC * s;
+    const y = minR * s;
+    const w = (maxC - minC + 1) * s;
+    const h = (maxR - minR + 1) * s;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    ctx.setLineDash([]);
+    // Label
+    const label = `${flood ? "Floods" : "Collapses"} on wave ${ev.wave}`;
+    const short = `W${ev.wave}`;
+    const fs = Math.max(9, s * 0.27);
+    ctx.font = `800 ${fs}px Inter, system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const text = ctx.measureText(label).width + fs * 1.2 <= w ? label : short;
+    const tw = ctx.measureText(text).width + fs * 1.1;
+    const cx = Math.max(tw / 2 + 2, Math.min(COLS * s - tw / 2 - 2, x + w / 2));
+    // Rockslide labels sit just above the wall so they don't hide it.
+    const cy = flood ? y + h - fs * 0.95 : Math.max(fs, y - fs * 0.2);
+    ctx.globalAlpha = next ? 1 : 0.7;
+    ctx.fillStyle = "rgba(17,24,39,0.85)";
+    ctx.beginPath();
+    ctx.roundRect(cx - tw / 2, cy - fs * 0.75, tw, fs * 1.5, fs * 0.75);
+    ctx.fill();
+    ctx.fillStyle = flood ? "#bae6fd" : "#fed7aa";
+    ctx.fillText(text, cx, cy + fs * 0.05);
+    ctx.restore();
+  });
+}
+
+/** A soft pool of light under every Beacon so you can see what it covers. */
+function drawBeaconLight(ctx: Ctx, g: Game, s: number, strong: boolean) {
+  for (const t of g.towers) {
+    if (!towerStats(t).aura) continue;
+    const x = (t.c + 0.5) * s;
+    const y = (t.r + 0.5) * s;
+    const rad = towerRange(t) * s;
+    ctx.save();
+    const glow = ctx.createRadialGradient(x, y, rad * 0.2, x, y, rad);
+    glow.addColorStop(0, "rgba(254,240,138,0.16)");
+    glow.addColorStop(1, "rgba(254,240,138,0.03)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, y, rad, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = `rgba(254,240,138,${strong ? 0.7 : 0.3})`;
+    ctx.lineWidth = Math.max(1, s * 0.03);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/** A tower a Jinx has switched off: dimmed, with a crackle of static. */
+function drawJammed(ctx: Ctx, x: number, y: number, s: number, now: number) {
+  ctx.save();
+  ctx.fillStyle = "rgba(15,23,42,0.5)";
+  ctx.beginPath();
+  ctx.roundRect(x - s * 0.4, y - s * 0.4, s * 0.8, s * 0.86, s * 0.14);
+  ctx.fill();
+  const rnd = mulberry32(Math.floor(now * 14) + Math.round(x * 7 + y * 13));
+  ctx.strokeStyle = "#fde047";
+  ctx.lineWidth = Math.max(1.5, s * 0.05);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  for (let k = 0; k < 2; k++) {
+    ctx.beginPath();
+    let px = x + (rnd() - 0.5) * s * 0.6;
+    let py = y - s * 0.34;
+    ctx.moveTo(px, py);
+    for (let i = 0; i < 4; i++) {
+      px += (rnd() - 0.5) * s * 0.3;
+      py += s * 0.17;
+      ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawStrike(ctx: Ctx, strike: { x: number; y: number; t: number; total: number }, s: number) {
+  const x = (strike.x + 0.5) * s;
+  const y = (strike.y + 0.5) * s;
+  const p = 1 - Math.max(0, strike.t) / strike.total; // 0 → 1 as it falls
+  drawAim(ctx, strike.x, strike.y, s, 0.35 + 0.5 * p);
+  // The rock itself, coming in from the top right
+  const mx = x + (1 - p) * s * 3.2;
+  const my = y - (1 - p) * s * 7;
+  ctx.save();
+  ctx.lineCap = "round";
+  const tail = ctx.createLinearGradient(mx, my, mx + s * 1.1, my - s * 2.4);
+  tail.addColorStop(0, "rgba(251,146,60,0.9)");
+  tail.addColorStop(1, "rgba(251,146,60,0)");
+  ctx.strokeStyle = tail;
+  ctx.lineWidth = s * 0.34;
+  ctx.beginPath();
+  ctx.moveTo(mx, my);
+  ctx.lineTo(mx + s * 1.1, my - s * 2.4);
+  ctx.stroke();
+  circle(ctx, mx, my, s * 0.3, "#fb923c");
+  circle(ctx, mx, my, s * 0.22, "#44403c");
+  circle(ctx, mx - s * 0.07, my - s * 0.07, s * 0.07, "#78716c");
+  ctx.restore();
+}
+
+/** Where a meteor will land: a ring the size of its blast. */
+function drawAim(ctx: Ctx, cx: number, cy: number, s: number, strength = 0.6) {
+  const x = (cx + 0.5) * s;
+  const y = (cy + 0.5) * s;
+  const rad = ABILITIES.meteor.radius * s;
+  ctx.save();
+  ctx.fillStyle = `rgba(239,68,68,${0.22 * strength})`;
+  ctx.strokeStyle = `rgba(254,202,202,${0.5 + 0.5 * strength})`;
+  ctx.lineWidth = Math.max(2, s * 0.06);
+  ctx.beginPath();
+  ctx.arc(x, y, rad, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x - s * 0.25, y);
+  ctx.lineTo(x + s * 0.25, y);
+  ctx.moveTo(x, y - s * 0.25);
+  ctx.lineTo(x, y + s * 0.25);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawBanner(ctx: Ctx, g: Game, s: number) {
   const b = g.banner;
   if (!b) return;
@@ -1801,6 +2331,21 @@ function drawBanner(ctx: Ctx, g: Game, s: number) {
     ctx.fillStyle = "#ffffff";
     ctx.fillText(b.sub, 0, fs * 0.75);
   }
+  if (b.note) {
+    let nfs = Math.max(13, s * 0.4);
+    ctx.font = `800 ${nfs}px Inter, system-ui, sans-serif`;
+    const wide = ctx.measureText(b.note).width;
+    if (wide > maxW) {
+      nfs *= maxW / wide;
+      ctx.font = `800 ${nfs}px Inter, system-ui, sans-serif`;
+    }
+    const ny = fs * (b.sub ? 1.3 : 0.8);
+    ctx.lineWidth = nfs * 0.28;
+    ctx.strokeStyle = "#451a03";
+    ctx.strokeText(b.note, 0, ny);
+    ctx.fillStyle = "#fde68a";
+    ctx.fillText(b.note, 0, ny);
+  }
   ctx.restore();
 }
 
@@ -1815,6 +2360,8 @@ export interface RenderOpts {
   selected: Tower | null;
   /** A rubble pile the player has tapped. */
   selectedCell: Cell | null;
+  /** Where the player is about to drop a meteor (cell units), if they're aiming one. */
+  aim: { x: number; y: number } | null;
 }
 
 export function renderFrame(ctx: Ctx, g: Game, o: RenderOpts) {
@@ -1828,18 +2375,22 @@ export function renderFrame(ctx: Ctx, g: Game, o: RenderOpts) {
   }
   ctx.drawImage(o.board, 0, 0, COLS * s, ROWS * s);
   drawWaterShimmer(ctx, g, s, now);
+  if (g.events.length) drawEventMarkers(ctx, g, s, now);
   if (o.showGrid) drawGridOverlay(ctx, g, s);
   g.entries.forEach((entry, i) => drawPortal(ctx, s, now, entry, g.routes[i]?.open ?? true));
+  drawBeaconLight(ctx, g, s, o.showGrid);
 
   // Selection highlight & reach (under towers)
-  if (o.selected) {
+  if (o.selected && towerRange(o.selected) > 0) {
     const t = o.selected;
-    drawCoverage(ctx, coverageOutline(g, t.c, t.r, towerRange(t), TOWERS[t.type].needsSight), s);
+    drawCoverage(ctx, coverageOutline(g, t.c, t.r, towerRange(t), needsSight(t)), s);
   }
   if (o.hover && o.ghost) {
     const { r, c } = o.hover;
     const range = rangeAt(g, o.ghost.type, 0, r, c);
-    drawCoverage(ctx, coverageOutline(g, c, r, range, TOWERS[o.ghost.type].needsSight), s, o.ghost.ok);
+    if (range > 0) {
+      drawCoverage(ctx, coverageOutline(g, c, r, range, TOWERS[o.ghost.type].needsSight), s, o.ghost.ok);
+    }
   }
 
   drawRubbleTags(ctx, g, s);
@@ -1858,8 +2409,9 @@ export function renderFrame(ctx: Ctx, g: Game, o: RenderOpts) {
   for (const t of g.towers) {
     const x = (t.c + 0.5) * s;
     const y = (t.r + 0.5) * s;
-    drawTower(ctx, t.type, t.level, t, x, y, s, time + t.id);
+    drawTower(ctx, t.type, t.level, t, x, y, s, time + t.id, t.spec);
     if (t.onHill) drawHillBadge(ctx, x + s * 0.32, y - s * 0.32, s);
+    if (t.jamUntil > time) drawJammed(ctx, x, y, s, now);
   }
   if (o.selected) {
     const t = o.selected;
@@ -1881,7 +2433,13 @@ export function renderFrame(ctx: Ctx, g: Game, o: RenderOpts) {
 
   for (const p of g.projectiles) drawProjectile(ctx, p, s, time);
   for (const b of g.bolts) drawBolt(ctx, b, s, time);
+  for (const strike of g.strikes) drawStrike(ctx, strike, s);
   for (const p of g.particles) drawParticle(ctx, p, s);
+  if (o.aim) drawAim(ctx, o.aim.x, o.aim.y, s);
+  if (g.frost > 0) {
+    ctx.fillStyle = `rgba(186,230,253,${0.3 * g.frost})`;
+    ctx.fillRect(0, 0, COLS * s, ROWS * s);
+  }
 
   // Placement ghost
   if (o.hover && o.ghost) {

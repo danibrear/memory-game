@@ -1,7 +1,13 @@
 import {
   faArrowUp,
+  faBolt,
   faCoins,
   faCrosshairs,
+  faGem,
+  faMeteor,
+  faSnowflake,
+  faTowerBroadcast,
+  faTriangleExclamation,
   faFlag,
   faForward,
   faHeart,
@@ -41,6 +47,7 @@ import {
 } from "~/components/game/GameKit";
 import { playSfx, unlockAudio } from "~/games/towerdefense/audio";
 import {
+  ABILITIES,
   COLS,
   DIFFICULTIES,
   DIFFICULTY_ORDER,
@@ -64,14 +71,21 @@ import {
   type MapDef,
   type Targeting,
   type Terrain,
+  type TowerLevel,
   type TowerType,
 } from "~/games/towerdefense/config";
 import {
   canCallWave,
   canPlace,
+  canSpecialize,
+  castFreeze,
+  castMeteor,
+  chooseSpec,
   clearRubble,
   continueEndless,
   createGame,
+  mineIncome,
+  nextEvent,
   placeTower,
   sellTower,
   sellValue,
@@ -79,6 +93,7 @@ import {
   startWave,
   step,
   towerAt,
+  towerStats,
   upgradeCost,
   upgradeTower,
   type Game,
@@ -160,13 +175,23 @@ function useCanvas(
   return ref;
 }
 
-function TowerIcon({ type, level = 0, size = 48 }: { type: TowerType; level?: Level; size?: number }) {
+function TowerIcon({
+  type,
+  level = 0,
+  spec = null,
+  size = 48,
+}: {
+  type: TowerType;
+  level?: Level;
+  spec?: 0 | 1 | null;
+  size?: number;
+}) {
   const ref = useCanvas(
     size,
     size,
     (ctx) =>
-      drawTower(ctx, type, level, { angle: -Math.PI / 4, recoil: 0, flash: 0 }, size / 2, size / 2 - size * 0.04, size * 0.95, 0.6),
-    [type, level],
+      drawTower(ctx, type, level, { angle: -Math.PI / 4, recoil: 0, flash: 0 }, size / 2, size / 2 - size * 0.04, size * 0.95, 0.6, spec),
+    [type, level, spec],
   );
   return <canvas ref={ref} style={{ width: size, height: size, display: "block" }} />;
 }
@@ -212,6 +237,31 @@ function StarRow({ count }: { count: number }) {
 }
 
 const GUIDE_TERRAIN: Terrain[] = ["hill", "road", "water", "rock", "rubble"];
+
+const GUIDE_TOOLS = [
+  {
+    icon: faGem,
+    name: "Final forms",
+    text: "A level-3 tower can become one of two specialists. The choice is permanent.",
+  },
+  {
+    icon: faTowerBroadcast,
+    name: "Beacon",
+    text: "Towers in its light fire faster, and it's the main way to make Shades targetable.",
+  },
+  {
+    icon: faCoins,
+    name: "Gold Mine",
+    text: "Pays out every wave. Greedy early mines win long games, if you survive them.",
+  },
+  { icon: faMeteor, name: "Meteor", text: "Your own strike on a 40 second cooldown. Hits everything where it lands." },
+  { icon: faSnowflake, name: "Cold Snap", text: "Slows the whole map for 4 seconds. Save it for a leak." },
+  {
+    icon: faBolt,
+    name: "Shifting maps",
+    text: "Tidewater floods and Rockslide Pass loses its walls. Marked tiles show what changes and when.",
+  },
+];
 
 function MapSelect({
   save,
@@ -302,6 +352,22 @@ function MapSelect({
           </ul>
         </section>
         <section className="dg-panel td-guide">
+          <span className="dg-label">Know your tools</span>
+          <ul>
+            {GUIDE_TOOLS.map((tool) => (
+              <li key={tool.name}>
+                <span className="td-tool-icon">
+                  <FontAwesomeIcon icon={tool.icon} />
+                </span>
+                <span>
+                  <b>{tool.name}</b>
+                  {tool.text}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+        <section className="dg-panel td-guide">
           <span className="dg-label">Know the enemy</span>
           <ul>
             {ENEMY_ORDER.map((t) => (
@@ -343,27 +409,59 @@ function Stat({ icon, color, children }: { icon: typeof faCoins; color: string; 
   );
 }
 
-function describeLevel(type: TowerType, level: Level, onHill: boolean) {
-  const s = TOWERS[type].levels[level];
-  const range = s.range * (onHill ? HILL_RANGE_BONUS : 1);
-  const rows: { label: string; value: string }[] = [
-    { label: "Damage", value: String(s.dmg) },
-    { label: "Range", value: range.toFixed(1) },
-    { label: "Speed", value: `${s.rate}/s` },
-  ];
+const pct = (n: number) => `+${Math.round(n * 100)}%`;
+
+/** The numbers that matter for one level (or final form) of a tower. */
+function describeStats(type: TowerType, s: TowerLevel, tower?: Tower) {
+  const hill = tower?.onHill ? HILL_RANGE_BONUS : 1;
+  const rows: { label: string; value: string }[] = [];
+  if (s.aura) {
+    rows.push({ label: "Light", value: (s.range * hill).toFixed(1) });
+    rows.push({ label: "Fire rate", value: pct(s.aura.rate) });
+    if (s.aura.range) rows.push({ label: "Range", value: pct(s.aura.range) });
+    if (s.aura.shield) rows.push({ label: "Jam-proof", value: "Yes" });
+    return rows;
+  }
+  if (s.income) {
+    rows.push({ label: "Gold per wave", value: String(s.income) });
+    if (s.bounty) rows.push({ label: "Kill gold", value: pct(s.bounty) });
+    return rows;
+  }
+  const range = s.range * hill * (1 + (tower?.buffRange ?? 0));
+  const rate = s.rate * (1 + (tower?.buffRate ?? 0));
+  rows.push({ label: "Damage", value: String(s.dmg) });
+  rows.push({ label: "Range", value: range.toFixed(1) });
+  rows.push({ label: "Speed", value: `${Number(rate.toFixed(2))}/s` });
   if (s.splash) rows.push({ label: "Blast", value: s.splash.toFixed(1) });
   if (s.slow) rows.push({ label: "Slow", value: `${Math.round((1 - s.slow) * 100)}% · ${s.slowDur}s` });
-  if (s.chains) rows.push({ label: "Chains", value: String(s.chains) });
+  if (s.chains && TOWERS[type].levels[0].chains) rows.push({ label: "Chains", value: String(s.chains) });
+  if (s.burn) rows.push({ label: "Burn", value: `${s.burn}/s · ${s.burnDur}s` });
+  if (s.stun) rows.push({ label: "Freeze", value: `${s.stun}s` });
   return rows;
 }
 
-/** The fine print for a tower type: what it can and can't shoot. */
-function towerNotes(type: TowerType, onHill: boolean): string[] {
-  const def = TOWERS[type];
+/** The fine print for a tower: what it can and can't do right now. */
+function towerNotes(tower: Tower): string[] {
+  const def = TOWERS[tower.type];
+  const stats = towerStats(tower);
   const notes: string[] = [];
-  if (onHill) notes.push("On a hilltop: +25% range");
-  if (def.pierce) notes.push("Shots ignore armor");
-  notes.push(def.needsSight ? "Needs a clear view: rocks block its shots" : "Fires over rocks and rubble");
+  if (tower.onHill) notes.push(def.role === "income" ? "On a hilltop (no bonus for mines)" : "On a hilltop: +25% range");
+  if (def.role === "support") {
+    notes.push("Shades inside the light can be targeted");
+    notes.push("Bonuses from several Beacons don't add up");
+    return notes;
+  }
+  if (def.role === "income") {
+    notes.push("Pays out each time a wave starts, from the wave after it was built");
+    return notes;
+  }
+  if (tower.buffRate > 0) {
+    notes.push(`In a Beacon's light: ${pct(tower.buffRate)} speed${tower.buffRange ? `, ${pct(tower.buffRange)} range` : ""}`);
+  }
+  if (tower.shielded) notes.push("Shielded from Jinx pulses");
+  if (stats.pierce ?? def.pierce) notes.push("Shots ignore armor");
+  if (stats.seesStealth) notes.push("Spots Shades without a Beacon");
+  notes.push(def.needsSight && !stats.overRocks ? "Needs a clear view: rocks block its shots" : "Fires over rocks and rubble");
   if (!def.hitsAir) notes.push("Can't hit flying enemies");
   return notes;
 }
@@ -372,6 +470,7 @@ function TowerPanel({
   tower,
   gold,
   onUpgrade,
+  onSpec,
   onSell,
   onTargeting,
   onClose,
@@ -379,14 +478,17 @@ function TowerPanel({
   tower: Tower;
   gold: number;
   onUpgrade: () => void;
+  onSpec: (spec: 0 | 1) => void;
   onSell: () => void;
   onTargeting: (t: Targeting) => void;
   onClose: () => void;
 }) {
   const def = TOWERS[tower.type];
   const cost = upgradeCost(tower);
-  const now = describeLevel(tower.type, tower.level, tower.onHill);
-  const next = tower.level < 2 ? describeLevel(tower.type, (tower.level + 1) as Level, tower.onHill) : null;
+  const stats = towerStats(tower);
+  const now = describeStats(tower.type, stats, tower);
+  const next = tower.level < 2 ? describeStats(tower.type, def.levels[tower.level + 1], tower) : null;
+  const choosing = canSpecialize(tower);
   return (
     <Paper
       elevation={3}
@@ -394,15 +496,17 @@ function TowerPanel({
         p: 2,
         borderRadius: 3,
         minWidth: 260,
-        flex: { xs: "1 1 100%", md: "0 0 320px" },
+        flex: { xs: "1 1 100%", md: "0 0 340px" },
         borderTop: `4px solid ${def.color}`,
       }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
-        <TowerIcon type={tower.type} level={tower.level} size={56} />
+        <TowerIcon type={tower.type} level={tower.level} spec={tower.spec} size={56} />
         <Box sx={{ flex: 1 }}>
-          <Typography sx={{ fontWeight: 900, lineHeight: 1.1 }}>{def.name}</Typography>
+          <Typography sx={{ fontWeight: 900, lineHeight: 1.1 }}>
+            {tower.spec !== null ? def.specs[tower.spec].name : def.name}
+          </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Level {tower.level + 1} of 3
+            {tower.spec !== null ? `${def.name} · final form` : `Level ${tower.level + 1} of 3`}
           </Typography>
         </Box>
         <IconButton size="small" onClick={onClose} aria-label="Close">
@@ -444,45 +548,92 @@ function TowerPanel({
         )}
       </Box>
       <Box component="ul" sx={{ m: 0, mb: 1.5, pl: 2.25, color: "text.secondary", fontSize: "0.82rem", lineHeight: 1.45 }}>
-        {towerNotes(tower.type, tower.onHill).map((note) => (
+        {towerNotes(tower).map((note) => (
           <li key={note}>{note}</li>
         ))}
       </Box>
 
-      <Typography
-        variant="caption"
-        sx={{ display: "flex", alignItems: "center", gap: 0.75, fontWeight: 800, color: "text.secondary", mb: 0.5 }}>
-        <FontAwesomeIcon icon={faCrosshairs} /> SHOOT AT
-      </Typography>
-      <ToggleButtonGroup
-        size="small"
-        exclusive
-        fullWidth
-        value={tower.targeting}
-        onChange={(_, v: Targeting | null) => v && onTargeting(v)}
-        aria-label="Targeting"
-        sx={{ mb: 1.5 }}>
-        {TARGETING_ORDER.map((t) => (
-          <Tooltip key={t} title={TARGETING[t].hint} arrow>
-            <ToggleButton value={t} sx={{ fontWeight: 800, textTransform: "none", py: 0.4 }}>
-              {TARGETING[t].label}
-            </ToggleButton>
-          </Tooltip>
-        ))}
-      </ToggleButtonGroup>
+      {def.role === "attack" && (
+        <>
+          <Typography
+            variant="caption"
+            sx={{ display: "flex", alignItems: "center", gap: 0.75, fontWeight: 800, color: "text.secondary", mb: 0.5 }}>
+            <FontAwesomeIcon icon={faCrosshairs} /> SHOOT AT
+          </Typography>
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            fullWidth
+            value={tower.targeting}
+            onChange={(_, v: Targeting | null) => v && onTargeting(v)}
+            aria-label="Targeting"
+            sx={{ mb: 1.5 }}>
+            {TARGETING_ORDER.map((t) => (
+              <Tooltip key={t} title={TARGETING[t].hint} arrow>
+                <ToggleButton value={t} sx={{ fontWeight: 800, textTransform: "none", py: 0.4 }}>
+                  {TARGETING[t].label}
+                </ToggleButton>
+              </Tooltip>
+            ))}
+          </ToggleButtonGroup>
+        </>
+      )}
+
+      {choosing && (
+        <>
+          <Typography
+            variant="caption"
+            sx={{ display: "flex", alignItems: "center", gap: 0.75, fontWeight: 800, color: "text.secondary", mb: 0.75 }}>
+            <FontAwesomeIcon icon={faGem} /> CHOOSE A FINAL FORM (YOU CAN'T SWITCH LATER)
+          </Typography>
+          <div className="td-specs">
+            {def.specs.map((spec, i) => {
+              const affordable = gold >= spec.cost;
+              return (
+                <button
+                  key={spec.name}
+                  type="button"
+                  className="td-spec"
+                  disabled={!affordable}
+                  onClick={() => onSpec(i as 0 | 1)}
+                  style={{ borderColor: def.color }}>
+                  <span className="td-spec-top">
+                    <TowerIcon type={tower.type} level={2} spec={i as 0 | 1} size={40} />
+                    <span>
+                      <b>{spec.name}</b>
+                      <span className="td-spec-cost">
+                        <FontAwesomeIcon icon={faCoins} /> {spec.cost}
+                      </span>
+                    </span>
+                  </span>
+                  <span className="td-spec-blurb">{spec.blurb}</span>
+                  <span className="td-spec-stats">
+                    {describeStats(tower.type, spec, tower)
+                      .map((row) => `${row.label} ${row.value}`)
+                      .join(" · ")}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       <Box sx={{ display: "flex", gap: 1 }}>
+        {!choosing && (
+          <Button
+            fullWidth
+            variant="contained"
+            color="success"
+            disabled={cost === null || gold < cost}
+            onClick={onUpgrade}
+            startIcon={<FontAwesomeIcon icon={faArrowUp} />}
+            sx={{ fontWeight: 800 }}>
+            {cost === null ? "Final form" : `Upgrade · ${cost}`}
+          </Button>
+        )}
         <Button
-          fullWidth
-          variant="contained"
-          color="success"
-          disabled={cost === null || gold < cost}
-          onClick={onUpgrade}
-          startIcon={<FontAwesomeIcon icon={faArrowUp} />}
-          sx={{ fontWeight: 800 }}>
-          {cost === null ? "Max level" : `Upgrade · ${cost}`}
-        </Button>
-        <Button
+          fullWidth={choosing}
           variant="outlined"
           color="inherit"
           onClick={onSell}
@@ -555,6 +706,14 @@ interface Hud {
   endless: boolean;
   canCall: boolean;
   remaining: number;
+  /** Whole seconds until each ability is ready (0 = ready). */
+  meteorCd: number;
+  freezeCd: number;
+  /** Gold the mines will pay when the next wave starts. */
+  income: number;
+  /** Wave of the next flood / rockslide, or 0. */
+  eventWave: number;
+  towers: number;
 }
 
 const snapshot = (g: Game): Hud => ({
@@ -565,6 +724,11 @@ const snapshot = (g: Game): Hud => ({
   endless: g.endless,
   canCall: canCallWave(g),
   remaining: g.enemies.length + g.spawnQueue.length,
+  meteorCd: Math.ceil(g.cooldowns.meteor),
+  freezeCd: Math.ceil(g.cooldowns.freeze),
+  income: mineIncome(g),
+  eventWave: nextEvent(g)?.wave ?? 0,
+  towers: g.towers.length,
 });
 
 const sameHud = (a: Hud, b: Hud) =>
@@ -574,7 +738,12 @@ const sameHud = (a: Hud, b: Hud) =>
   a.phase === b.phase &&
   a.endless === b.endless &&
   a.canCall === b.canCall &&
-  a.remaining === b.remaining;
+  a.remaining === b.remaining &&
+  a.meteorCd === b.meteorCd &&
+  a.freezeCd === b.freezeCd &&
+  a.income === b.income &&
+  a.eventWave === b.eventWave &&
+  a.towers === b.towers;
 
 function Battle({
   map,
@@ -600,6 +769,8 @@ function Battle({
   const wrapRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<{ canvas: HTMLCanvasElement; key: string } | null>(null);
   const hoverRef = useRef<Cell | null>(null);
+  /** Exact pointer position on the board in cell units (for aiming the meteor). */
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
 
   const [cs, setCs] = useState(40);
   const [hud, setHud] = useState<Hud>(() => snapshot(gameRef.current!));
@@ -611,11 +782,12 @@ function Battle({
   const [muted, setMuted] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const [aiming, setAiming] = useState(false);
   const [, bump] = useState(0);
 
   // Live values the animation loop reads without re-subscribing
-  const live = useRef({ tool, selectedId, selectedCell, speed, paused, muted, cs });
-  live.current = { tool, selectedId, selectedCell, speed, paused: paused || leaving, muted, cs };
+  const live = useRef({ tool, selectedId, selectedCell, speed, paused, muted, cs, aiming });
+  live.current = { tool, selectedId, selectedCell, speed, paused: paused || leaving, muted, cs, aiming };
 
   useEffect(() => {
     try {
@@ -700,7 +872,7 @@ function Battle({
 
         const hover = hoverRef.current;
         const selected = L.selectedId !== null ? g.towers.find((t) => t.id === L.selectedId) ?? null : null;
-        const building = L.tool !== null && g.phase !== "gameover" && g.phase !== "win";
+        const building = L.tool !== null && !L.aiming && g.phase !== "gameover" && g.phase !== "win";
         const showGhost =
           building && hover && !towerAt(g, hover.r, hover.c) && g.terrain[hover.r][hover.c] !== "rubble";
         renderFrame(ctx, g, {
@@ -714,6 +886,7 @@ function Battle({
               : null,
           selected,
           selectedCell: L.selectedCell,
+          aim: L.aiming ? pointerRef.current : null,
         });
       }
 
@@ -747,16 +920,31 @@ function Battle({
 
   /** Pick a tower to build. `toggle` lets a second tap on the same shop card cancel it. */
   const chooseTool = useCallback((t: TowerType, toggle = false) => {
+    setAiming(false);
     setTool((cur) => (toggle && cur === t ? null : t));
     setSelectedId(null);
     setSelectedCell(null);
   }, []);
+
+  /** Pointer position in cell units, where (0, 0) is the centre of the top-left cell. */
+  const pointFromEvent = (e: React.PointerEvent | React.MouseEvent) => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    return {
+      x: ((e.clientX - rect.left) / rect.width) * COLS - 0.5,
+      y: ((e.clientY - rect.top) / rect.height) * ROWS - 0.5,
+    };
+  };
 
   const handleClick = (e: React.MouseEvent) => {
     unlockAudio();
     const cell = cellFromEvent(e);
     if (!cell) return;
     const g = gameRef.current!;
+    if (aiming) {
+      const at = pointFromEvent(e);
+      if (castMeteor(g, at.x, at.y)) setAiming(false);
+      return;
+    }
     const existing = towerAt(g, cell.r, cell.c);
     if (existing) {
       setSelectedId(existing.id);
@@ -812,6 +1000,27 @@ function Battle({
     [selectedId],
   );
 
+  const specSelected = useCallback(
+    (spec: 0 | 1) => {
+      if (selectedId === null) return;
+      chooseSpec(gameRef.current!, selectedId, spec);
+      bump((n) => n + 1);
+    },
+    [selectedId],
+  );
+
+  /** Meteor: the first press starts aiming, the board click fires it. */
+  const toggleMeteor = useCallback(() => {
+    unlockAudio();
+    if (gameRef.current!.cooldowns.meteor > 0) return;
+    setAiming((a) => !a);
+  }, []);
+
+  const coldSnap = useCallback(() => {
+    unlockAudio();
+    castFreeze(gameRef.current!);
+  }, []);
+
   const clearSelectedRubble = useCallback(() => {
     if (!selectedCell) return;
     const res = clearRubble(gameRef.current!, selectedCell.r, selectedCell.c);
@@ -851,9 +1060,14 @@ function Battle({
       if (idx >= 0 && idx < TOWER_ORDER.length) {
         chooseTool(TOWER_ORDER[idx]);
       } else if (e.key === "Escape") {
+        setAiming(false);
         setTool(null);
         setSelectedId(null);
         setSelectedCell(null);
+      } else if (e.key.toLowerCase() === "q") {
+        toggleMeteor();
+      } else if (e.key.toLowerCase() === "e") {
+        coldSnap();
       } else if (e.key === " ") {
         e.preventDefault();
         callWave();
@@ -869,7 +1083,7 @@ function Battle({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [chooseTool, callWave, upgradeSelected, sellSelected, retarget]);
+  }, [chooseTool, callWave, upgradeSelected, sellSelected, retarget, toggleMeteor, coldSnap]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -895,7 +1109,7 @@ function Battle({
           mb: 1.5,
           borderRadius: 3,
         }}>
-        <Tooltip title="Back to the maps">
+        <Tooltip title={`${map.name} on ${DIFFICULTIES[difficulty].name}. Back to the maps`}>
           <Button
             size="small"
             color="inherit"
@@ -903,7 +1117,7 @@ function Battle({
             startIcon={<FontAwesomeIcon icon={faMap} />}
             sx={{ fontWeight: 800, textTransform: "none", minWidth: 0, px: 1.25 }}>
             <Box component="span" sx={{ display: { xs: "none", md: "inline" } }}>
-              {map.name} · {DIFFICULTIES[difficulty].name}
+              {map.name}
             </Box>
             <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
               Maps
@@ -919,6 +1133,28 @@ function Battle({
         <Stat icon={hud.endless ? faInfinity : faFlag} color="#6366f1">
           {hud.endless ? Math.max(1, hud.wave) : `${Math.max(1, hud.wave)}/${TOTAL_WAVES}`}
         </Stat>
+        {hud.eventWave > 0 && (
+          <Tooltip title={`${nextEvent(g)?.label ?? "The map changes"} when wave ${hud.eventWave} starts`}>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0.75,
+                px: 1.25,
+                py: 0.5,
+                borderRadius: 99,
+                fontWeight: 800,
+                fontSize: "0.85rem",
+                color: "#b45309",
+                bgcolor: "rgba(245,158,11,0.16)",
+                // The wave before it happens, make sure it gets noticed.
+                animation: hud.eventWave - hud.wave <= 1 ? "tdPulse 1s ease-in-out infinite" : undefined,
+              }}>
+              <FontAwesomeIcon icon={faTriangleExclamation} />
+              Wave {hud.eventWave}
+            </Box>
+          </Tooltip>
+        )}
         {nextWave && hud.canCall && (
           <Box sx={{ display: { xs: "none", sm: "flex" }, alignItems: "center", gap: 0.75, ml: 0.5 }}>
             <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 700, mr: 0.25 }}>
@@ -926,7 +1162,17 @@ function Battle({
             </Typography>
             {nextWave.groups.map((gr, i) => (
               <Tooltip key={i} title={`${ENEMIES[gr.type].name}: ${ENEMIES[gr.type].trait}`} arrow>
-                <Box sx={{ display: "flex", alignItems: "center", fontWeight: 800, fontSize: "0.85rem" }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    fontWeight: 800,
+                    fontSize: "0.85rem",
+                    borderRadius: 99,
+                    pr: 0.75,
+                    // First time this enemy shows up: ring it so the tooltip gets read.
+                    boxShadow: g.seen.includes(gr.type) ? undefined : "0 0 0 2px #f59e0b",
+                  }}>
                   <EnemyIcon type={gr.type} />×{gr.count}
                 </Box>
               </Tooltip>
@@ -999,15 +1245,21 @@ function Battle({
               width: COLS * cs,
               height: ROWS * cs,
               display: "block",
-              cursor: tool ? "crosshair" : "pointer",
+              cursor: tool || aiming ? "crosshair" : "pointer",
             }}
             onPointerMove={(e) => {
-              if (e.pointerType === "mouse") hoverRef.current = cellFromEvent(e);
+              if (e.pointerType !== "mouse") return;
+              hoverRef.current = cellFromEvent(e);
+              pointerRef.current = pointFromEvent(e);
             }}
-            onPointerLeave={() => (hoverRef.current = null)}
+            onPointerLeave={() => {
+              hoverRef.current = null;
+              pointerRef.current = null;
+            }}
             onClick={handleClick}
             onContextMenu={(e) => {
               e.preventDefault();
+              setAiming(false);
               setTool(null);
               setSelectedId(null);
               setSelectedCell(null);
@@ -1111,14 +1363,50 @@ function Battle({
         </Box>
       </Box>
 
+      {/* Abilities */}
+      <div className="td-abilities">
+        <button
+          type="button"
+          className={`td-ability td-ability--meteor${aiming ? " is-aiming" : ""}`}
+          disabled={hud.meteorCd > 0 || over}
+          onClick={toggleMeteor}
+          title={ABILITIES.meteor.hint}
+          style={{ "--cd": hud.meteorCd / ABILITIES.meteor.cooldown } as React.CSSProperties}>
+          <FontAwesomeIcon icon={faMeteor} />
+          <span>
+            <b>{ABILITIES.meteor.name}</b>
+            <small>{aiming ? "Pick a spot" : hud.meteorCd > 0 ? `${hud.meteorCd}s` : "Ready · Q"}</small>
+          </span>
+        </button>
+        <button
+          type="button"
+          className="td-ability td-ability--freeze"
+          disabled={hud.freezeCd > 0 || over}
+          onClick={coldSnap}
+          title={ABILITIES.freeze.hint}
+          style={{ "--cd": hud.freezeCd / ABILITIES.freeze.cooldown } as React.CSSProperties}>
+          <FontAwesomeIcon icon={faSnowflake} />
+          <span>
+            <b>{ABILITIES.freeze.name}</b>
+            <small>{hud.freezeCd > 0 ? `${hud.freezeCd}s` : "Ready · E"}</small>
+          </span>
+        </button>
+        {hud.income > 0 && (
+          <span className="td-income" title="Your Gold Mines pay this each time a wave starts">
+            <FontAwesomeIcon icon={faCoins} /> +{hud.income} per wave
+          </span>
+        )}
+      </div>
+
       {/* Shop + selected tower */}
-      <Box sx={{ display: "flex", gap: 1.5, mt: 2, flexWrap: "wrap", alignItems: "stretch" }}>
+      <Box sx={{ display: "flex", gap: 1.5, mt: 1.5, flexWrap: "wrap", alignItems: "stretch" }}>
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", flex: 1, alignContent: "flex-start" }}>
           {TOWER_ORDER.map((type, i) => {
             const def = TOWERS[type];
             const cost = def.levels[0].cost;
-            const active = tool === type;
-            const affordable = hud.gold >= cost;
+            const active = tool === type && !aiming;
+            const built = def.limit ? g.towers.filter((t) => t.type === type).length : 0;
+            const affordable = hud.gold >= cost && (!def.limit || built < def.limit);
             return (
               <Paper
                 key={type}
@@ -1126,7 +1414,7 @@ function Battle({
                 onClick={() => chooseTool(type, true)}
                 sx={{
                   position: "relative",
-                  width: { xs: "calc(33.33% - 6px)", sm: 132 },
+                  width: { xs: "calc(25% - 6px)", sm: 124 },
                   p: 1,
                   borderRadius: 3,
                   cursor: "pointer",
@@ -1155,7 +1443,10 @@ function Battle({
                 <Box sx={{ display: "flex", justifyContent: "center" }}>
                   <TowerIcon type={type} size={52} />
                 </Box>
-                <Typography sx={{ fontWeight: 900, fontSize: "0.95rem", lineHeight: 1.2 }}>{def.name}</Typography>
+                <Typography sx={{ fontWeight: 900, fontSize: { xs: "0.8rem", sm: "0.95rem" }, lineHeight: 1.2 }}>
+                  {def.name}
+                  {def.limit ? ` ${built}/${def.limit}` : ""}
+                </Typography>
                 <Box
                   sx={{
                     display: "inline-flex",
@@ -1181,6 +1472,7 @@ function Battle({
             tower={selected}
             gold={hud.gold}
             onUpgrade={upgradeSelected}
+            onSpec={specSelected}
             onSell={sellSelected}
             onTargeting={retarget}
             onClose={() => setSelectedId(null)}
@@ -1199,11 +1491,13 @@ function Battle({
       <Typography variant="body2" sx={{ mt: 1.5, color: "text.secondary" }}>
         Build towers to make a maze: enemies always take the shortest way to your castle, and you can keep
         building during a wave. Hilltops add range, rocks block the view, and flying enemies ignore your maze.
-        Tap a tower to upgrade it, sell it or change what it shoots at.
+        Tap a tower to upgrade it, sell it or change what it shoots at. At level 3 every tower can take one of
+        two final forms. Beacons reveal Shades, and Gold Mines pay you every wave. Careful: selling a tower
+        while enemies are on the board makes them all run faster.
       </Typography>
       <Typography variant="caption" sx={{ display: { xs: "none", md: "block" }, color: "text.disabled", mt: 0.5 }}>
-        Shortcuts: 1–5 pick a tower · Space start / send wave · U upgrade · T change target · Delete sell · P
-        pause · Esc cancel
+        Shortcuts: 1–7 pick a tower · Space start / send wave · Q meteor · E cold snap · U upgrade · T change
+        target · Delete sell · P pause · Esc cancel
       </Typography>
 
       <KitDialog game={game} open={leaving} onClose={() => setLeaving(false)} icon={faMap} title="Leave this battle?">

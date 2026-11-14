@@ -16,6 +16,7 @@ const MIN_GAP: Partial<Record<Sfx, number>> = {
   bomb: 0.08,
   boom: 0.06,
   pop: 0.04,
+  jam: 0.4,
 };
 
 export function unlockAudio() {
@@ -130,6 +131,28 @@ export function playSfx(sfx: Sfx) {
     case "portal":
       [196, 233, 277, 370].forEach((f, i) => tone(f, 0.28, { type: "sawtooth", vol: 0.07, delay: i * 0.11 }));
       tone(90, 0.6, { type: "sine", to: 180, vol: 0.2 });
+      break;
+    case "jam":
+      tone(900, 0.25, { type: "sawtooth", to: 90, vol: 0.09 });
+      noise(0.2, { vol: 0.12, freq: 6000 });
+      break;
+    case "meteor":
+      tone(1600, 0.65, { type: "sine", to: 180, vol: 0.12 });
+      break;
+    case "freeze":
+      [2093, 1568, 1319, 1047].forEach((f, i) => tone(f, 0.3, { type: "sine", vol: 0.1, delay: i * 0.07 }));
+      noise(0.5, { vol: 0.1, freq: 7000 });
+      break;
+    case "event":
+      noise(0.9, { vol: 0.32, freq: 500 });
+      tone(70, 0.9, { type: "sine", to: 45, vol: 0.3 });
+      break;
+    case "spec":
+      [392, 523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.16, { type: "triangle", vol: 0.16, delay: i * 0.07 }));
+      break;
+    case "coin":
+      tone(1319, 0.07, { type: "square", vol: 0.07 });
+      tone(1760, 0.14, { type: "square", vol: 0.07, delay: 0.07 });
       break;
     case "error":
       tone(160, 0.14, { type: "square", vol: 0.1 });
