@@ -33,6 +33,12 @@ const LINES_PER_LEVEL = 5;
 const LOCK_DELAY_MS = 500;
 /** How many times moving/rotating can extend the lock delay. */
 const MAX_LOCK_RESETS = 15;
+/**
+ * Brief input lockout after a new piece appears, so a key meant for the
+ * piece that just locked (or a held/auto-repeating key) doesn't act on the
+ * new one.
+ */
+const SPAWN_GRACE_MS = 150;
 
 /** Must match the `cascade-clear` animation duration in app.css. */
 const CLEAR_ANIM_MS = 280;
@@ -531,11 +537,14 @@ function BlockGrid({
   className = "",
   clearingRows,
   lockedId,
+  freshSpawn = false,
 }: {
   cells: (DisplayCell | null)[][];
   className?: string;
   clearingRows?: number[];
   lockedId?: number | null;
+  /** Play the drop-in animation on the active piece (just spawned). */
+  freshSpawn?: boolean;
 }) {
   const rows = cells.length;
   const cols = cells[0]?.length ?? 0;
@@ -563,6 +572,8 @@ function BlockGrid({
               cell.kind === "ghost"
                 ? "cascade-ghost"
                 : `cascade-block${cell.id === ACTIVE_ID ? " is-active" : ""}${
+                    freshSpawn && cell.id === ACTIVE_ID ? " is-new" : ""
+                  }${
                     lockedId != null && cell.id === lockedId ? " is-locked" : ""
                   }`;
             return (
@@ -676,6 +687,10 @@ function GameScreen() {
   const boardElRef = useRef<HTMLDivElement>(null);
   const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lockResetsRef = useRef(0);
+  /** Lowest row the current piece has reached; reaching a new low refreshes lock resets. */
+  const lowestRowRef = useRef(0);
+  const spawnedAtRef = useRef(0);
+  const [freshSpawn, setFreshSpawn] = useState(false);
   const timersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
   const popupIdRef = useRef(0);
   const touchRef = useRef<{
@@ -751,11 +766,15 @@ function GameScreen() {
   const spawn = (shape: number): boolean => {
     const p = spawnPiece(shape);
     lockResetsRef.current = 0;
+    lowestRowRef.current = p.row;
+    spawnedAtRef.current = Date.now();
     if (!isValid(boardRef.current, p)) {
       endGame();
       return false;
     }
     setPiece(p);
+    setFreshSpawn(true);
+    later(() => setFreshSpawn(false), 220);
     return true;
   };
 
@@ -775,6 +794,12 @@ function GameScreen() {
   /** Commit a moved piece and manage lock delay (move-reset, capped). */
   const afterMove = (p: Piece) => {
     setPiece(p);
+    // Standard rule: getting lower than ever before earns a fresh set of resets,
+    // so spinning a piece on the way down doesn't use them all up.
+    if (p.row > lowestRowRef.current) {
+      lowestRowRef.current = p.row;
+      lockResetsRef.current = 0;
+    }
     const canReset = lockResetsRef.current < MAX_LOCK_RESETS;
     if (isGrounded(boardRef.current, p)) {
       if (lockTimerRef.current && canReset) {
@@ -876,11 +901,17 @@ function GameScreen() {
     runCascade(locked);
   };
 
-  const moveLeft = () => void tryMove(-1, 0);
-  const moveRight = () => void tryMove(1, 0);
+  const inSpawnGrace = () => Date.now() - spawnedAtRef.current < SPAWN_GRACE_MS;
+
+  const moveLeft = () => {
+    if (!inSpawnGrace()) tryMove(-1, 0);
+  };
+  const moveRight = () => {
+    if (!inSpawnGrace()) tryMove(1, 0);
+  };
 
   const rotate = (dir: 1 | -1 = 1) => {
-    if (gameStateRef.current !== "ACTIVE") return;
+    if (gameStateRef.current !== "ACTIVE" || inSpawnGrace()) return;
     const p = pieceRef.current;
     const rotation = (p.rotation + dir + 4) % 4;
     // Wall / floor kicks: [colOffset, rowOffset]
@@ -904,7 +935,7 @@ function GameScreen() {
   };
 
   const softDrop = () => {
-    if (gameStateRef.current !== "ACTIVE") return;
+    if (gameStateRef.current !== "ACTIVE" || inSpawnGrace()) return;
     if (tryMove(0, 1)) {
       setScore(scoreRef.current + 1);
     } else {
@@ -913,7 +944,7 @@ function GameScreen() {
   };
 
   const hardDrop = () => {
-    if (gameStateRef.current !== "ACTIVE") return;
+    if (gameStateRef.current !== "ACTIVE" || inSpawnGrace()) return;
     const p = { ...pieceRef.current };
     const target = getGhostRow(boardRef.current, p);
     const dropped = target - p.row;
@@ -926,7 +957,12 @@ function GameScreen() {
   };
 
   const holdPiece = () => {
-    if (gameStateRef.current !== "ACTIVE" || !canHoldRef.current) return;
+    if (
+      gameStateRef.current !== "ACTIVE" ||
+      !canHoldRef.current ||
+      inSpawnGrace()
+    )
+      return;
     clearLockTimer();
     const current = pieceRef.current.shape;
     const held = holdRef.current;
@@ -1118,7 +1154,6 @@ function GameScreen() {
           break;
         case "c":
         case "C":
-        case "Shift":
           h.holdPiece();
           break;
       }
@@ -1268,6 +1303,7 @@ function GameScreen() {
           className={`cascade-board${danger ? " is-danger" : ""}`}>
           <BlockGrid
             cells={display}
+            freshSpawn={freshSpawn}
             clearingRows={clearingRows}
             lockedId={lockedId}
           />
