@@ -7,6 +7,8 @@ import pass2 from "./fixtures/pass2-missions-decor.json";
 import pass4 from "./fixtures/pass4-groves-levels-idle.json";
 import pass5 from "./fixtures/pass5-minigames.json";
 import pass6 from "./fixtures/pass6-home-town.json";
+import pass7 from "./fixtures/pass7-save-vault-fanscout.json";
+import { RARE } from "./config";
 import { createEggsVault, DEFAULT_SAVE, SAVE_VERSION, summarize, type Save } from "./saves";
 
 /**
@@ -24,6 +26,8 @@ const FIXTURES: [string, unknown][] = [
   ["groves, levels and idle (d4982a0)", pass4],
   ["mini games (225a86b)", pass5],
   ["home town (3b4af8a)", pass6],
+  // The last version before Uncommon was added, and the first fixture stamped with a version (1).
+  ["save vault and the FanScout ad (b8baf62)", pass7],
 ];
 
 const MAIN = "memory-game-storage-sneaky-eggs";
@@ -59,7 +63,8 @@ describe("Sneaky Eggs saves", () => {
       // The first pet was the special one: Shiny in the oldest saves, Golden and Big later.
       expect(g.pets[0].v).toBeGreaterThan(0);
       expect(g.book).toEqual(old.game!.book);
-      expect(g.pads[0].egg).toEqual({ biome: 0, rarity: 1 });
+      // Every fixture so far has a Rare egg hatching, saved when Rare was numbered 1.
+      expect(g.pads[0].egg).toEqual({ biome: 0, rarity: RARE });
       for (const [id, level] of Object.entries(old.game!.up)) {
         expect(g.up[id as keyof typeof g.up]).toBe(level);
       }
@@ -96,6 +101,19 @@ describe("Sneaky Eggs saves", () => {
       expect(again.status).toBe("ok");
       expect(summarize(again.save!)).toEqual(summarize(save));
     });
+  });
+
+  it("renumbers egg rarities once, for saves from before Uncommon existed", () => {
+    const { items, storage } = memory();
+    items.set(MAIN, JSON.stringify(pass7));
+    const vault = createEggsVault(storage);
+    const save = vault.load().save!;
+    expect(save.game!.pads[0]).toMatchObject({ rarity: RARE });
+
+    // Written back at the current version, it must not move a second time.
+    vault.write(save);
+    const again = createEggsVault(storage).load().save!;
+    expect(again.game!.pads[0]).toMatchObject({ rarity: RARE });
   });
 
   it("fills in settings an old save never had", () => {

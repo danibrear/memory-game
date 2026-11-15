@@ -6,7 +6,7 @@
 export const WORLD_W = 1680;
 export const BIOME_H = 640;
 export const HOME_H = 580;
-export const BIOME_COUNT = 5;
+export const BIOME_COUNT = 8;
 /** y grows downward. Home sits at the bottom, the farthest biome at the top. */
 export const HOME_TOP = BIOME_H * BIOME_COUNT;
 export const WORLD_H = HOME_TOP + HOME_H;
@@ -23,24 +23,25 @@ export const TAP_BOOST = 0.6;
 export const SHINY_CHANCE = 0.05;
 
 /* ---------- Valuable eggs cost time ---------- */
-// Indexed by egg rarity: Common, Rare, Epic, Legendary.
+// Indexed by egg rarity: Common, Uncommon, Rare, Epic, Legendary, Mythic.
 
 /** Seconds a freshly laid egg needs before it can be picked up. */
-export const RIPEN_TIME = [0, 6, 14, 26];
+export const RIPEN_TIME = [0, 2, 6, 14, 26, 45];
 /**
  * How long you must stand at the nest to lift the egg, as a multiple of that
  * land's Grumble wake time. The Grumble starts waking the moment you begin.
  */
-export const GRAB_TIME = [0, 0.25, 0.5, 0.9];
+export const GRAB_TIME = [0, 0.1, 0.25, 0.5, 0.9, 1.2];
 /** Share of your speed each carried egg takes away. */
-export const EGG_WEIGHT = [0, 0.03, 0.07, 0.12];
+export const EGG_WEIGHT = [0, 0.01, 0.03, 0.07, 0.12, 0.18];
 /** However many heavy eggs you carry, you never lose more speed than this. */
 export const MAX_WEIGHT = 0.35;
 /** Selling a pet pays this many seconds of its income. */
 export const SELL_SECONDS = 20;
 /** Delivering an egg pays this many seconds of the pet's income up front. */
 export const DELIVERY_SECONDS = 6;
-export const FUSE_COUNT = 3;
+/** How many of the same pet it takes to fuse one of the next rarity. */
+export const FUSE_COUNT = 4;
 
 export const biomeTop = (i: number) => (BIOME_COUNT - 1 - i) * BIOME_H;
 export const biomeBottom = (i: number) => biomeTop(i) + BIOME_H;
@@ -50,10 +51,15 @@ export const biomeAt = (y: number) =>
 
 /* ---------- Rarity ---------- */
 
-export type Rarity = 0 | 1 | 2 | 3 | 4;
-/** Rarities that can come out of an egg. Mythic (4) only comes from fusing. */
-export const EGG_RARITIES: Rarity[] = [0, 1, 2, 3];
-export const MYTHIC: Rarity = 4;
+export type Rarity = 0 | 1 | 2 | 3 | 4 | 5;
+export const COMMON: Rarity = 0;
+export const UNCOMMON: Rarity = 1;
+export const RARE: Rarity = 2;
+export const EPIC: Rarity = 3;
+export const LEGENDARY: Rarity = 4;
+export const MYTHIC: Rarity = 5;
+/** Every rarity, lowest first. All of them can come out of an egg; Mythic eggs are extremely rare. */
+export const ALL_RARITIES: Rarity[] = [0, 1, 2, 3, 4, 5];
 
 export interface RarityInfo {
   name: string;
@@ -65,18 +71,26 @@ export interface RarityInfo {
   mult: number;
 }
 
+// Fusing takes four pets, so each step up is worth about four of the step below
+// only at the top; lower down a fuse trades a little income for three free pen spots.
 export const RARITIES: RarityInfo[] = [
   { name: "Common", color: "#94a3b8", dark: "#64748b", hatch: 3, mult: 1 },
-  { name: "Rare", color: "#38bdf8", dark: "#0284c7", hatch: 5, mult: 3 },
-  { name: "Epic", color: "#c084fc", dark: "#9333ea", hatch: 8, mult: 9 },
-  { name: "Legendary", color: "#fbbf24", dark: "#d97706", hatch: 12, mult: 30 },
-  { name: "Mythic", color: "#fb7185", dark: "#e11d48", hatch: 16, mult: 150 },
+  { name: "Uncommon", color: "#4ade80", dark: "#16a34a", hatch: 4, mult: 2 },
+  { name: "Rare", color: "#38bdf8", dark: "#0284c7", hatch: 5, mult: 4 },
+  { name: "Epic", color: "#c084fc", dark: "#9333ea", hatch: 8, mult: 12 },
+  { name: "Legendary", color: "#fbbf24", dark: "#d97706", hatch: 12, mult: 40 },
+  { name: "Mythic", color: "#fb7185", dark: "#e11d48", hatch: 20, mult: 200 },
 ];
 
-/** Egg odds. Luck (and the golden nest) shifts weight toward rarer eggs. */
+/**
+ * Egg odds, lowest rarity first. Luck (clover, golden and grove nests, night,
+ * a buddy) shifts weight toward rarer eggs. With no luck at all a Legendary is
+ * under 1 egg in 100 and a Mythic about 1 in 5,000; at full luck they are about
+ * 1 in 17 and 1 in 400.
+ */
 export function rarityWeights(luck: number): number[] {
   const l = Math.min(7, Math.max(0, luck));
-  return [62 - 7 * l, 27 + 3 * l, 9 + 2.5 * l, 2 + 1.5 * l];
+  return [60 - 7 * l, 26 + 1.5 * l, 10 + 2.5 * l, 3 + 1.6 * l, 0.8 + 0.7 * l, 0.02 + 0.033 * l];
 }
 export const GOLDEN_NEST_LUCK = 2;
 
@@ -118,10 +132,12 @@ export interface PetDef {
 
 export type DecorKind =
   | "flower" | "tuft" | "shell" | "starfish" | "snowdot" | "icepatch"
-  | "sprinkle" | "swirl" | "star" | "crater";
+  | "sprinkle" | "swirl" | "star" | "crater"
+  | "leaf" | "mushroom" | "ember" | "crack" | "wisp" | "arc";
 export type SolidKind =
   | "tree" | "bush" | "palm" | "rock" | "pine" | "snowpile"
-  | "lollipop" | "gumdrop" | "crystal" | "moonrock";
+  | "lollipop" | "gumdrop" | "crystal" | "moonrock"
+  | "pumpkin" | "deadtree" | "volcano" | "obsidian" | "cloud" | "pillar";
 
 export interface Biome {
   id: string;
@@ -242,7 +258,69 @@ export const BIOMES: Biome[] = [
     decor: ["star", "crater"],
     solids: ["crystal", "moonrock"],
   },
+  // The three lands past Starry Space (added November 2026). Their gates sit at
+  // sneaker levels 18, 22 and 26, so a player who had maxed the old sneakers
+  // walks straight into Spooky Hollow.
+  {
+    id: "spooky",
+    name: "Spooky Hollow",
+    ground: "#8b7bb5",
+    ground2: "#7868a3",
+    path: "#d8cdee",
+    fence: "#4a3d73",
+    ink: "#241846",
+    mult: 3_000,
+    speedReq: 18,
+    guardRatio: 0.955,
+    wake: 0.4,
+    // As sharp at cutting you off as Starry Space, the highest that has been play-tested.
+    cunning: 0.45,
+    guard: { body: "#4a3a70", belly: "#c4b5fd", accent: "#1c1233", shape: "wide", ears: "horns", back: "wings", face: "fang", pattern: "spots", cheeks: "#a78bfa" },
+    egg: { base: "#f3e8ff", spot: "#f97316" },
+    decor: ["leaf", "mushroom"],
+    solids: ["pumpkin", "deadtree"],
+  },
+  {
+    id: "lava",
+    name: "Lava Lagoon",
+    ground: "#8a3b24",
+    ground2: "#76301c",
+    path: "#f3c796",
+    fence: "#3f1408",
+    ink: "#ffedd5",
+    mult: 15_000,
+    speedReq: 22,
+    guardRatio: 0.97,
+    wake: 0.36,
+    // As sharp at cutting you off as Starry Space, the highest that has been play-tested.
+    cunning: 0.45,
+    guard: { body: "#dc2626", belly: "#fed7aa", accent: "#7f1d1d", shape: "wide", ears: "horns", back: "shell", tail: "flame", face: "fang", cheeks: "#fdba74" },
+    egg: { base: "#ffedd5", spot: "#dc2626" },
+    decor: ["ember", "crack"],
+    solids: ["volcano", "obsidian"],
+  },
+  {
+    id: "cloud",
+    name: "Cloud Kingdom",
+    ground: "#9bd0ff",
+    ground2: "#86c2f7",
+    path: "#ffffff",
+    fence: "#f0b429",
+    ink: "#173b78",
+    mult: 75_000,
+    speedReq: 26,
+    guardRatio: 0.985,
+    wake: 0.32,
+    // As sharp at cutting you off as Starry Space, the highest that has been play-tested.
+    cunning: 0.45,
+    guard: { body: "#64748b", belly: "#e2e8f0", accent: "#facc15", shape: "wide", ears: "horns", back: "fluff", face: "fang", pattern: "stripes", cheeks: "#fde68a" },
+    egg: { base: "#ffffff", spot: "#f472b6" },
+    decor: ["wisp", "arc"],
+    solids: ["cloud", "pillar"],
+  },
 ];
+/** Rebirth opens once Starry Space does, as it always has; the newer lands are a bonus on top. */
+export const REBIRTH_LAND = 4;
 
 /* ---------- Pets: one per biome and rarity ---------- */
 
@@ -251,17 +329,20 @@ export const PETS: PetDef[] = [
   { id: "clover-bun", name: "Clover Bun", biome: 0, rarity: 0,
     look: { body: "#fdf0d8", belly: "#ffffff", accent: "#f9a8d4", ears: "long", tail: "puff", cheeks: "#fda4af" },
     blurb: "Hops in zigzags and nibbles four-leaf clovers for luck." },
-  { id: "honey-cub", name: "Honey Cub", biome: 0, rarity: 1,
+  { id: "dandy-duckling", name: "Dandy Duckling", biome: 0, rarity: 1,
+    look: { body: "#fde68a", belly: "#fffbeb", accent: "#f97316", ears: "tuft", tail: "puff", face: "beak", cheeks: "#fdba74" },
+    blurb: "Waddles in a straight line. Mostly." },
+  { id: "honey-cub", name: "Honey Cub", biome: 0, rarity: 2,
     look: { body: "#fbbf24", belly: "#fef3c7", accent: "#78350f", ears: "round", back: "wings", pattern: "stripes", cheeks: "#fb923c" },
     blurb: "Half bear, half bee. Buzzes when it's happy." },
-  { id: "petal-fox", name: "Petal Fox", biome: 0, rarity: 2,
+  { id: "petal-fox", name: "Petal Fox", biome: 0, rarity: 3,
     look: { body: "#fb7185", belly: "#ffe4e6", accent: "#be123c", ears: "pointy", tail: "long", hat: "flower", face: "cat", cheeks: "#fecdd3" },
     blurb: "Leaves a trail of flower petals wherever it trots." },
-  { id: "sunny-lion", name: "Sunny Lion", biome: 0, rarity: 3,
+  { id: "sunny-lion", name: "Sunny Lion", biome: 0, rarity: 4,
     look: { body: "#fcd34d", belly: "#fef9c3", accent: "#ea580c", ears: "round", tail: "long", back: "mane", hat: "crown", face: "cat", cheeks: "#fdba74" },
     blurb: "Its mane glows like the sun. Roars only in whispers." },
 
-  { id: "bloom-stag", name: "Bloom Stag", biome: 0, rarity: 4,
+  { id: "bloom-stag", name: "Bloom Stag", biome: 0, rarity: 5,
     look: { body: "#86efac", belly: "#f0fdf4", accent: "#ec4899", ears: "horns", tail: "puff", back: "mane", pattern: "spots", hat: "flower", face: "cat", cheeks: "#f9a8d4", aura: "#f472b6" },
     blurb: "Flowers bloom under every step it takes." },
 
@@ -269,17 +350,20 @@ export const PETS: PetDef[] = [
   { id: "puddle-pup", name: "Puddle Pup", biome: 1, rarity: 0,
     look: { body: "#7dd3fc", belly: "#e0f2fe", accent: "#0369a1", ears: "floppy", tail: "long", pattern: "spots", cheeks: "#f9a8d4" },
     blurb: "Never met a puddle it didn't want to splash in." },
-  { id: "shelly", name: "Shelly", biome: 1, rarity: 1,
+  { id: "sandy-crab", name: "Sandy Crab", biome: 1, rarity: 1,
+    look: { body: "#fb923c", belly: "#ffedd5", accent: "#c2410c", shape: "wide", ears: "tuft", pattern: "spots", cheeks: "#fecaca" },
+    blurb: "Walks sideways and waves at everybody." },
+  { id: "shelly", name: "Shelly", biome: 1, rarity: 2,
     look: { body: "#5eead4", belly: "#ccfbf1", accent: "#0f766e", ears: "none", back: "shell", shape: "wide", cheeks: "#fda4af" },
     blurb: "Slow and steady. Keeps snacks inside its shell." },
-  { id: "mer-kitty", name: "Mer-Kitty", biome: 1, rarity: 2,
+  { id: "mer-kitty", name: "Mer-Kitty", biome: 1, rarity: 3,
     look: { body: "#f0abfc", belly: "#fae8ff", accent: "#a21caf", ears: "pointy", tail: "fish", hat: "bow", face: "cat", cheeks: "#f9a8d4" },
     blurb: "A kitty that actually LOVES bath time." },
-  { id: "tide-dragon", name: "Tide Dragon", biome: 1, rarity: 3,
+  { id: "tide-dragon", name: "Tide Dragon", biome: 1, rarity: 4,
     look: { body: "#22d3ee", belly: "#cffafe", accent: "#0e7490", ears: "horns", tail: "long", back: "wings", pattern: "spots", face: "fang", hat: "crown", cheeks: "#a5f3fc" },
     blurb: "Makes little waves by wiggling its tail." },
 
-  { id: "pearl-narwhal", name: "Pearl Narwhal", biome: 1, rarity: 4,
+  { id: "pearl-narwhal", name: "Pearl Narwhal", biome: 1, rarity: 5,
     look: { body: "#e0f2fe", belly: "#ffffff", accent: "#06b6d4", ears: "unihorn", tail: "fish", pattern: "stars", hat: "halo", cheeks: "#f9a8d4", aura: "#22d3ee" },
     blurb: "Its horn shines like moonlight on the sea." },
 
@@ -287,17 +371,20 @@ export const PETS: PetDef[] = [
   { id: "snow-puff", name: "Snow Puff", biome: 2, rarity: 0,
     look: { body: "#475569", belly: "#f8fafc", accent: "#f59e0b", ears: "none", shape: "tall", face: "beak", cheeks: "#fda4af" },
     blurb: "Slides on its tummy to get everywhere faster." },
-  { id: "frosty-fox", name: "Frosty Fox", biome: 2, rarity: 1,
+  { id: "mitten-kitten", name: "Mitten Kitten", biome: 2, rarity: 1,
+    look: { body: "#fecdd3", belly: "#fff1f2", accent: "#e11d48", ears: "pointy", tail: "puff", hat: "scarf", hatColor: "#34d399", face: "cat", cheeks: "#fda4af" },
+    blurb: "Has four mittens and has lost three of them." },
+  { id: "frosty-fox", name: "Frosty Fox", biome: 2, rarity: 2,
     look: { body: "#dbeafe", belly: "#ffffff", accent: "#3b82f6", ears: "pointy", tail: "long", hat: "scarf", face: "cat", cheeks: "#fbcfe8" },
     blurb: "Wears a scarf even though it never gets cold." },
-  { id: "aurora-owl", name: "Aurora Owl", biome: 2, rarity: 2,
+  { id: "aurora-owl", name: "Aurora Owl", biome: 2, rarity: 3,
     look: { body: "#a78bfa", belly: "#ede9fe", accent: "#2dd4bf", ears: "tuft", back: "wings", pattern: "spots", face: "beak", cheeks: "#f0abfc" },
     blurb: "Its feathers shimmer like the northern lights." },
-  { id: "blizzard-yeti", name: "Blizzard Yeti", biome: 2, rarity: 3,
+  { id: "blizzard-yeti", name: "Blizzard Yeti", biome: 2, rarity: 4,
     look: { body: "#f1f5f9", belly: "#bae6fd", accent: "#0ea5e9", ears: "horns", shape: "wide", back: "fluff", face: "fang", hat: "crown", cheeks: "#fda4af" },
     blurb: "Big, fluffy, and gives the warmest hugs." },
 
-  { id: "frost-phoenix", name: "Frost Phoenix", biome: 2, rarity: 4,
+  { id: "frost-phoenix", name: "Frost Phoenix", biome: 2, rarity: 5,
     look: { body: "#bae6fd", belly: "#f0f9ff", accent: "#6366f1", ears: "tuft", tail: "flame", back: "wings", pattern: "stars", face: "beak", hat: "crown", cheeks: "#c7d2fe", aura: "#818cf8" },
     blurb: "A bird made of snowflakes that never melt." },
 
@@ -305,17 +392,20 @@ export const PETS: PetDef[] = [
   { id: "gummy-cub", name: "Gummy Cub", biome: 3, rarity: 0,
     look: { body: "#f87171", belly: "#fecaca", accent: "#b91c1c", ears: "round", cheeks: "#fee2e2" },
     blurb: "Bouncy, squishy, and smells like cherries." },
-  { id: "sprinkle-pup", name: "Sprinkle Pup", biome: 3, rarity: 1,
+  { id: "jelly-bunny", name: "Jelly Bunny", biome: 3, rarity: 1,
+    look: { body: "#a78bfa", belly: "#ede9fe", accent: "#6d28d9", ears: "long", tail: "puff", pattern: "spots", cheeks: "#f0abfc" },
+    blurb: "Wobbles when it hops. Grape flavour." },
+  { id: "sprinkle-pup", name: "Sprinkle Pup", biome: 3, rarity: 2,
     look: { body: "#f9a8d4", belly: "#fce7f3", accent: "#db2777", ears: "floppy", tail: "puff", pattern: "sprinkles", cheeks: "#fb7185" },
     blurb: "Shakes off sprinkles instead of water." },
-  { id: "lolli-cat", name: "Lolli Cat", biome: 3, rarity: 2,
+  { id: "lolli-cat", name: "Lolli Cat", biome: 3, rarity: 3,
     look: { body: "#86efac", belly: "#f0fdf4", accent: "#ec4899", ears: "pointy", tail: "long", pattern: "stripes", hat: "bow", face: "cat", cheeks: "#f9a8d4" },
     blurb: "Purrs in swirls. Slightly sticky paws." },
-  { id: "sugar-unicorn", name: "Sugar Unicorn", biome: 3, rarity: 3,
+  { id: "sugar-unicorn", name: "Sugar Unicorn", biome: 3, rarity: 4,
     look: { body: "#fdf4ff", belly: "#ffffff", accent: "#e879f9", ears: "unihorn", tail: "star", back: "mane", pattern: "sprinkles", cheeks: "#f9a8d4" },
     blurb: "Sneezes glitter. Says excuse me every time." },
 
-  { id: "bubblegum-king", name: "Bubblegum King", biome: 3, rarity: 4,
+  { id: "bubblegum-king", name: "Bubblegum King", biome: 3, rarity: 5,
     look: { body: "#f472b6", belly: "#fdf2f8", accent: "#7c3aed", shape: "wide", ears: "round", tail: "puff", back: "fluff", pattern: "sprinkles", hat: "crown", cheeks: "#fbcfe8", aura: "#c084fc" },
     blurb: "Blows the biggest bubbles in the whole canyon." },
 
@@ -323,18 +413,81 @@ export const PETS: PetDef[] = [
   { id: "moon-mouse", name: "Moon Mouse", biome: 4, rarity: 0,
     look: { body: "#cbd5e1", belly: "#f8fafc", accent: "#f472b6", ears: "round", tail: "long", cheeks: "#f9a8d4" },
     blurb: "Thinks the moon is made of cheese. Might be right." },
-  { id: "comet-cat", name: "Comet Cat", biome: 4, rarity: 1,
+  { id: "rocket-pup", name: "Rocket Pup", biome: 4, rarity: 1,
+    look: { body: "#e2e8f0", belly: "#f8fafc", accent: "#ef4444", ears: "floppy", tail: "flame", hat: "propeller", cheeks: "#fca5a5" },
+    blurb: "Wags its tail so fast it lifts off." },
+  { id: "comet-cat", name: "Comet Cat", biome: 4, rarity: 2,
     look: { body: "#6366f1", belly: "#c7d2fe", accent: "#f97316", ears: "pointy", tail: "flame", face: "cat", cheeks: "#a5b4fc" },
     blurb: "Chases its own fiery tail across the sky." },
-  { id: "nebula-bunny", name: "Nebula Bunny", biome: 4, rarity: 2,
+  { id: "nebula-bunny", name: "Nebula Bunny", biome: 4, rarity: 3,
     look: { body: "#c084fc", belly: "#f3e8ff", accent: "#22d3ee", ears: "long", tail: "puff", pattern: "stars", hat: "halo", cheeks: "#f0abfc" },
     blurb: "Hops from star to star without a sound." },
-  { id: "galaxy-dragon", name: "Galaxy Dragon", biome: 4, rarity: 3,
+  { id: "galaxy-dragon", name: "Galaxy Dragon", biome: 4, rarity: 4,
     look: { body: "#4338ca", belly: "#a5b4fc", accent: "#f0abfc", ears: "horns", tail: "star", back: "wings", pattern: "stars", face: "fang", hat: "crown", cheeks: "#818cf8" },
     blurb: "Keeps a pocket full of baby stars." },
-  { id: "nova-kitty", name: "Nova Kitty", biome: 4, rarity: 4,
+  { id: "nova-kitty", name: "Nova Kitty", biome: 4, rarity: 5,
     look: { body: "#1e1b4b", belly: "#4338ca", accent: "#fde047", ears: "pointy", tail: "star", pattern: "stars", hat: "halo", face: "cat", cheeks: "#a5b4fc", aura: "#fde047" },
     blurb: "Born when a star went POP. Purrs like thunder." },
+
+  // Spooky Hollow
+  { id: "boo-bunny", name: "Boo Bunny", biome: 5, rarity: 0,
+    look: { body: "#f5f3ff", belly: "#ffffff", accent: "#8b5cf6", ears: "long", tail: "puff", cheeks: "#ddd6fe" },
+    blurb: "Says BOO, then says sorry." },
+  { id: "pumpkin-pup", name: "Pumpkin Pup", biome: 5, rarity: 1,
+    look: { body: "#fb923c", belly: "#ffedd5", accent: "#15803d", ears: "floppy", tail: "puff", pattern: "stripes", cheeks: "#fdba74" },
+    blurb: "Smells like pie. Glows a little at night." },
+  { id: "batty-cat", name: "Batty Cat", biome: 5, rarity: 2,
+    look: { body: "#6d5aa8", belly: "#ddd6fe", accent: "#2e1065", ears: "pointy", tail: "long", back: "wings", face: "cat", cheeks: "#c4b5fd" },
+    blurb: "Naps upside down. Lands on its feet anyway." },
+  { id: "candle-owl", name: "Candle Owl", biome: 5, rarity: 3,
+    look: { body: "#fef3c7", belly: "#fffbeb", accent: "#f97316", ears: "tuft", tail: "flame", back: "wings", face: "beak", hat: "wizard", cheeks: "#fdba74" },
+    blurb: "Reads spooky stories by the light of its own tail." },
+  { id: "midnight-wolf", name: "Midnight Wolf", biome: 5, rarity: 4,
+    look: { body: "#312e81", belly: "#a5b4fc", accent: "#f97316", ears: "pointy", tail: "long", back: "mane", pattern: "stars", face: "fang", hat: "crown", cheeks: "#818cf8" },
+    blurb: "Howls so softly it sounds like a lullaby." },
+  { id: "wisp-queen", name: "Wisp Queen", biome: 5, rarity: 5,
+    look: { body: "#c4b5fd", belly: "#f5f3ff", accent: "#22d3ee", shape: "tall", ears: "tuft", tail: "flame", back: "wings", pattern: "stars", hat: "crown", cheeks: "#a5f3fc", aura: "#a78bfa" },
+    blurb: "A friendly ghost light who rules the whole hollow." },
+
+  // Lava Lagoon
+  { id: "cinder-chick", name: "Cinder Chick", biome: 6, rarity: 0,
+    look: { body: "#fca5a5", belly: "#fee2e2", accent: "#b91c1c", ears: "tuft", tail: "flame", face: "beak", cheeks: "#fdba74" },
+    blurb: "Hatched warm and stays warm. Great for cold toes." },
+  { id: "magma-mole", name: "Magma Mole", biome: 6, rarity: 1,
+    look: { body: "#78350f", belly: "#fdba74", accent: "#f97316", shape: "wide", ears: "round", pattern: "spots", cheeks: "#fb923c" },
+    blurb: "Digs cosy tunnels and warms them up for friends." },
+  { id: "ember-fox", name: "Ember Fox", biome: 6, rarity: 2,
+    look: { body: "#f97316", belly: "#ffedd5", accent: "#7c2d12", ears: "pointy", tail: "flame", hat: "scarf", hatColor: "#facc15", face: "cat", cheeks: "#fde68a" },
+    blurb: "Its tail flickers when it is excited, so, always." },
+  { id: "smoky-salamander", name: "Smoky Salamander", biome: 6, rarity: 3,
+    look: { body: "#475569", belly: "#fb923c", accent: "#ef4444", ears: "none", tail: "long", pattern: "stripes", face: "smile", hat: "tophat", cheeks: "#fca5a5" },
+    blurb: "Blows smoke rings shaped like hearts." },
+  { id: "volcano-rex", name: "Volcano Rex", biome: 6, rarity: 4,
+    look: { body: "#b91c1c", belly: "#fde68a", accent: "#450a0a", shape: "wide", ears: "horns", tail: "flame", back: "shell", face: "fang", hat: "crown", cheeks: "#fdba74" },
+    blurb: "Stomps very loudly and apologises very quietly." },
+  { id: "inferno-kirin", name: "Inferno Kirin", biome: 6, rarity: 5,
+    look: { body: "#fde047", belly: "#fffbeb", accent: "#dc2626", ears: "unihorn", tail: "flame", back: "mane", pattern: "stripes", hat: "halo", face: "cat", cheeks: "#fdba74", aura: "#fb923c" },
+    blurb: "Runs across lava without singeing a single hoof." },
+
+  // Cloud Kingdom
+  { id: "cloud-lamb", name: "Cloud Lamb", biome: 7, rarity: 0,
+    look: { body: "#ffffff", belly: "#f1f5f9", accent: "#93c5fd", ears: "floppy", tail: "puff", back: "fluff", cheeks: "#fbcfe8" },
+    blurb: "So fluffy it floats a little when it sneezes." },
+  { id: "breeze-birdie", name: "Breeze Birdie", biome: 7, rarity: 1,
+    look: { body: "#7dd3fc", belly: "#f0f9ff", accent: "#f59e0b", ears: "tuft", back: "wings", face: "beak", cheeks: "#fda4af" },
+    blurb: "Whistles the wind's favourite song." },
+  { id: "sunbeam-cub", name: "Sunbeam Cub", biome: 7, rarity: 2,
+    look: { body: "#fde68a", belly: "#fffbeb", accent: "#f59e0b", ears: "round", tail: "puff", back: "mane", hat: "halo", cheeks: "#fdba74" },
+    blurb: "Finds the one sunny spot on any cloud and naps in it." },
+  { id: "prism-pegasus", name: "Prism Pegasus", biome: 7, rarity: 3,
+    look: { body: "#f5d0fe", belly: "#ffffff", accent: "#38bdf8", ears: "pointy", tail: "star", back: "wings", pattern: "stars", hat: "bow", hatColor: "#f472b6", cheeks: "#fbcfe8" },
+    blurb: "Leaves a tiny rainbow every time it lands." },
+  { id: "thunder-griffin", name: "Thunder Griffin", biome: 7, rarity: 4,
+    look: { body: "#fbbf24", belly: "#f8fafc", accent: "#1d4ed8", ears: "tuft", tail: "long", back: "wings", pattern: "stripes", face: "beak", hat: "crown", cheeks: "#fde68a" },
+    blurb: "Claps its wings to make thunder, then giggles." },
+  { id: "sky-emperor", name: "Sky Emperor", biome: 7, rarity: 5,
+    look: { body: "#bfdbfe", belly: "#ffffff", accent: "#f59e0b", shape: "tall", ears: "horns", tail: "star", back: "wings", pattern: "stars", face: "fang", hat: "crown", cheeks: "#fde68a", aura: "#fde047" },
+    blurb: "A cloud dragon who keeps the sunrise in its pocket." },
 ];
 
 const PET_BY_ID = new Map(PETS.map((p) => [p.id, p]));
@@ -350,13 +503,16 @@ export interface Variant {
   color: string;
 }
 
-/** Index 0 is a plain pet. Each step up is rarer and earns more. */
+/** Index 0 is a plain pet. Each step up is rarer and earns more. Saved by index, so only ever add to the end. */
 export const VARIANTS: Variant[] = [
   { name: "", mult: 1, color: "#94a3b8" },
   { name: "Shiny", mult: 3, color: "#facc15" },
   { name: "Golden", mult: 8, color: "#f59e0b" },
   { name: "Rainbow", mult: 25, color: "#e879f9" },
+  // Glow: the pet in its own special colours, lit up like a night light. The rarest roll.
+  { name: "Glow", mult: 60, color: "#22d3ee" },
 ];
+export const GLOW = 4;
 
 export interface SizeTier {
   name: string;
@@ -422,18 +578,22 @@ export const UPGRADE_IDS: UpgradeId[] = [
   "speed", "dash", "hands", "arms", "basket", "pen", "treats", "courier", "jar", "warm", "ripen", "luck", "sparkle", "socks",
 ];
 
-export const playerSpeed = (level: number) => 190 + 16 * level;
+/** Sneakers add 16 to your speed per level up to level 18, and a gentler 6 after that. */
+export const playerSpeed = (level: number) => 190 + 16 * Math.min(level, 18) + 6 * Math.max(0, level - 18);
 export const guardSpeed = (biome: number) =>
   playerSpeed(BIOMES[biome].speedReq) * BIOMES[biome].guardRatio;
 
-// Sneaker prices. Gates open at levels 3, 6, 10 and 14, so each group below
-// is "what it costs to reach the next land".
+// Sneaker prices. Gates open at levels 3, 6, 10, 14, 18, 22 and 26, so each
+// group below is "what it costs to reach the next land".
 const SPEED_COSTS = [
   20, 40, 80,
   300, 800, 2_000,
   6_000, 15_000, 35_000, 80_000,
   200_000, 500_000, 1_200_000, 3_000_000,
   6_000_000, 12_000_000, 25_000_000, 50_000_000,
+  150_000_000, 400_000_000, 1_000_000_000, 2_500_000_000,
+  6_000_000_000, 15_000_000_000, 40_000_000_000, 100_000_000_000,
+  250_000_000_000, 600_000_000_000,
 ];
 const PEN_SIZES = [8, 10, 12, 14, 16, 18, 20];
 
@@ -490,10 +650,15 @@ export const handsScale = (level: number) => [1, 0.82, 0.66, 0.52, 0.4][Math.min
 export const armsScale = (level: number) => [1, 0.75, 0.5, 0.25, 0][Math.min(level, 4)];
 export const ripenScale = (level: number) => [1, 0.85, 0.7, 0.55, 0.4][Math.min(level, 4)];
 
-/** Roll a hatch variant. Golden is 5x rarer than Shiny, Rainbow 5x rarer again. */
+/**
+ * Roll a hatch variant. Golden is 5x rarer than Shiny, Rainbow 5x rarer again,
+ * and Glow 3x rarer than Rainbow: about 1 hatch in 1,500 with no Sparkle Charm
+ * and 1 in 375 with all of it.
+ */
 export function rollVariant(sparkleLevel: number, boost = 1): number {
   const shiny = Math.min(0.9, shinyChance(sparkleLevel) * boost);
   const r = Math.random();
+  if (r < shiny / 75) return GLOW;
   if (r < shiny / 25) return 3;
   if (r < shiny / 5) return 2;
   return r < shiny ? 1 : 0;
@@ -682,7 +847,7 @@ export const FAR_NEST_LUCK = 2;
 
 /* ---------- Ancient nests and Power Eggs ---------- */
 
-export type PowerEggId = "clover" | "snail" | "frost" | "feather" | "star";
+export type PowerEggId = "clover" | "snail" | "frost" | "feather" | "star" | "ghost" | "magma" | "cloud";
 export interface PowerEggDef {
   id: PowerEggId;
   /** The land whose ancient nest lays it. */
@@ -697,7 +862,12 @@ export const POWER_EGGS: PowerEggDef[] = [
   { id: "frost", biome: 2, name: "Frost Egg", desc: "Adds a FREEZE button that stops every Grumble for 3 seconds.", color: "#38bdf8" },
   { id: "feather", biome: 3, name: "Feather Egg", desc: "Once every 90 seconds, getting caught doesn't send you home.", color: "#ec4899" },
   { id: "star", biome: 4, name: "Star Egg", desc: "Your pets earn 50% more coins.", color: "#a855f7" },
+  { id: "ghost", biome: 5, name: "Ghost Egg", desc: "You are extra quiet: every Grumble takes half a second longer to wake.", color: "#8b5cf6" },
+  { id: "magma", biome: 6, name: "Magma Egg", desc: "Eggs on your pads hatch twice as fast.", color: "#ef4444" },
+  { id: "cloud", biome: 7, name: "Cloud Egg", desc: "The eggs you carry are light as air and never slow you down.", color: "#eab308" },
 ];
+export const GHOST_WAKE = 0.5;
+export const MAGMA_HATCH = 2;
 export const powerEggById = (id: string) => POWER_EGGS.find((e) => e.id === id);
 /** One ancient nest per land, deep in a side grove. */
 export const ancientSpot = (biome: number): Point => ({
@@ -705,7 +875,7 @@ export const ancientSpot = (biome: number): Point => ({
   y: biomeTop(biome) + 330,
 });
 /** Seconds an ancient nest takes to lay its Power Egg, per land. */
-export const ANCIENT_TIME = [120, 180, 240, 300, 360];
+export const ANCIENT_TIME = [120, 180, 240, 300, 360, 420, 480, 540];
 /** Lifting a Power Egg, in Grumble wake times, and how much it slows you. */
 export const ANCIENT_GRAB = 1.2;
 export const ANCIENT_WEIGHT = 0.15;
@@ -749,6 +919,22 @@ export const CUT_AIM = 0.75;
 export const CUT_KEEP = 130;
 /** Once it is this close to you it forgets the plan and just grabs for you. */
 export const CUT_NEAR = 60;
+
+/* ---------- Grumbles bonk their heads ---------- */
+// A Grumble that runs into scenery while chasing you loses a heart. At zero
+// it is knocked out for a while, then shuffles home with all its hearts back.
+
+export const GUARD_HP = 3;
+/** Seconds a Grumble sees stars after a bonk, and how long before the next bonk can count. */
+export const BONK_STUN = 0.7;
+export const BONK_GRACE = 1.3;
+/** Seconds a Grumble stays knocked out. */
+export const KNOCKOUT_TIME = 8;
+/** A knockout pays this many seconds of your pets' income, and some XP. */
+export const KNOCKOUT_SECONDS = 30;
+export const KNOCKOUT_XP = 15;
+/** Share of a Grumble's size that bumps into scenery (the rest squeezes past). */
+export const GUARD_BODY = 0.6;
 
 /* ---------- Power-ups you find lying around ---------- */
 

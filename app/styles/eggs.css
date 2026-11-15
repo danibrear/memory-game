@@ -882,10 +882,16 @@ button.se-speed {
   font-size: 0.8rem;
   color: var(--dg-muted);
 }
+/* Six pets per land: one row on a tablet, two rows of three on a phone. */
 .se-book-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 5px;
+}
+@media (max-width: 480px) {
+  .se-book-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 .se-book-cell {
   appearance: none;

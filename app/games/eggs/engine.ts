@@ -15,6 +15,16 @@ import {
   type AdRewardId,
   BIOME_COUNT,
   BIOME_H,
+  BONK_GRACE,
+  BONK_STUN,
+  GHOST_WAKE,
+  MAGMA_HATCH,
+  REBIRTH_LAND,
+  GUARD_BODY,
+  GUARD_HP,
+  KNOCKOUT_SECONDS,
+  KNOCKOUT_TIME,
+  KNOCKOUT_XP,
   BIOMES,
   BUG_RESPAWN,
   BUGS_PER_LAND,
@@ -110,6 +120,7 @@ import {
   TRAILS,
   UFO,
   VARIANTS,
+  GLOW,
   WORLD_H,
   WORLD_W,
   armsScale,
@@ -158,6 +169,9 @@ import {
   type PetDef,
   type Point,
   type Rarity,
+  LEGENDARY,
+  EPIC,
+  MYTHIC,
   type SolidKind,
   type TrailId,
   type UpgradeId,
@@ -211,6 +225,8 @@ export interface EggInfo {
   power?: PowerEggId;
   /** It came from a grove nest. */
   far?: boolean;
+  /** Index of the nest it was lifted from, so a dropped egg can roll back to it. */
+  nest?: number;
 }
 
 /** The slow nest deep in each land's grove that lays a Power Egg. */
@@ -253,6 +269,8 @@ export interface Nest {
   y: number;
   golden: boolean;
   egg: Rarity | null;
+  /** An egg a Grumble knocked out of the player's hands, rolling back here. It comes back as the same egg. */
+  back: Rarity | null;
   respawn: number;
   /** Seconds since the egg appeared, for the pop-in. */
   age: number;
@@ -265,7 +283,7 @@ export interface Nest {
   far: boolean;
 }
 
-export type GuardState = "sleep" | "waking" | "alert" | "chase" | "huff" | "return";
+export type GuardState = "sleep" | "waking" | "alert" | "chase" | "huff" | "return" | "bonk" | "out";
 
 export interface Guard {
   biome: number;
@@ -289,6 +307,10 @@ export interface Guard {
   cutY: number;
   /** Counts down while the "Aha!" shows, so it can't flicker. */
   aha: number;
+  /** Hearts left. Running into scenery mid-chase costs one; they come back when it goes to bed. */
+  hp: number;
+  /** Seconds before another bonk can count. */
+  bonkT: number;
 }
 
 export interface Pad {
@@ -483,6 +505,9 @@ export interface Stats {
   rebirths: number;
   /** Eggs the courier has brought home. */
   couriered: number;
+  /** Times a chasing Grumble ran into scenery, and times one was knocked out. */
+  bonks: number;
+  knockouts: number;
   /** Mini games played, tent prizes won, and Lucky Dice rolled. */
   minis: number;
   prizes: number;
@@ -505,7 +530,7 @@ const ZERO_STATS: Stats = {
   travels: 0, missions: 0, legendEggs: 0, earned: 0,
   powerups: 0, freezes: 0, sentHome: 0, farEggs: 0,
   adsOpened: 0, adsDone: 0, adsClicked: 0, shares: 0, rebirths: 0, couriered: 0,
-  minis: 0, prizes: 0, diceUsed: 0,
+  minis: 0, prizes: 0, diceUsed: 0, bonks: 0, knockouts: 0,
   adSeconds: 0, adRewards: 0,
   built: 0, hammers: 0, millRuns: 0, cakes: 0, wellStars: 0, paints: 0,
 };
@@ -625,6 +650,8 @@ export type GameEvent =
   | { type: "collect"; id: BuildingId; amount: number }
   | { type: "ready"; id: BuildingId }
   | { type: "site"; site: SiteId }
+  | { type: "mythicEgg"; biome: number }
+  | { type: "bonk"; biome: number; left: number; out: boolean; coins: number }
   | { type: "mission"; kind: MissionKind; target: number; coins: number; stars: number };
 
 export interface Game {
@@ -890,6 +917,7 @@ function makePet(g: Game, id: string, v: number, s: number, at?: Point): Pet {
 const SOLID_R: Record<SolidKind, number> = {
   tree: 26, bush: 20, palm: 22, rock: 22, pine: 24, snowpile: 22,
   lollipop: 18, gumdrop: 22, crystal: 20, moonrock: 24,
+  pumpkin: 21, deadtree: 22, volcano: 26, obsidian: 20, cloud: 26, pillar: 18,
 };
 
 interface World {
@@ -1196,7 +1224,7 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
     g.luckT = clamp(Number(saved.boosts?.luck) || 0, 0, AD_LUCK_TIME);
     const buddy = saved.buddy ?? -1;
     if (buddy >= 0 && buddy < g.pets.length) g.buddy = g.pets[buddy].uid;
-    g.completeSent = PETS.every((p) => p.rarity === 4 || g.book[p.id]);
+    g.completeSent = PETS.every((p) => p.rarity === MYTHIC || g.book[p.id]);
   }
   if (opts.giant) g.flags.giant = 1;
   // A brand-new player's first mission is the simplest one there is.
@@ -1216,6 +1244,7 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
           !saved && i === 0 && !spot.golden && !spot.far
             ? 0
             : rollRarity(g.up.luck + (spot.golden ? GOLDEN_NEST_LUCK : 0) + (spot.far ? FAR_NEST_LUCK : 0)),
+        back: null,
         respawn: 0,
         age: 9,
         ripen: 0,
@@ -1252,6 +1281,7 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
       homeX: GUARD_POST.x, homeY: top + GUARD_POST.dy,
       state: "sleep", t: 0, flip: false, walkT: 0, minGap: Infinity, pat: 0,
       read: 0, cut: false, cutX: 0, cutY: 0, aha: 0,
+      hp: GUARD_HP, bonkT: 0,
     });
     for (let k = 0; k < BUGS_PER_LAND; k++) {
       const at = openSpot(g, i, false);
@@ -1392,7 +1422,7 @@ export function countOf(g: Game, id: string): number {
 
 export function canFuse(g: Game, id: string): boolean {
   const def = petById(id);
-  return Boolean(def) && def!.rarity < 4 && countOf(g, id) >= FUSE_COUNT;
+  return Boolean(def) && def!.rarity < MYTHIC && countOf(g, id) >= FUSE_COUNT;
 }
 
 export const anyFusable = (g: Game) => PETS.some((p) => canFuse(g, p.id));
@@ -1506,21 +1536,22 @@ function register(g: Game, def: PetDef, v: number, size: number, fused: boolean)
   if (v >= 1 && !fused) g.stats.shinies++;
   if (v >= 2) g.flags.golden = 1;
   if (v >= 3) g.flags.rainbow = 1;
+  if (v >= GLOW) g.flags.glow = 1;
   if (size >= 2) g.flags.huge = 1;
   if (size >= 3) g.flags.titanic = 1;
   addXp(g, isNew ? 25 : 3);
   emit(g, { type: "hatch", petId: def.id, isNew, v, s: size, fused });
-  if (!g.completeSent && PETS.every((p) => p.rarity === 4 || g.book[p.id])) {
+  if (!g.completeSent && PETS.every((p) => p.rarity === MYTHIC || g.book[p.id])) {
     g.completeSent = true;
     emit(g, { type: "complete" });
   }
 }
 
-/** Merge three of the same pet into one of the next rarity. The best variant and size carry over. */
+/** Merge four of the same pet into one of the next rarity. The best variant and size carry over. */
 export function fuse(g: Game, id: string): PetDef | null {
   const def = petById(id);
   if (!def || !canFuse(g, id)) return null;
-  // Use the weakest three, and keep the buddy out of it if we can.
+  // Use the weakest ones, and keep the buddy out of it if we can.
   const group = g.pets
     .filter((p) => p.id === id)
     .sort((a, b) => Number(a.uid === g.buddy) - Number(b.uid === g.buddy) || strength(a) - strength(b));
@@ -2156,6 +2187,35 @@ function bump(g: Game, idx: number) {
       emit(g, { type: "boing" });
       break;
     }
+    case "pumpkin":
+      burst(g, s.x, s.y - s.r, "#fb923c", 6, "dot", 100);
+      emit(g, { type: "rustle" });
+      break;
+    case "deadtree":
+      burst(g, s.x, s.y - s.r * 1.8, "#c4b5fd", 5, "star", 90);
+      emit(g, { type: "rustle" });
+      break;
+    case "volcano":
+      burst(g, s.x, s.y - s.r * 1.5, "#f97316", 9, "dot", 170);
+      burst(g, s.x, s.y - s.r * 1.5, "#fde047", 4, "star", 130);
+      emit(g, { type: "boing" });
+      break;
+    case "cloud": {
+      // Clouds are springy, like the gumdrops.
+      const dx = p.x - s.x;
+      const dy = p.y - s.y;
+      const d = Math.hypot(dx, dy) || 1;
+      p.kx = (dx / d) * 280;
+      p.ky = (dy / d) * 280;
+      burst(g, s.x, s.y - s.r, "#ffffff", 6, "dot", 90);
+      emit(g, { type: "boing" });
+      break;
+    }
+    case "obsidian":
+    case "pillar":
+      burst(g, s.x, s.y - s.r * 1.4, s.kind === "pillar" ? "#fde68a" : "#fca5a5", 5, "star", 90);
+      emit(g, { type: "chime", note: idx % 6 });
+      break;
     case "crystal": {
       g.stats.chimes++;
       burst(g, s.x, s.y - s.r * 1.4, "#e0f2fe", 5, "star", 90);
@@ -2321,7 +2381,12 @@ function movePlayer(g: Game, dt: number, input: Input) {
 function wakeGuard(g: Game, biome: number, quiet = false) {
   const gd = g.guards[biome];
   if (gd.state === "chase" || gd.state === "waking" || gd.state === "alert") return;
-  const wake = BIOMES[biome].wake + sockBonus(g.up.socks) + (g.night ? NIGHT_WAKE_BONUS : 0);
+  if (gd.state === "bonk" || gd.state === "out") return;
+  const wake =
+    BIOMES[biome].wake +
+    sockBonus(g.up.socks) +
+    (g.night ? NIGHT_WAKE_BONUS : 0) +
+    (hasPower(g, "ghost") ? GHOST_WAKE : 0);
   gd.t = gd.state === "sleep" ? wake : wake * 0.5;
   gd.state = "waking";
   if (!quiet) emit(g, { type: "wake", biome });
@@ -2376,7 +2441,7 @@ function canCarryMore(g: Game): boolean {
 
 /** Share of speed lost to the eggs being carried right now. */
 export function carryWeight(g: Game): number {
-  if (g.cozy) return 0;
+  if (g.cozy || hasPower(g, "cloud")) return 0;
   let w = 0;
   for (const egg of g.player.carry) w += egg.power ? ANCIENT_WEIGHT : (EGG_WEIGHT[egg.rarity] ?? 0);
   return Math.min(MAX_WEIGHT, w) * armsScale(g.up.arms);
@@ -2437,7 +2502,7 @@ function tryPickup(g: Game, dt: number) {
     }
     if (!canCarryMore(g)) continue;
     if (!lift(g, n, n.biome, n.egg, dt)) continue;
-    p.carry.push({ biome: n.biome, rarity: n.egg, ...(n.far ? { far: true } : {}) });
+    p.carry.push({ biome: n.biome, rarity: n.egg, nest: g.nests.indexOf(n), ...(n.far ? { far: true } : {}) });
     if (n.golden) g.stats.golden++;
     emit(g, { type: "pickup", rarity: n.egg, mystery: false });
     burst(g, n.x, n.y - 14, RARITIES[n.egg].color, 8, "star", 130);
@@ -2458,8 +2523,8 @@ function tryPickup(g: Game, dt: number) {
       continue;
     }
     if (!canCarryMore(g) || !lift(g, a, a.biome, 3, dt, ANCIENT_GRAB)) continue;
-    p.carry.push({ biome: a.biome, rarity: 3, power: a.power });
-    emit(g, { type: "pickup", rarity: 3, mystery: true });
+    p.carry.push({ biome: a.biome, rarity: LEGENDARY, power: a.power });
+    emit(g, { type: "pickup", rarity: LEGENDARY, mystery: true });
     burst(g, a.x, a.y - 14, "#ffffff", 22, "star", 210);
     a.grab = 0;
     a.total = ancientTime(g, a.biome);
@@ -2580,6 +2645,47 @@ function chaseAim(g: Game, gd: Guard, pace: number, dt: number): Point {
   return { x: p.x + (spot.x - p.x) * cunning, y: p.y + (spot.y - p.y) * cunning };
 }
 
+/**
+ * Keep a chasing Grumble out of the scenery. Returns the index of the solid it
+ * ran into, or -1. Things at home (the hut, the chest, the sign) don't count.
+ */
+function hitScenery(g: Game, at: Point, r: number): number {
+  let hit = -1;
+  for (let i = 0; i < g.solids.length; i++) {
+    const s = g.solids[i];
+    if (s.seed < 0 || Math.abs(s.y - at.y) > 120) continue;
+    if (pushOut(at, s.x, s.y, s.r + r) && hit < 0) hit = i;
+  }
+  return hit;
+}
+
+/** A chasing Grumble ran into something: it loses a heart, and at zero it is knocked out. */
+function bonk(g: Game, gd: Guard, solid: number) {
+  gd.hp--;
+  gd.bonkT = BONK_GRACE;
+  g.wob[solid] = 1;
+  g.stats.bonks++;
+  burst(g, gd.x, gd.y - 70, "#fde047", 10, "star", 200);
+  if (gd.hp > 0) {
+    gd.state = "bonk";
+    gd.t = BONK_STUN;
+    popup(g, gd.x, gd.y - 126, "Bonk!", "#f97316", true);
+    emit(g, { type: "bonk", biome: gd.biome, left: gd.hp, out: false, coins: 0 });
+    return;
+  }
+  gd.state = "out";
+  gd.t = KNOCKOUT_TIME;
+  g.stats.knockouts++;
+  const coins = Math.max(15, Math.round(totalRate(g) * KNOCKOUT_SECONDS));
+  earn(g, coins);
+  addXp(g, KNOCKOUT_XP);
+  burst(g, gd.x, gd.y - 60, "#f97316", 22, "star", 260);
+  popup(g, gd.x, gd.y - 126, `Knocked out! +${fmtCoins(coins)}`, "#d97706", true);
+  for (const m of g.minis) if (m.biome === gd.biome && m.state === "chase") m.state = "return";
+  emit(g, { type: "bonk", biome: gd.biome, left: 0, out: true, coins });
+  checkAchievements(g);
+}
+
 function updateGuard(g: Game, gd: Guard, dt: number) {
   const p = g.player;
   const here = g.biome === gd.biome;
@@ -2591,6 +2697,7 @@ function updateGuard(g: Game, gd: Guard, dt: number) {
     gd.read = 0;
     gd.cut = false;
   }
+  gd.bonkT = Math.max(0, gd.bonkT - dt);
   // Frozen solid: nothing happens until it thaws.
   if (g.freezeT > 0 && gd.state !== "sleep") return;
 
@@ -2648,6 +2755,12 @@ function updateGuard(g: Game, gd: Guard, dt: number) {
       const top = biomeTop(gd.biome);
       gd.x = clamp(gd.x, GUARD_R + 10, WORLD_W - GUARD_R - 10);
       gd.y = clamp(gd.y, top + GUARD_R + 10, top + BIOME_H - GUARD_R - 14);
+      // Scenery is solid for a Grumble too, and hitting it hurts.
+      const hit = hitScenery(g, gd, GUARD_R * GUARD_BODY);
+      if (hit >= 0 && gd.bonkT <= 0) {
+        bonk(g, gd, hit);
+        return;
+      }
       const gap = dist(gd, p) - GUARD_R - PLAYER_R;
       gd.minGap = Math.min(gd.minGap, gap);
       if (p.stun <= 0 && gap < -4 && g.confuseT <= 0) caught(g, gd, gd.biome);
@@ -2657,11 +2770,21 @@ function updateGuard(g: Game, gd: Guard, dt: number) {
       gd.t -= dt;
       if (gd.t <= 0) gd.state = "return";
       return;
+    case "bonk":
+      // Seeing stars for a moment, then straight back to the chase.
+      gd.t -= dt;
+      if (gd.t <= 0) gd.state = "chase";
+      return;
+    case "out":
+      gd.t -= dt;
+      if (gd.t <= 0) gd.state = "return";
+      return;
     case "return":
       if (walkToward(gd, gd.homeX, gd.homeY, guardSpeed(gd.biome) * 0.8, dt) < 1) {
         gd.x = gd.homeX;
         gd.y = gd.homeY;
         gd.state = "sleep";
+        gd.hp = GUARD_HP;
         // If the player is standing on the bed, nudge them off it.
         pushOut(p, gd.x, gd.y, GUARD_R + PLAYER_R);
       }
@@ -2689,6 +2812,16 @@ function updateMini(g: Game, m: Mini, dt: number) {
     } else {
       walkToward(m, p.x, p.y, pace * MINI_CHASE, dt);
       if (d - MINI_R - PLAYER_R < -3) caught(g, m, m.biome);
+    }
+    // A little Grumble only has one heart: one bonk and it gives up.
+    const hit = m.state === "chase" ? hitScenery(g, m, MINI_R * GUARD_BODY) : -1;
+    if (hit >= 0) {
+      g.wob[hit] = 1;
+      g.stats.bonks++;
+      m.state = "return";
+      burst(g, m.x, m.y - 30, "#fde047", 8, "star", 170);
+      popup(g, m.x, m.y - 66, "Bonk!", "#f97316");
+      emit(g, { type: "bonk", biome: m.biome, left: 0, out: false, coins: 0 });
     }
     m.x = clamp(m.x, MINI_R + 8, WORLD_W - MINI_R - 8);
     m.y = clamp(m.y, top + MINI_R + 8, top + BIOME_H - MINI_R - 12);
@@ -2718,7 +2851,7 @@ function updateMini(g: Game, m: Mini, dt: number) {
 /** Every Grumble in a land gives up the chase for a moment. */
 function calmLand(g: Game, biome: number, huff: number) {
   const gd = g.guards[biome];
-  if (gd && gd.state !== "sleep" && gd.state !== "return") {
+  if (gd && gd.state !== "sleep" && gd.state !== "return" && gd.state !== "out") {
     gd.state = "huff";
     gd.t = huff;
   }
@@ -2755,12 +2888,16 @@ function caught(g: Game, from: Point, biome: number) {
       if (a) a.left = Math.min(a.left, 5);
     }
   }
+  // The eggs roll back to the nests they came from, as the very same eggs. Getting
+  // caught on purpose used to re-roll the nest; now it only costs the trip.
+  for (const egg of p.carry) {
+    const n = egg.nest === undefined ? undefined : g.nests[egg.nest];
+    if (!n || n.egg !== null || n.back !== null) continue;
+    n.back = egg.rarity;
+    n.respawn = Math.min(n.respawn, 0.9);
+  }
   p.carry = [];
   burst(g, p.x, p.y - 30, "#fde047", 10, "star", 170);
-  // The eggs roll back to their nests.
-  for (const n of g.nests) {
-    if (n.biome === biome && n.egg === null) n.respawn = Math.min(n.respawn, 0.9);
-  }
   g.stats.caught++;
 
   const feather = hasPower(g, "feather") && g.featherCd <= 0;
@@ -2844,7 +2981,8 @@ function updateFlights(g: Game, dt: number) {
     earn(g, coins);
     g.stats.eggs++;
     addXp(g, 5 * (f.egg.rarity + 1) * (f.egg.biome + 1));
-    if (f.egg.rarity >= 3) g.stats.legendEggs++;
+    if (f.egg.rarity >= LEGENDARY) g.stats.legendEggs++;
+    if (f.egg.rarity === MYTHIC) g.flags.mythicEgg = 1;
     if (f.egg.far) g.stats.farEggs++;
     if (g.night) g.stats.night++;
     popup(g, f.x1, f.y1 - 44, `+${fmtCoins(coins)}`, "#f59e0b", true);
@@ -2878,7 +3016,7 @@ function updatePads(g: Game, dt: number) {
     const pad = g.pads[i];
     pad.wobble = Math.max(0, pad.wobble - dt * 3);
     if (!pad.egg) continue;
-    if (pad.left > 0) pad.left -= dt * (g.hatchT > 0 ? AD_HATCH_SPEED : 1);
+    if (pad.left > 0) pad.left -= dt * (g.hatchT > 0 ? AD_HATCH_SPEED : 1) * (hasPower(g, "magma") ? MAGMA_HATCH : 1);
     if (pad.left > 0) continue;
     if (penIsFull(g)) {
       if (!pad.blocked) {
@@ -2978,7 +3116,10 @@ function updateNests(g: Game, dt: number) {
     }
     n.respawn -= dt;
     if (n.respawn <= 0) {
-      n.egg = rollRarity(luckFor(g, n.golden, n.far));
+      const fresh = n.back === null;
+      n.egg = n.back ?? rollRarity(luckFor(g, n.golden, n.far));
+      n.back = null;
+      if (fresh && n.egg === MYTHIC && landOpen(g, n.biome)) emit(g, { type: "mythicEgg", biome: n.biome });
       n.age = 0;
       n.grab = 0;
       n.ripenTotal = ripenTime(g, n.egg);
@@ -3095,7 +3236,7 @@ function updateWorldEvents(g: Game, dt: number) {
       const at = openSpot(g, biome, true);
       g.mystery = {
         biome, x: at.x, y: at.y,
-        rarity: Math.random() < 0.4 ? 3 : 2,
+        rarity: Math.random() < 0.4 ? LEGENDARY : EPIC,
         left: MYSTERY_LIFETIME, age: 0, grab: 0,
       };
       emit(g, { type: "mystery", biome });
@@ -3450,6 +3591,7 @@ export function rollDice(g: Game, petId: string): boolean {
     g.book[def.id] = Math.max(g.book[def.id] ?? 0, 1 + v);
     if (v >= 2) g.flags.golden = 1;
     if (v >= 3) g.flags.rainbow = 1;
+    if (v >= GLOW) g.flags.glow = 1;
     if (size >= 2) g.flags.huge = 1;
     if (size >= 3) g.flags.titanic = 1;
     burst(g, pet.x, pet.y - 20, VARIANTS[Math.max(1, v)].color, 20, "star", 220);
@@ -3495,7 +3637,7 @@ function updateCourier(g: Game, dt: number) {
   emit(g, { type: "courier", rarity });
 }
 
-export const canRebirth = (g: Game) => g.up.speed >= BIOMES[BIOME_COUNT - 1].speedReq;
+export const canRebirth = (g: Game) => g.up.speed >= BIOMES[REBIRTH_LAND].speedReq;
 export const rebirthGain = (g: Game) => feathersFor(g.runEarned);
 
 /**

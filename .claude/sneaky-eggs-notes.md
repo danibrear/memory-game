@@ -626,3 +626,64 @@ bump with the keyboard. Not tried in real Safari on an iPad.
 - Daily missions ("bring home 5 eggs today").
 - Seasonal lands (the catalog of looks makes a new land ~40 lines of config).
 - Second player on the same keyboard racing for the same nests.
+
+## Noah's pass (November 15, 2026)
+
+Seven asks from Noah, relayed by Dani. All tuning numbers are in `config.ts`.
+
+- **Uncommon tier.** Rarities are now Common, Uncommon, Rare, Epic, Legendary,
+  Mythic, numbered 0 to 5 (`COMMON` ... `MYTHIC`; use the names, not numbers).
+  One new Uncommon pet per land. Coin multipliers are 1, 2, 4, 12, 40, 200
+  (Rare and up went up a little). Uncommon eggs are green with a dotted band,
+  ripen in 2s, and take a tenth of a wake time to lift.
+  **Save migration:** saves from before this numbered Rare as 1. That is save
+  version 2 (`SAVE_VERSION` and `MIGRATIONS[1]` in `saves.ts`): the eggs waiting
+  on the pads move up one. Pets are saved by id, so they were never affected.
+  `fixtures/pass7-save-vault-fanscout.json` is the fixture from just before the
+  change, and `saves.test.ts` checks the renumbering happens exactly once.
+- **Fuse 4.** `FUSE_COUNT = 4`. Menus, the Pet Book and trophies read the
+  number from config. Fusing is now a small income trade for three free pen
+  spots until the Legendary-to-Mythic step, where it gains.
+- **Rarer eggs are rarer.** `rarityWeights(luck)`: with no luck a Legendary is
+  under 1 in 100 (it was 2 in 100); at full luck about 1 in 17 (it was 1 in 8).
+- **The reroll cheat is closed.** Getting caught used to put a brand-new roll
+  in the nest, so players took a weak egg and let the Grumble hit them until a
+  good one showed up. A carried egg now remembers its nest (`EggInfo.nest`),
+  and a catch sends that very egg back (`Nest.back`); it has to ripen again.
+- **Mythic eggs.** Any nest can lay one, at about 1 in 5,000 with no luck and
+  1 in 400 at full luck. A toast announces it ("A MYTHIC egg appeared in ...").
+  It ripens for 45s, is the heaviest egg and the slowest to lift. Fusing four
+  Legendaries still works. Trophy: One in a Million.
+- **Glow.** A fifth hatch variant after Rainbow (`GLOW = 4`, x60 coins), three
+  times rarer than Rainbow: about 1 hatch in 1,500 with no Sparkle Charm, 1 in
+  375 with all of it. A Glow pet wears its own special colours (every colour
+  swung to the far side of the wheel and turned neon, `glowLook` in render)
+  and throws a pool of light that is brighter at night. It counts as a
+  jackpot, the Pet Book tracks it, and Lucky Dice can roll it. Trophy: Night
+  Light. Variants are saved by index, so only ever add to the end of `VARIANTS`.
+- **Grumbles bonk.** Scenery is now solid for a chasing Grumble. Running into
+  it costs one of three hearts (`GUARD_HP`), with a short daze. At zero it is
+  knocked out for 8 seconds (`KNOCKOUT_TIME`), pays 30 seconds of income
+  (`KNOCKOUT_SECONDS`) plus XP, then shuffles home and sleeps its hearts back.
+  Hearts show over any Grumble that is up. Mini-Grumbles have one heart: one
+  bonk and they give up. Home objects (hut, chest, sign) never count. Four
+  trophies. This makes chases easier where there is scenery to use; the knobs
+  are `GUARD_HP`, `BONK_GRACE` and `GUARD_BODY`.
+- **Three new lands** past Starry Space: Spooky Hollow (sneakers 18), Lava
+  Lagoon (22) and Cloud Kingdom (26), each with six pets, its own scenery (two
+  solids and two decorations drawn in `render.ts`), a tune, mini-Grumbles, an
+  ancient nest and a Power Egg: Ghost (Grumbles wake 0.5s slower), Magma (pads
+  hatch twice as fast), Cloud (carried eggs weigh nothing). Sneakers now go to
+  level 28; past 18 each level adds 6 speed, not 16. Old max was 18, so a
+  maxed player walks straight into Spooky Hollow. Rebirth still opens with
+  Starry Space (`REBIRTH_LAND`). The flying saucer moved to the top of Cloud
+  Kingdom (it lives at the top of the world); the star picture stays in space.
+  The world is three lands taller, so `HOME_TOP` grew; nothing saved depends
+  on it.
+- **Counts:** 48 pets (40 from ordinary eggs, 8 Mythic), 8 Power Eggs, 125
+  trophies.
+- **Checked** in Chrome at iPad and phone sizes: old save loads and its pad
+  eggs migrate; a caught Uncommon egg came back as the same egg; three bonks
+  knocked a Grumble out and it recovered; four Clover Buns fused into a Dandy
+  Duckling. Not tuned by a long play-through, and not tried on a real iPad.
+

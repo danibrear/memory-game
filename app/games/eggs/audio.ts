@@ -135,7 +135,7 @@ export const sfx = {
   },
   hatch(rarity: number) {
     tone(240, 0.07, { type: "square", vol: 0.12, to: 120 });
-    const steps = [0, 4, 7, 12, 16, 19].slice(0, 3 + rarity);
+    const steps = [0, 4, 7, 12, 16, 19, 24, 28].slice(0, 3 + rarity);
     steps.forEach((s, i) => tone(NOTE(s), 0.22, { type: "triangle", vol: 0.2, delay: 0.08 + i * 0.085 }));
   },
   buy() {
@@ -275,7 +275,7 @@ interface Tune {
 
 const MAJOR = [0, 2, 4, 7, 9];
 const MINOR = [0, 3, 5, 7, 10];
-// Index 0 is home; 1–5 are the lands, bottom to top.
+// Index 0 is home; 1–8 are the lands, bottom to top.
 const TUNES: Tune[] = [
   { root: 261.63, scale: MAJOR, bpm: 96 },
   { root: 293.66, scale: MAJOR, bpm: 104 },
@@ -283,6 +283,9 @@ const TUNES: Tune[] = [
   { root: 329.63, scale: MINOR, bpm: 100 },
   { root: 392.0, scale: MAJOR, bpm: 116 },
   { root: 220.0, scale: MINOR, bpm: 92 },
+  { root: 246.94, scale: MINOR, bpm: 86 },
+  { root: 196.0, scale: MINOR, bpm: 124 },
+  { root: 440.0, scale: MAJOR, bpm: 108 },
 ];
 // Bars of eight steps; numbers are scale steps, -1 is a rest.
 const BARS = [
