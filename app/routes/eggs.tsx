@@ -13,6 +13,7 @@ import {
   faSnowflake,
   faForwardFast,
   faGift,
+  faHammer,
   faHeart,
   faHouse,
   faMapLocationDot,
@@ -54,6 +55,7 @@ import {
   PowerupIcon,
   RarityChip,
   ShopBody,
+  type ShopTab,
   StarIcon,
   TrophiesBody,
   upgradeName,
@@ -72,6 +74,7 @@ import {
   WinScreen,
   type Choice,
 } from "~/components/game/GameKit";
+import { HomeBody } from "~/components/eggs/HomeMenu";
 import { ACHIEVEMENTS, achievementById } from "~/games/eggs/achievements";
 import { setMusic, setMusicMood, setMuted, sfx, unlockAudio } from "~/games/eggs/audio";
 import {
@@ -115,11 +118,17 @@ import {
   traitName,
   upgradeCost,
   type AdRewardId,
+  buildingById,
+  fmtCountdown,
+  siteName,
+  type BuildingId,
   type HatId,
   type HomeDecorId,
   type Look,
   type MiniId,
+  type PaintSlot,
   type PetDef,
+  type SiteId,
   type PowerEggId,
   type PowerupId,
   type TrailId,
@@ -148,6 +157,16 @@ import {
   rebirthGain,
   usePower,
   missionProgress,
+  anyBuildable,
+  anyToCollect,
+  collectFrom,
+  jobLeft,
+  penCap,
+  pickPaint,
+  rushBuild,
+  startBuild,
+  startOverSave,
+  tickTown,
   penIsFull,
   prizeWait,
   rollDice,
@@ -320,6 +339,10 @@ interface Hud {
   canStyle: boolean;
   canFuse: boolean;
   penFull: boolean;
+  /** The build that finishes soonest, as "name|seconds left|builds running", or "". */
+  build: string;
+  /** A building at home has something to collect, and the player is out in the lands. */
+  ready: boolean;
 }
 
 const EMPTY_HUD: Hud = {
@@ -352,6 +375,8 @@ const EMPTY_HUD: Hud = {
   canStyle: false,
   canFuse: false,
   penFull: false,
+  build: "",
+  ready: false,
 };
 
 interface Reveal {
@@ -400,7 +425,7 @@ function hudOf(g: Game): Hud {
     boostLuck: Math.ceil(g.luckT),
     feathers: g.feathers,
     pets: g.pets.length,
-    cap: penSize(g.up.pen),
+    cap: penCap(g),
     book: bookCount(g.book),
     trophies: Object.keys(g.ach).length,
     dash: g.up.dash,
@@ -410,14 +435,30 @@ function hudOf(g: Game): Hud {
       UPGRADE_IDS.some((id) => {
         const cost = upgradeCost(id, g.up[id]);
         return cost !== null && g.coins >= cost;
-      }) || HOME_DECOR.some((d) => !g.home.includes(d.id) && g.coins >= d.cost),
+      }) ||
+      HOME_DECOR.some((d) => !g.home.includes(d.id) && g.coins >= d.cost) ||
+      anyBuildable(g),
     canStyle:
       HATS.some((h) => !g.hats.includes(h.id) && g.stars >= h.cost) ||
       TRAILS.some((t) => !g.trails.includes(t.id) && g.stars >= t.cost),
     canFuse: anyFusable(g),
     penFull: penIsFull(g),
+    build: buildChip(g),
+    ready: g.biome >= 0 && anyToCollect(g),
   };
 }
+
+function buildChip(g: Game): string {
+  const jobs = g.town.jobs;
+  if (!jobs.length) return "";
+  const soonest = jobs.reduce((a, b) => (b.end < a.end ? b : a));
+  const name = soonest.site === "house" ? siteName("house", g.town.house + 1) : siteName(soonest.site);
+  return `${name}|${Math.ceil(jobLeft(soonest))}|${jobs.length}`;
+}
+
+/** "Windmill", "Windmill and Bakery", "Windmill, Bakery and Barn". */
+const listOf = (names: string[]) =>
+  names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
 const sameHud = (a: Hud, b: Hud) =>
   (Object.keys(a) as (keyof Hud)[]).every((k) => a[k] === b[k]);
@@ -434,6 +475,8 @@ export default function SneakyEggs() {
   const [away, setAway] = useState(0);
   const [hud, setHud] = useState<Hud>(EMPTY_HUD);
   const [panel, setPanel] = useState<PanelId | null>(null);
+  const [shopTab, setShopTab] = useState<ShopTab>("upgrades");
+  const [homeFocus, setHomeFocus] = useState<SiteId | null>(null);
   const [reveals, setReveals] = useState<Reveal[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
   const [cheers, setCheers] = useState<Cheer[]>([]);
@@ -568,8 +611,45 @@ export default function SneakyEggs() {
   eventsRef.current = (g: Game) => {
     if (!g.events.length) return;
     const events: GameEvent[] = g.events.splice(0);
+    const built: string[] = [];
     for (const e of events) {
       switch (e.type) {
+        case "buildStart":
+          sfx.buy();
+          if (tellOnce(g, "toldBuild")) say("The builders are on it! Tap the building site to hurry them up.", "good");
+          break;
+        case "hammer":
+          sfx.tap();
+          break;
+        case "built":
+          built.push(
+            e.site === "house"
+              ? `Your ${siteName("house", e.level)}`
+              : e.level > 1
+                ? `${siteName(e.site)} (level ${e.level})`
+                : `The ${siteName(e.site)}`,
+          );
+          break;
+        case "collect":
+          if (e.id === "bakery") {
+            sfx.sugar();
+            say(`Yum! Double coins for ${e.amount} seconds!`, "good");
+          } else if (e.id === "well") {
+            sfx.wish();
+            say(e.amount === 1 ? "A wishing star! +1 star" : `Wishing stars! +${e.amount} stars`, "good");
+          } else {
+            sfx.coins();
+          }
+          break;
+        case "ready":
+          // At home you can see the bubble; out in the lands a nudge helps.
+          if (g.biome >= 0) {
+            say(e.id === "bakery" ? "A cupcake is ready at your Bakery!" : "A star floated up in your Wishing Well!");
+          }
+          break;
+        case "site":
+          openHome(e.site);
+          break;
         case "pickup":
           sfx.pickup(e.rarity);
           if (e.mystery) say("You got the Mystery Egg! Run!", "good");
@@ -869,6 +949,10 @@ export default function SneakyEggs() {
           break;
       }
     }
+    if (built.length) {
+      sfx.achievement();
+      say(`${listOf(built)} ${built.length > 1 ? "are" : "is"} finished!`, "good");
+    }
     refreshHud();
   };
 
@@ -929,13 +1013,18 @@ export default function SneakyEggs() {
   };
 
   const startOver = () => {
+    // The town is never wiped: a fresh game keeps the house and buildings.
+    const kept = startOverSave(saveRef.current.game);
     clearStoredData(STORAGE_KEY);
     const fresh: Save = {
       ...DEFAULT_SAVE,
       skin: saveRef.current.skin,
       muted: saveRef.current.muted,
       music: saveRef.current.music,
+      game: kept,
+      lastSeen: kept ? Date.now() : 0,
     };
+    if (kept) setStoredData(STORAGE_KEY, fresh);
     saveRef.current = fresh;
     gameRef.current = null;
     setSave(fresh);
@@ -966,7 +1055,20 @@ export default function SneakyEggs() {
   const openPanel = (id: PanelId) => {
     unlockAudio();
     if (id === "trophies") setSeenTrophies(hudRef.current.trophies);
+    if (id === "shop") {
+      setShopTab("upgrades");
+      setHomeFocus(null);
+    }
     setPanel(id);
+  };
+
+  /** Open the Shop on its Home section, pointing at a building if one was tapped. */
+  const openHome = (site: SiteId | null) => {
+    unlockAudio();
+    joyRef.current.active = false;
+    setShopTab("home");
+    setHomeFocus(site);
+    setPanel("shop");
   };
 
   // Music follows the game: on while playing, unless muted or switched off.
@@ -1044,6 +1146,56 @@ export default function SneakyEggs() {
     sfx.gate();
     say("Placed! Go and have a look at home.", "good");
     afterAction(g);
+  };
+
+  const onStart = (site: SiteId) => {
+    const g = gameRef.current;
+    if (!g) return;
+    if (!startBuild(g, site)) {
+      sfx.nope();
+      return;
+    }
+    afterAction(g);
+  };
+
+  const onRush = (site: SiteId) => {
+    const g = gameRef.current;
+    if (!g) return;
+    if (!rushBuild(g, site)) {
+      sfx.nope();
+      return;
+    }
+    afterAction(g);
+  };
+
+  const onCollect = (id: BuildingId) => {
+    const g = gameRef.current;
+    if (!g) return;
+    if (!collectFrom(g, id)) {
+      sfx.nope();
+      return;
+    }
+    afterAction(g);
+  };
+
+  const onPaint = (slot: PaintSlot, id: string) => {
+    const g = gameRef.current;
+    if (!g) return;
+    const did = pickPaint(g, slot, id);
+    if (!did) {
+      sfx.nope();
+      say("Not enough stars yet. Trophies, missions and the Wishing Well give stars.");
+      return;
+    }
+    if (did === "bought") sfx.buy();
+    else sfx.tap();
+    afterAction(g);
+  };
+
+  /** The Home page ticks once a second: builds finish even though the game is paused behind it. */
+  const onHomeTick = () => {
+    const g = gameRef.current;
+    if (g && tickTown(g)) afterAction(g);
   };
 
   const onFuse = (id: string) => {
@@ -1768,6 +1920,7 @@ export default function SneakyEggs() {
           title="Start over?">
           <p className="dg-subtitle" style={{ margin: "0 auto 8px" }}>
             Your pets, coins, trophies and Pet Book will be gone for good.
+            {startOverSave(save.game) ? " Your house and buildings stay." : ""}
           </p>
           <div className="dg-row">
             <KitButton variant="neutral" onClick={() => setConfirmReset(false)}>
@@ -1888,28 +2041,57 @@ export default function SneakyEggs() {
             )}
           </div>
           <div className="se-top-right" data-ui>
-            <KitButton
-              round
-              variant="neutral"
-              size="sm"
-              icon={save.muted ? faVolumeXmark : faVolumeHigh}
-              aria-label={save.muted ? "Turn sound on" : "Turn sound off"}
-              onClick={toggleSound}
-            />
-            {mapOpen && !inMini && (
+            <div className="se-top-btns">
               <KitButton
                 round
                 variant="neutral"
                 size="sm"
-                icon={faMapLocationDot}
-                aria-label="Map"
-                onClick={() => openPanel("map")}
+                icon={save.muted ? faVolumeXmark : faVolumeHigh}
+                aria-label={save.muted ? "Turn sound on" : "Turn sound off"}
+                onClick={toggleSound}
               />
-            )}
-            {inMini ? (
-              <KitButton round variant="neutral" size="sm" icon={faXmark} aria-label="Leave the mini game" onClick={leaveMini} />
+              {mapOpen && !inMini && (
+                <KitButton
+                  round
+                  variant="neutral"
+                  size="sm"
+                  icon={faMapLocationDot}
+                  aria-label="Map"
+                  onClick={() => openPanel("map")}
+                />
+              )}
+              {inMini ? (
+                <KitButton round variant="neutral" size="sm" icon={faXmark} aria-label="Leave the mini game" onClick={leaveMini} />
+              ) : (
+                <KitButton round variant="neutral" size="sm" icon={faHouse} aria-label="Back to the menu" onClick={quit} />
+              )}
+            </div>
+            {inMini ? null : hud.build ? (
+              <button
+                type="button"
+                className="se-mission se-buildchip"
+                data-ui
+                onClick={() => openHome(null)}
+                aria-label={`Building: ${hud.build.split("|")[0]}, ${fmtCountdown(Number(hud.build.split("|")[1]))} left`}>
+                <FontAwesomeIcon icon={faHammer} />
+                <span>
+                  {hud.build.split("|")[0]}
+                  {Number(hud.build.split("|")[2]) > 1 ? ` +${Number(hud.build.split("|")[2]) - 1}` : ""}
+                </span>
+                <b>{fmtCountdown(Number(hud.build.split("|")[1]))}</b>
+              </button>
             ) : (
-              <KitButton round variant="neutral" size="sm" icon={faHouse} aria-label="Back to the menu" onClick={quit} />
+              hud.ready && (
+                <button
+                  type="button"
+                  className="se-mission se-buildchip is-ready"
+                  data-ui
+                  onClick={() => openHome(null)}
+                  aria-label="Something is ready to collect at home">
+                  <FontAwesomeIcon icon={faGift} />
+                  <span>Ready at home!</span>
+                </button>
+              )
             )}
           </div>
         </div>
@@ -2080,12 +2262,25 @@ export default function SneakyEggs() {
           </button>
         )}
         <ShopBody
+          key={`${shopTab}-${homeFocus ?? ""}`}
           g={g}
           playerLook={skin.look}
+          startTab={shopTab}
+          home={
+            <HomeBody
+              g={g}
+              focus={homeFocus}
+              onStart={onStart}
+              onRush={onRush}
+              onCollect={onCollect}
+              onPaint={onPaint}
+              onDecor={onDecor}
+              onTick={onHomeTick}
+            />
+          }
           onBuy={onBuy}
           onHat={onHat}
           onTrail={onTrail}
-          onDecor={onDecor}
           onEquip={onEquip}
           onRebirth={() => setConfirmRebirth(true)}
         />
@@ -2099,7 +2294,7 @@ export default function SneakyEggs() {
         open={panel === "pets"}
         onClose={() => setPanel(null)}
         icon={faPaw}
-        title={`My Pets (${g.pets.length}/${penSize(g.up.pen)})`}
+        title={`My Pets (${g.pets.length}/${penCap(g)})`}
         className="se-menu">
         <StatPill label="Coins every second">
           <Coin /> {fmtCoins(totalRate(g))} every second
@@ -2158,7 +2353,7 @@ export default function SneakyEggs() {
         <p className="dg-subtitle" style={{ margin: "0 auto 8px" }}>
           You'll get <strong>{rebirthGain(g)}</strong> Golden {rebirthGain(g) === 1 ? "Feather" : "Feathers"}, each
           worth +10% coins forever. Your coins, upgrades and pets start over. Your Pet Book, trophies, stars, hats,
-          level and Power Eggs stay.
+          level, Power Eggs, house and buildings stay.
         </p>
         <div className="dg-row">
           <KitButton variant="neutral" onClick={() => setConfirmRebirth(false)}>

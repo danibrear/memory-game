@@ -481,8 +481,8 @@ export const armsScale = (level: number) => [1, 0.75, 0.5, 0.25, 0][Math.min(lev
 export const ripenScale = (level: number) => [1, 0.85, 0.7, 0.55, 0.4][Math.min(level, 4)];
 
 /** Roll a hatch variant. Golden is 5x rarer than Shiny, Rainbow 5x rarer again. */
-export function rollVariant(sparkleLevel: number): number {
-  const shiny = shinyChance(sparkleLevel);
+export function rollVariant(sparkleLevel: number, boost = 1): number {
+  const shiny = Math.min(0.9, shinyChance(sparkleLevel) * boost);
   const r = Math.random();
   if (r < shiny / 25) return 3;
   if (r < shiny / 5) return 2;
@@ -958,4 +958,178 @@ export function fmtCoins(n: number): string {
   // Floor so the label never shows more than the player has.
   const f = Math.pow(10, digits);
   return `${parseFloat((Math.floor(v * f) / f).toFixed(digits))}${units[u]}`;
+}
+
+/* ---------- Home town: a house that grows, and special buildings ---------- */
+//
+// Everything here runs on real time (like the gift chest), so a build keeps
+// going while a menu is open and while the game is closed.
+
+export interface HouseTier {
+  name: string;
+  /** Coins and seconds to build this tier from the one before. */
+  cost: number;
+  time: number;
+  /** Share added to all coin income while you live in it. */
+  coins: number;
+  blurb: string;
+}
+
+export const HOUSE_TIERS: HouseTier[] = [
+  { name: "Little Hut", cost: 0, time: 0, coins: 0, blurb: "Small, snug and all yours." },
+  { name: "Cozy Cottage", cost: 4_000, time: 60, coins: 0.1, blurb: "A chimney, shutters and flower boxes." },
+  { name: "Farmhouse", cost: 150_000, time: 600, coins: 0.2, blurb: "Two floors and a porch to sit on." },
+  { name: "Grand Manor", cost: 5_000_000, time: 3600, coins: 0.35, blurb: "Columns, a balcony and far too many rooms." },
+  { name: "Castle", cost: 150_000_000, time: 4 * 3600, coins: 0.5, blurb: "Towers, flags and a very big door." },
+];
+export const HOUSE_MAX = HOUSE_TIERS.length - 1;
+
+export type BuildingId = "mill" | "bakery" | "well" | "workshop" | "barn" | "hatchery" | "sparkle";
+/** Anything a builder can work on. */
+export type SiteId = "house" | BuildingId;
+
+export interface BuildingDef {
+  id: BuildingId;
+  name: string;
+  desc: string;
+  /** House tier that opens its plot. */
+  needHouse: number;
+  /** Price next to the other buildings (the Windmill is 1). */
+  price: number;
+  color: string;
+}
+
+export const BUILDINGS: BuildingDef[] = [
+  { id: "mill", name: "Windmill", desc: "Grinds out coins by itself. Stop by to collect them.", needHouse: 0, price: 1, color: "#f59e0b" },
+  { id: "bakery", name: "Treat Bakery", desc: "Bakes a cupcake now and then. Eat it for double coins.", needHouse: 0, price: 1.5, color: "#f472b6" },
+  { id: "well", name: "Wishing Well", desc: "A star floats up every so often.", needHouse: 1, price: 2, color: "#38bdf8" },
+  { id: "workshop", name: "Builder's Workshop", desc: "More builders, and they work faster.", needHouse: 1, price: 2.5, color: "#a16207" },
+  { id: "barn", name: "Pet Barn", desc: "Room for more pets.", needHouse: 2, price: 2, color: "#ef4444" },
+  { id: "hatchery", name: "Hatchery", desc: "Keeps eggs toasty so they hatch sooner.", needHouse: 2, price: 3, color: "#22c55e" },
+  { id: "sparkle", name: "Sparkle Tower", desc: "More Shiny, Golden and Rainbow pets.", needHouse: 3, price: 4, color: "#a855f7" },
+];
+export const BUILDING_IDS = BUILDINGS.map((b) => b.id);
+export const buildingById = (id: BuildingId): BuildingDef => BUILDINGS.find((b) => b.id === id) ?? BUILDINGS[0];
+export const BUILDING_MAX = 5;
+
+// Indexed by the level being built, 1 to 5.
+const BUILD_COST = [0, 500, 20_000, 500_000, 12_000_000, 250_000_000];
+const BUILD_TIME = [0, 20, 5 * 60, 30 * 60, 2 * 3600, 6 * 3600];
+
+export const siteName = (site: SiteId, houseTier = 0) =>
+  site === "house" ? HOUSE_TIERS[Math.min(houseTier, HOUSE_MAX)].name : buildingById(site).name;
+export const siteMax = (site: SiteId) => (site === "house" ? HOUSE_MAX : BUILDING_MAX);
+/** Coins to build `level` (the level you'd have afterwards). */
+export const siteCost = (site: SiteId, level: number): number =>
+  site === "house" ? HOUSE_TIERS[level].cost : Math.round(BUILD_COST[level] * buildingById(site).price);
+/** Seconds one builder takes, before the Workshop and Cozy style speed it up. */
+export const siteTime = (site: SiteId, level: number): number =>
+  site === "house" ? HOUSE_TIERS[level].time : BUILD_TIME[level];
+/** The house you need before a building can reach `level`: a bigger home for bigger buildings. */
+export const houseNeeded = (id: BuildingId, level: number) =>
+  Math.min(HOUSE_MAX, Math.max(buildingById(id).needHouse, level - 1));
+
+/** Cozy style: builds take a fifth of the time. */
+export const COZY_BUILD_SCALE = 0.2;
+/** Each tap on a building site knocks off this many seconds, or this share of the whole build if that's more. */
+export const BUILD_TAP_SECONDS = 2;
+export const BUILD_TAP_SHARE = 0.003;
+/** "Finish now" costs one star for every this-many seconds left. */
+export const RUSH_SECONDS_PER_STAR = 15 * 60;
+
+// What each building does, indexed by its level (0 = not built).
+/** Windmill: this share of your pets' coins piles up in the mill, for up to this many hours. */
+export const MILL_SHARE = [0, 0.15, 0.25, 0.35, 0.5, 0.7];
+export const MILL_HOURS = [0, 0.5, 1, 2, 4, 8];
+/** Bakery: seconds per cupcake, how many it keeps on the counter, and seconds of double coins in each. */
+export const BAKE_EVERY = [Infinity, 600, 480, 360, 300, 240];
+export const BAKE_HOLD = [0, 1, 1, 2, 2, 3];
+export const CAKE_FRENZY = [0, 30, 40, 50, 60, 80];
+/** Wishing Well: seconds per star and how many it holds. */
+export const WELL_EVERY = [Infinity, 1800, 1440, 1080, 720, 480];
+export const WELL_HOLD = [0, 2, 3, 4, 6, 8];
+export const WORKSHOP_BUILDERS = [1, 2, 2, 2, 2, 3];
+export const WORKSHOP_SPEED = [1, 1, 0.9, 0.8, 0.7, 0.6];
+export const BARN_SPACE = [0, 2, 4, 6, 8, 10];
+export const HATCHERY_SCALE = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
+export const SPARKLE_MULT = [1, 1.15, 1.3, 1.5, 1.75, 2];
+/** However many cupcakes you eat, double coins never stacks past this many seconds. */
+export const FRENZY_MAX = 300;
+
+/**
+ * Where each building stands: down either side of home. The tall ones (Windmill,
+ * Sparkle Tower) go where nothing stands behind them to be hidden.
+ */
+export const PLOTS: Record<BuildingId, Point> = {
+  mill: { x: CENTER_X - 710, y: HOME_TOP + 175 },
+  well: { x: CENTER_X - 555, y: HOME_TOP + 310 },
+  barn: { x: CENTER_X - 710, y: HOME_TOP + 455 },
+  hatchery: { x: CENTER_X - 545, y: HOME_TOP + 478 },
+  bakery: { x: CENTER_X + 710, y: HOME_TOP + 175 },
+  workshop: { x: CENTER_X + 555, y: HOME_TOP + 310 },
+  sparkle: { x: CENTER_X + 710, y: HOME_TOP + 455 },
+};
+/** How much room a finished building takes up. */
+export const PLOT_R = 44;
+
+/* ---------- House paint (bought with stars, like hats) ---------- */
+
+export type PaintSlot = "wall" | "roof" | "top";
+
+export interface PaintDef {
+  id: string;
+  name: string;
+  cost: number;
+  /** Paint colour. Toppers leave it out. */
+  color?: string;
+}
+
+export const WALL_PAINTS: PaintDef[] = [
+  { id: "cream", name: "Cream", cost: 0, color: "#fde9c4" },
+  { id: "sky", name: "Sky", cost: 2, color: "#bfe3fb" },
+  { id: "mint", name: "Mint", cost: 2, color: "#c4f0d4" },
+  { id: "blossom", name: "Blossom", cost: 3, color: "#fbcfe1" },
+  { id: "lilac", name: "Lilac", cost: 3, color: "#ddd0fb" },
+  { id: "sunny", name: "Sunny", cost: 4, color: "#fde68a" },
+];
+export const ROOF_PAINTS: PaintDef[] = [
+  { id: "berry", name: "Berry", cost: 0, color: "#ef6f6c" },
+  { id: "ocean", name: "Ocean", cost: 2, color: "#3b82f6" },
+  { id: "forest", name: "Forest", cost: 2, color: "#22a06b" },
+  { id: "grape", name: "Grape", cost: 3, color: "#8b5cf6" },
+  { id: "bubblegum", name: "Bubblegum", cost: 3, color: "#ec4899" },
+  { id: "gold", name: "Gold", cost: 8, color: "#f5b301" },
+];
+export const TOPPERS: PaintDef[] = [
+  { id: "none", name: "Nothing", cost: 0 },
+  { id: "flag", name: "Flag", cost: 2 },
+  { id: "vane", name: "Weather Vane", cost: 3 },
+  { id: "heart", name: "Heart", cost: 4 },
+  { id: "star", name: "Star", cost: 5 },
+  { id: "lights", name: "Fairy Lights", cost: 6 },
+];
+export const PAINTS: Record<PaintSlot, PaintDef[]> = { wall: WALL_PAINTS, roof: ROOF_PAINTS, top: TOPPERS };
+export interface HousePaint {
+  wall: string;
+  roof: string;
+  top: string;
+}
+export const DEFAULT_PAINT: HousePaint = { wall: "cream", roof: "berry", top: "none" };
+export const paintColor = (slot: "wall" | "roof", id: string): string =>
+  PAINTS[slot].find((p) => p.id === id)?.color ?? PAINTS[slot][0].color ?? "#ffffff";
+
+/** "45s", "5m", "1h 30m": how long a build takes. */
+export function fmtDuration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return s % 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s / 60}m`;
+  const m = Math.round((s % 3600) / 60);
+  return m ? `${Math.floor(s / 3600)}h ${m}m` : `${Math.floor(s / 3600)}h`;
+}
+/** "0:45", "12:05", "3:59:12": time left on a clock. */
+export function fmtCountdown(seconds: number): string {
+  const s = Math.max(0, Math.ceil(seconds));
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return s >= 3600 ? `${Math.floor(s / 3600)}:${String(mm).padStart(2, "0")}:${ss}` : `${mm}:${ss}`;
 }

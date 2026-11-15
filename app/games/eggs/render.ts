@@ -41,8 +41,35 @@ import {
   type Point,
   type Rarity,
   type SolidKind,
+  DEFAULT_PAINT,
+  PLOTS,
+  BUILDING_IDS,
+  fmtCountdown,
+  paintColor,
+  type BuildingId,
+  type HousePaint,
 } from "./config";
-import type { Ancient, Bug, Decor, Game, Guard, Mini, Mystery, Particle, Pickup, Popup, ShootingStar, Solid } from "./engine";
+import {
+  buildBlock,
+  jobFor,
+  jobLeft,
+  jobProgress,
+  readyToCollect,
+  stockOf,
+  type Ancient,
+  type Bug,
+  type Decor,
+  type Game,
+  type Guard,
+  type Job,
+  type Mini,
+  type Mystery,
+  type Particle,
+  type Pickup,
+  type Popup,
+  type ShootingStar,
+  type Solid,
+} from "./engine";
 import { FANSCOUT, FANSCOUT_MARK, FS } from "./fanscout";
 
 /* ---------- Hatch variants ---------- */
@@ -1228,43 +1255,6 @@ export function drawSolid(ctx: Ctx, s: Solid, wob = 0) {
   ctx.restore();
 }
 
-function drawHut(ctx: Ctx, wob = 0) {
-  const { x, y, r } = HUT;
-  shadow(ctx, x, y + r * 0.5, r * 1.25, 0.2);
-  ctx.save();
-  ctx.translate(x, y + r * 0.55);
-  if (wob > 0) ctx.scale(1 + Math.sin(wob * 18) * wob * 0.05, 1 - Math.sin(wob * 18) * wob * 0.05);
-  ctx.translate(0, -r * 0.55);
-  ctx.fillStyle = "#fde9c4";
-  roundRect(ctx, -r * 0.9, -r * 0.7, r * 1.8, r * 1.25, 10);
-  ctx.fill();
-  ctx.strokeStyle = "#c79a5b";
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  ctx.fillStyle = "#ef6f6c";
-  ctx.beginPath();
-  ctx.moveTo(-r * 1.15, -r * 0.6);
-  ctx.quadraticCurveTo(0, -r * 2.1, r * 1.15, -r * 0.6);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.3)";
-  ellipse(ctx, -r * 0.3, -r * 1.2, r * 0.3, r * 0.12, -0.5);
-  ctx.fill();
-  ctx.fillStyle = "#9a6a3a";
-  roundRect(ctx, -r * 0.24, -r * 0.2, r * 0.48, r * 0.75, 12);
-  ctx.fill();
-  ctx.fillStyle = "#fcd34d";
-  ellipse(ctx, r * 0.12, r * 0.2, 3, 3);
-  ctx.fill();
-  ctx.fillStyle = "#bae6fd";
-  ellipse(ctx, r * 0.55, -r * 0.18, r * 0.16, r * 0.16);
-  ctx.fill();
-  ctx.strokeStyle = "#c79a5b";
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.restore();
-}
-
 /* ---------- The FanScout sign ---------- */
 
 let markPath: Path2D | null = null;
@@ -1977,6 +1967,7 @@ function drawGround(ctx: Ctx, x0: number, x1: number, y0: number, y1: number) {
 }
 
 function drawHome(ctx: Ctx, g: Game, t: number) {
+  drawTownPaths(ctx);
   // Pet pen: soft straw floor with a fence around the back and sides.
   ctx.fillStyle = "#e9d7a0";
   roundRect(ctx, PEN.x0 - 14, PEN.y0 - 10, PEN.x1 - PEN.x0 + 28, PEN.y1 - PEN.y0 + 26, 28);
@@ -2152,6 +2143,1043 @@ export function drawTent(ctx: Ctx, def: MiniDef, x: number, y: number, t: number
   } else {
     label(ctx, `${Math.floor(wait / 60)}:${String(wait % 60).padStart(2, "0")}`, x, top + 4, 15, "#ffffff", "#7c6a55");
   }
+}
+
+/* ---------- Home town: the house, special buildings and building sites ---------- */
+//
+// Every piece is drawn standing on the origin: (0, 0) is the middle of its
+// front doorstep and up is negative y. The same drawings make the menu icons.
+
+/** Like `shade`, but hands back a hex colour so it can be shaded again. */
+function tint(hex: string, amt: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const t = amt < 0 ? 0 : 255;
+  const a = Math.abs(amt);
+  const mix = (c: number) => Math.round(c + (t - c) * a);
+  const out = (mix((n >> 16) & 255) << 16) | (mix((n >> 8) & 255) << 8) | mix(n & 255);
+  return `#${out.toString(16).padStart(6, "0")}`;
+}
+
+/** A wall with a soft outline. (x, y) is the top-left corner. */
+function wall(ctx: Ctx, x: number, y: number, w: number, h: number, color: string, r = 7) {
+  ctx.fillStyle = color;
+  roundRect(ctx, x, y, w, h, r);
+  ctx.fill();
+  ctx.strokeStyle = shade(color, -0.3);
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+}
+
+/** A filled outline from a list of corners. */
+function poly(ctx: Ctx, pts: number[], color: string, outline = true) {
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i += 2) {
+    if (i === 0) ctx.moveTo(pts[i], pts[i + 1]);
+    else ctx.lineTo(pts[i], pts[i + 1]);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  if (!outline) return;
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = shade(color, -0.28);
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+}
+
+/** A pointed roof sitting on `baseY`, with a stripe of light down one side. */
+function gable(ctx: Ctx, cx: number, baseY: number, halfW: number, height: number, color: string) {
+  poly(ctx, [cx - halfW, baseY, cx, baseY - height, cx + halfW, baseY], color);
+  ctx.fillStyle = "rgba(255,255,255,0.22)";
+  ctx.beginPath();
+  ctx.moveTo(cx - halfW * 0.72, baseY - 4);
+  ctx.lineTo(cx - halfW * 0.1, baseY - height * 0.82);
+  ctx.lineTo(cx - halfW * 0.3, baseY - 4);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** A window: white frame, glass that glows at night. (x, y) is its middle. */
+function pane(ctx: Ctx, x: number, y: number, w: number, h: number, lit: boolean, round = false) {
+  ctx.fillStyle = "#ffffff";
+  if (round) ellipse(ctx, x, y, w / 2 + 2.5, h / 2 + 2.5);
+  else roundRect(ctx, x - w / 2 - 2.5, y - h / 2 - 2.5, w + 5, h + 5, 4);
+  ctx.fill();
+  ctx.fillStyle = lit ? "#fde68a" : "#bae6fd";
+  if (round) ellipse(ctx, x, y, w / 2, h / 2);
+  else roundRect(ctx, x - w / 2, y - h / 2, w, h, 2.5);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.75)";
+  ctx.fillRect(x - 0.9, y - h / 2, 1.8, h);
+  ctx.fillRect(x - w / 2, y - 0.9, w, 1.8);
+}
+
+/** A front door with a rounded top, standing on y. */
+function door(ctx: Ctx, x: number, y: number, w: number, h: number, color = "#9a6a3a") {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x - w / 2, y);
+  ctx.lineTo(x - w / 2, y - h + w / 2);
+  ctx.arc(x, y - h + w / 2, w / 2, Math.PI, 0);
+  ctx.lineTo(x + w / 2, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = shade(color, -0.3);
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = "#fcd34d";
+  ellipse(ctx, x + w * 0.24, y - h * 0.42, 2.2, 2.2);
+  ctx.fill();
+}
+
+function chimney(ctx: Ctx, x: number, top: number, bottom: number, t: number, smoke = true) {
+  wall(ctx, x - 8, top, 16, bottom - top, "#c98b6b", 2);
+  ctx.fillStyle = "#a86c4e";
+  roundRect(ctx, x - 10.5, top - 4, 21, 7, 2);
+  ctx.fill();
+  if (!smoke) return;
+  for (let i = 0; i < 3; i++) {
+    const ph = (t * 0.35 + i / 3) % 1;
+    ctx.globalAlpha = (1 - ph) * 0.75;
+    ctx.fillStyle = "#ffffff";
+    ellipse(ctx, x + Math.sin(ph * 5 + i) * 5 + ph * 8, top - 8 - ph * 34, 4 + ph * 6, 4 + ph * 6);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function flowerBox(ctx: Ctx, x: number, y: number, w: number) {
+  ctx.fillStyle = "#16a34a";
+  roundRect(ctx, x - w / 2, y - 4, w, 6, 3);
+  ctx.fill();
+  const colors = ["#f43f5e", "#facc15", "#f472b6"];
+  for (let i = 0; i < 3; i++) {
+    ctx.fillStyle = colors[i];
+    ellipse(ctx, x + (i - 1) * (w * 0.32), y - 5, 3, 3);
+    ctx.fill();
+  }
+}
+
+function pennant(ctx: Ctx, x: number, y: number, t: number, color: string, pole = 22) {
+  ctx.strokeStyle = "#8a6a45";
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y - pole);
+  ctx.stroke();
+  const wave = Math.sin(t * 5 + x) * 2.5;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y - pole);
+  ctx.quadraticCurveTo(x + 9, y - pole + 1 + wave, x + 18, y - pole + 6 - wave);
+  ctx.quadraticCurveTo(x + 9, y - pole + 9 + wave, x, y - pole + 11);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** The thing on top of the house. `peak` is the tip of the roof, `eave` the line along its bottom edge. */
+function drawTopper(ctx: Ctx, id: string, peak: Point, eave: [number, number, number, number], t: number) {
+  const { x, y } = peak;
+  switch (id) {
+    case "flag":
+      pennant(ctx, x, y + 2, t, "#f43f5e", 26);
+      break;
+    case "vane": {
+      ctx.strokeStyle = "#475569";
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(x, y + 2);
+      ctx.lineTo(x, y - 20);
+      ctx.stroke();
+      const turn = Math.cos(t * 0.9);
+      ctx.save();
+      ctx.translate(x, y - 20);
+      ctx.scale(turn || 0.01, 1);
+      ctx.fillStyle = "#475569";
+      ctx.beginPath();
+      ctx.moveTo(-15, -2);
+      ctx.lineTo(6, -2);
+      ctx.lineTo(6, -6);
+      ctx.lineTo(16, 0);
+      ctx.lineTo(6, 6);
+      ctx.lineTo(6, 2);
+      ctx.lineTo(-15, 2);
+      ctx.lineTo(-11, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = "#fbbf24";
+      ellipse(ctx, x, y - 20, 3.2, 3.2);
+      ctx.fill();
+      break;
+    }
+    case "heart": {
+      const beat = 1 + Math.abs(Math.sin(t * 2.4)) * 0.14;
+      ctx.fillStyle = "#fb7185";
+      heartPath(ctx, x, y - 12, 9 * beat);
+      ctx.fill();
+      ctx.strokeStyle = "#be123c";
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      break;
+    }
+    case "star": {
+      ctx.fillStyle = "#fde047";
+      starPath(ctx, x, y - 12, 12, 5, 0.5, -Math.PI / 2 + Math.sin(t * 1.4) * 0.2);
+      ctx.fill();
+      ctx.strokeStyle = "#d97706";
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.fillStyle = "#fffbeb";
+      ctx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(t * 3));
+      starPath(ctx, x + 15, y - 22, 4, 4, 0.35);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      break;
+    }
+    case "lights": {
+      const [x0, y0, x1, y1] = eave;
+      const sag = 9;
+      ctx.strokeStyle = "#475569";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.quadraticCurveTo((x0 + x1) / 2, (y0 + y1) / 2 + sag * 2, x1, y1);
+      ctx.stroke();
+      const colors = ["#f43f5e", "#facc15", "#22c55e", "#38bdf8", "#a855f7"];
+      const n = Math.max(5, Math.round(Math.abs(x1 - x0) / 17));
+      for (let i = 0; i <= n; i++) {
+        const k = i / n;
+        const bx = x0 + (x1 - x0) * k;
+        const by = y0 + (y1 - y0) * k + sag * 4 * k * (1 - k) + 2;
+        const on = Math.sin(t * 3 + i * 1.7) > -0.3;
+        ctx.globalAlpha = on ? 1 : 0.45;
+        ctx.fillStyle = colors[i % colors.length];
+        ellipse(ctx, bx, by, 3.4, 3.4);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      break;
+    }
+  }
+}
+
+/** How tall each house stands, for placing clocks and scaffolding over it. */
+const HOUSE_HEIGHT = [112, 136, 164, 158, 178];
+const HOUSE_HALF_W = [66, 76, 88, 106, 108];
+
+/** The player's house at one of its five sizes, in their colours. */
+function drawHouseArt(ctx: Ctx, tier: number, paint: HousePaint, t: number, lit: boolean) {
+  const wallC = paintColor("wall", paint.wall);
+  const roofC = paintColor("roof", paint.roof);
+  let peak: Point = { x: 0, y: -110 };
+  let eave: [number, number, number, number] = [-60, -70, 60, -70];
+  ctx.lineJoin = "round";
+
+  if (tier <= 0) {
+    // Little Hut: one room and a round thatch roof.
+    wall(ctx, -52, -72, 104, 72, wallC, 10);
+    ctx.fillStyle = roofC;
+    ctx.beginPath();
+    ctx.moveTo(-66, -66);
+    ctx.quadraticCurveTo(0, -156, 66, -66);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = shade(roofC, -0.28);
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.3)";
+    ellipse(ctx, -18, -100, 17, 7, -0.5);
+    ctx.fill();
+    door(ctx, 0, 0, 28, 44);
+    pane(ctx, 32, -42, 17, 17, lit, true);
+    peak = { x: 0, y: -111 };
+    eave = [-60, -68, 60, -68];
+  } else if (tier === 1) {
+    // Cozy Cottage: chimney, shutters and flower boxes.
+    chimney(ctx, 40, -128, -84, t);
+    wall(ctx, -62, -78, 124, 78, wallC, 8);
+    gable(ctx, 0, -74, 78, 60, roofC);
+    door(ctx, 0, 0, 28, 46);
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = roofC;
+      roundRect(ctx, s * 38 - 17, -58, 7, 24, 2);
+      ctx.fill();
+      roundRect(ctx, s * 38 + 10, -58, 7, 24, 2);
+      ctx.fill();
+      pane(ctx, s * 38, -46, 18, 20, lit);
+      flowerBox(ctx, s * 38, -30, 26);
+    }
+    pane(ctx, 0, -96, 13, 13, lit, true);
+    peak = { x: 0, y: -134 };
+    eave = [-72, -76, 72, -76];
+  } else if (tier === 2) {
+    // Farmhouse: two floors, a side room and a porch.
+    chimney(ctx, -40, -160, -118, t);
+    wall(ctx, 30, -70, 58, 70, tint(wallC, -0.05), 6);
+    poly(ctx, [24, -66, 36, -92, 92, -92, 94, -66], roofC);
+    pane(ctx, 60, -38, 18, 20, lit);
+    flowerBox(ctx, 60, -22, 26);
+    wall(ctx, -74, -112, 110, 112, wallC, 8);
+    gable(ctx, -19, -108, 68, 54, roofC);
+    for (const x of [-48, 10]) pane(ctx, x, -84, 17, 20, lit);
+    pane(ctx, -48, -34, 17, 20, lit);
+    pane(ctx, -19, -130, 12, 12, lit, true);
+    door(ctx, 8, 0, 28, 46);
+    // Porch.
+    poly(ctx, [-14, -52, 30, -52, 36, -44, -20, -44], roofC);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(-15, -44, 4, 44);
+    ctx.fillRect(27, -44, 4, 44);
+    peak = { x: -19, y: -162 };
+    eave = [-82, -110, 44, -110];
+  } else if (tier === 3) {
+    // Grand Manor: wide, with columns and a balcony.
+    chimney(ctx, -62, -150, -112, t);
+    chimney(ctx, 62, -150, -112, t, false);
+    wall(ctx, -98, -104, 196, 104, wallC, 8);
+    poly(ctx, [-106, -100, -78, -142, 78, -142, 106, -100], roofC);
+    ctx.fillStyle = "rgba(255,255,255,0.2)";
+    ctx.fillRect(-72, -138, 56, 6);
+    for (const s of [-1, 1]) {
+      for (const x of [44, 76]) {
+        pane(ctx, s * x, -78, 15, 20, lit);
+        pane(ctx, s * x, -32, 15, 22, lit);
+      }
+    }
+    // The middle steps forward under its own little roof.
+    wall(ctx, -30, -112, 60, 112, tint(wallC, 0.25), 6);
+    gable(ctx, 0, -110, 38, 38, roofC);
+    pane(ctx, 0, -124, 12, 12, lit, true);
+    pane(ctx, 0, -82, 20, 20, lit);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(-24, -62);
+    ctx.lineTo(24, -62);
+    for (let x = -20; x <= 20; x += 8) {
+      ctx.moveTo(x, -62);
+      ctx.lineTo(x, -70);
+    }
+    ctx.stroke();
+    door(ctx, 0, 0, 26, 48);
+    ctx.fillStyle = "#ffffff";
+    for (const x of [-25, 20]) {
+      roundRect(ctx, x, -60, 5, 60, 2);
+      ctx.fill();
+    }
+    peak = { x: 0, y: -148 };
+    eave = [-102, -102, 102, -102];
+  } else {
+    // Castle: a keep between two towers.
+    const stone = tint(wallC, -0.06);
+    for (const s of [-1, 1]) {
+      wall(ctx, s * 80 - 24, -130, 48, 130, stone, 6);
+      ctx.fillStyle = stone;
+      for (let k = -1; k <= 1; k++) {
+        roundRect(ctx, s * 80 + k * 17 - 6, -140, 12, 14, 2);
+        ctx.fill();
+        ctx.strokeStyle = shade(stone, -0.3);
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      gable(ctx, s * 80, -138, 30, 40, roofC);
+      pennant(ctx, s * 80, -176, t + s, roofC, 16);
+      pane(ctx, s * 80, -96, 10, 22, lit);
+      pane(ctx, s * 80, -46, 10, 22, lit);
+    }
+    wall(ctx, -58, -104, 116, 104, wallC, 6);
+    ctx.fillStyle = wallC;
+    for (let x = -52; x <= 40; x += 23) {
+      roundRect(ctx, x, -116, 13, 16, 2);
+      ctx.fill();
+      ctx.strokeStyle = shade(wallC, -0.3);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    // A banner over the gate.
+    poly(ctx, [-13, -100, 13, -100, 13, -66, 0, -56, -13, -66], roofC);
+    ctx.fillStyle = "#fde047";
+    starPath(ctx, 0, -80, 7);
+    ctx.fill();
+    for (const x of [-38, 38]) pane(ctx, x, -70, 12, 24, lit);
+    door(ctx, 0, 0, 40, 52, "#7c5a3a");
+    ctx.strokeStyle = "rgba(0,0,0,0.25)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (const x of [-10, 0, 10]) {
+      ctx.moveTo(x, -4);
+      ctx.lineTo(x, -44);
+    }
+    ctx.stroke();
+    // A turret in the middle for the topper to sit on.
+    wall(ctx, -17, -140, 34, 30, tint(wallC, 0.2), 4);
+    gable(ctx, 0, -138, 24, 32, roofC);
+    pane(ctx, 0, -126, 9, 11, lit, true);
+    peak = { x: 0, y: -170 };
+    eave = [-56, -104, 56, -104];
+  }
+  drawTopper(ctx, paint.top, peak, eave, t);
+}
+
+/** A cupcake with a cherry, sitting on (x, y). */
+function cupcake(ctx: Ctx, x: number, y: number, s: number) {
+  poly(ctx, [x - 9 * s, y - 12 * s, x + 9 * s, y - 12 * s, x + 6.5 * s, y, x - 6.5 * s, y], "#fbbf24", false);
+  ctx.fillStyle = "#fff1f7";
+  ellipse(ctx, x, y - 14 * s, 11 * s, 6.5 * s);
+  ctx.fill();
+  ellipse(ctx, x, y - 20 * s, 7.5 * s, 5.5 * s);
+  ctx.fill();
+  ctx.fillStyle = "#f472b6";
+  ellipse(ctx, x - 4 * s, y - 15 * s, 1.6 * s, 1.6 * s);
+  ctx.fill();
+  ellipse(ctx, x + 5 * s, y - 13 * s, 1.6 * s, 1.6 * s);
+  ctx.fill();
+  ctx.fillStyle = "#ef4444";
+  ellipse(ctx, x, y - 26 * s, 3.4 * s, 3.4 * s);
+  ctx.fill();
+}
+
+function cog(ctx: Ctx, x: number, y: number, r: number, rot: number, color: string) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  ctx.fillStyle = color;
+  for (let i = 0; i < 8; i++) {
+    ctx.rotate(TAU / 8);
+    roundRect(ctx, -r * 0.2, -r * 1.22, r * 0.4, r * 0.5, 1.5);
+    ctx.fill();
+  }
+  ellipse(ctx, 0, 0, r, r);
+  ctx.fill();
+  ctx.strokeStyle = shade(color, -0.3);
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = shade(color, -0.35);
+  ellipse(ctx, 0, 0, r * 0.36, r * 0.36);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** How tall each building stands at level 1 size. */
+const BUILDING_HEIGHT: Record<BuildingId, number> = {
+  mill: 150, bakery: 108, well: 106, workshop: 112, barn: 118, hatchery: 96, sparkle: 168,
+};
+
+/** One of the special buildings at a level from 1 to 5. Higher levels add trimmings. */
+function drawBuildingArt(ctx: Ctx, id: BuildingId, lv: number, t: number, lit: boolean) {
+  ctx.lineJoin = "round";
+  const fancy = lv >= 3;
+  const gold = lv >= 5;
+  switch (id) {
+    case "mill": {
+      poly(ctx, [-30, 0, -20, -94, 20, -94, 30, 0], "#fdf2d8");
+      ctx.fillStyle = "rgba(180,140,80,0.22)";
+      ctx.fillRect(-26, -34, 52, 4);
+      ctx.fillRect(-23, -64, 46, 4);
+      door(ctx, 0, 0, 20, 30);
+      pane(ctx, 0, -50, 12, 12, lit, true);
+      ctx.fillStyle = "#ef6f6c";
+      ctx.beginPath();
+      ctx.moveTo(-26, -92);
+      ctx.quadraticCurveTo(0, -134, 26, -92);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = shade("#ef6f6c", -0.28);
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      // Sails: the better the mill, the faster they turn.
+      ctx.save();
+      ctx.translate(0, -96);
+      ctx.rotate(t * (0.5 + 0.22 * lv));
+      for (let i = 0; i < 4; i++) {
+        ctx.rotate(TAU / 4);
+        ctx.strokeStyle = "#8a6a45";
+        ctx.lineWidth = 3;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, -52);
+        ctx.stroke();
+        ctx.fillStyle = fancy ? "#fde68a" : "#fff7e6";
+        roundRect(ctx, 2, -52, 14, 36, 2);
+        ctx.fill();
+        ctx.strokeStyle = "#b08d57";
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(2, -40);
+        ctx.lineTo(16, -40);
+        ctx.moveTo(2, -28);
+        ctx.lineTo(16, -28);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.fillStyle = gold ? "#fbbf24" : "#8a6a45";
+      ellipse(ctx, 0, -96, 6, 6);
+      ctx.fill();
+      if (fancy) {
+        // Sacks of flour by the door.
+        for (const x of [-38, 34]) {
+          ctx.fillStyle = "#e7d3a8";
+          ellipse(ctx, x, -9, 10, 11);
+          ctx.fill();
+          ctx.strokeStyle = "#b08d57";
+          ctx.lineWidth = 1.6;
+          ctx.stroke();
+        }
+      }
+      break;
+    }
+    case "bakery": {
+      chimney(ctx, 30, -98, -62, t);
+      wall(ctx, -50, -64, 100, 64, "#fde2ec", 8);
+      ctx.fillStyle = "#f472b6";
+      ctx.beginPath();
+      ctx.moveTo(-56, -60);
+      ctx.quadraticCurveTo(0, -92, 56, -60);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = shade("#f472b6", -0.28);
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      cupcake(ctx, -6, -78, 1.15);
+      // Shop window and door.
+      pane(ctx, -22, -24, 34, 26, lit);
+      cupcake(ctx, -30, -13, 0.42);
+      cupcake(ctx, -14, -13, 0.42);
+      door(ctx, 26, 0, 24, 40, "#c2748f");
+      // Striped awning with a scalloped edge.
+      for (let i = 0; i < 8; i++) {
+        ctx.fillStyle = i % 2 ? "#ffffff" : gold ? "#fbbf24" : "#fb7185";
+        ctx.beginPath();
+        ctx.moveTo(-56 + i * 14, -62);
+        ctx.lineTo(-42 + i * 14, -62);
+        ctx.lineTo(-42 + i * 14, -50);
+        ctx.arc(-49 + i * 14, -50, 7, 0, Math.PI);
+        ctx.closePath();
+        ctx.fill();
+      }
+      if (fancy) {
+        const colors = ["#38bdf8", "#facc15", "#4ade80", "#a855f7"];
+        for (let i = 0; i < 7; i++) {
+          ctx.fillStyle = colors[i % 4];
+          const bx = -45 + i * 15;
+          ctx.beginPath();
+          ctx.moveTo(bx - 5, -41);
+          ctx.lineTo(bx + 5, -41);
+          ctx.lineTo(bx, -33);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+      break;
+    }
+    case "well": {
+      // Posts and a little roof, then the stone ring in front.
+      ctx.fillStyle = "#a16207";
+      ctx.fillRect(-29, -80, 6, 58);
+      ctx.fillRect(23, -80, 6, 58);
+      ctx.fillRect(-28, -70, 56, 5);
+      gable(ctx, 0, -78, 42, 26, gold ? "#f5b301" : "#4f86c6");
+      const dip = Math.sin(t * 1.3) * 5;
+      ctx.strokeStyle = "#d6c3a1";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -66);
+      ctx.lineTo(0, -48 + dip);
+      ctx.stroke();
+      poly(ctx, [-8, -48 + dip, 8, -48 + dip, 6, -36 + dip, -6, -36 + dip], "#b45309");
+      ctx.fillStyle = "#9aa3b2";
+      ellipse(ctx, 0, -6, 36, 13);
+      ctx.fill();
+      wall(ctx, -36, -30, 72, 26, "#b9c0cc", 5);
+      ctx.strokeStyle = "rgba(71,85,105,0.35)";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(-36, -17);
+      ctx.lineTo(36, -17);
+      for (const x of [-18, 6, 26]) {
+        ctx.moveTo(x, -30);
+        ctx.lineTo(x, -17);
+      }
+      for (const x of [-26, -4, 16]) {
+        ctx.moveTo(x, -17);
+        ctx.lineTo(x, -5);
+      }
+      ctx.stroke();
+      ctx.fillStyle = "#9aa3b2";
+      ellipse(ctx, 0, -30, 36, 11);
+      ctx.fill();
+      ctx.fillStyle = "#38bdf8";
+      ellipse(ctx, 0, -30, 29, 7.5);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.7)";
+      ellipse(ctx, -9 + Math.sin(t * 2) * 3, -31, 7, 1.6);
+      ctx.fill();
+      // Wishes twinkling up out of the water.
+      for (let i = 0; i < 1 + Math.ceil(lv / 2); i++) {
+        const ph = (t * 0.4 + i * 0.37) % 1;
+        ctx.globalAlpha = Math.sin(ph * Math.PI);
+        ctx.fillStyle = "#fef08a";
+        starPath(ctx, Math.sin(i * 2.6 + ph * 3) * 16, -36 - ph * 30, 4.5, 4, 0.35);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      if (fancy) for (const x of [-44, 44]) flowerBox(ctx, x, 0, 20);
+      break;
+    }
+    case "workshop": {
+      wall(ctx, -50, -62, 100, 62, "#dcae74", 5);
+      ctx.strokeStyle = "rgba(124,74,18,0.28)";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      for (let x = -34; x <= 34; x += 17) {
+        ctx.moveTo(x, -60);
+        ctx.lineTo(x, -2);
+      }
+      ctx.stroke();
+      poly(ctx, [-60, -58, 60, -78, 60, -66, -60, -46], "#7c5a3a");
+      // Big open doorway with the tools hung up inside.
+      ctx.fillStyle = "#5b3b1e";
+      roundRect(ctx, -30, -42, 44, 42, 5);
+      ctx.fill();
+      ctx.strokeStyle = "#cbd5e1";
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(-20, -32);
+      ctx.lineTo(-20, -14);
+      ctx.moveTo(-8, -32);
+      ctx.lineTo(-8, -18);
+      ctx.moveTo(4, -32);
+      ctx.lineTo(4, -12);
+      ctx.stroke();
+      ctx.fillStyle = "#94a3b8";
+      roundRect(ctx, -26, -36, 12, 7, 2);
+      ctx.fill();
+      pane(ctx, 32, -30, 14, 16, lit);
+      cog(ctx, 22, -88, 13, t * 0.8, gold ? "#fbbf24" : "#94a3b8");
+      if (fancy) cog(ctx, 42, -76, 8, -t * 1.3 + 0.4, "#cbd5e1");
+      // A crate and some planks outside.
+      wall(ctx, -66, -18, 20, 18, "#c08a4a", 2);
+      ctx.fillStyle = "#e3b987";
+      roundRect(ctx, 50, -8, 26, 5, 2);
+      ctx.fill();
+      roundRect(ctx, 53, -14, 26, 5, 2);
+      ctx.fill();
+      break;
+    }
+    case "barn": {
+      if (fancy) {
+        // A silo round the side.
+        wall(ctx, 44, -96, 30, 96, "#cbd5e1", 4);
+        ctx.fillStyle = gold ? "#fbbf24" : "#94a3b8";
+        ctx.beginPath();
+        ctx.arc(59, -96, 15, Math.PI, 0);
+        ctx.closePath();
+        ctx.fill();
+      }
+      wall(ctx, -52, -58, 104, 58, "#e5484d", 5);
+      poly(ctx, [-60, -54, -48, -84, -22, -104, 22, -104, 48, -84, 60, -54], "#b4353a");
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-60, -54);
+      ctx.lineTo(-48, -84);
+      ctx.lineTo(-22, -104);
+      ctx.lineTo(22, -104);
+      ctx.lineTo(48, -84);
+      ctx.lineTo(60, -54);
+      ctx.stroke();
+      pane(ctx, 0, -76, 16, 16, lit, true);
+      // Big double door with a white cross.
+      ctx.fillStyle = "#c93a40";
+      roundRect(ctx, -24, -44, 48, 44, 3);
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-24, -44);
+      ctx.lineTo(24, 0);
+      ctx.moveTo(24, -44);
+      ctx.lineTo(-24, 0);
+      ctx.moveTo(0, -44);
+      ctx.lineTo(0, 0);
+      ctx.stroke();
+      // Hay bale.
+      ctx.fillStyle = "#facc15";
+      roundRect(ctx, -74, -16, 22, 16, 4);
+      ctx.fill();
+      ctx.strokeStyle = "#ca8a04";
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      break;
+    }
+    case "hatchery": {
+      // A warm glass dome with an egg inside.
+      const warm = 0.5 + 0.5 * Math.sin(t * 2.2);
+      const glow = ctx.createRadialGradient(0, -34, 4, 0, -34, 58);
+      glow.addColorStop(0, `rgba(253, 186, 116, ${0.5 + 0.3 * warm})`);
+      glow.addColorStop(1, "rgba(253, 186, 116, 0)");
+      ctx.fillStyle = glow;
+      ellipse(ctx, 0, -34, 58, 58);
+      ctx.fill();
+      ctx.fillStyle = "#fde68a";
+      ellipse(ctx, 0, -18, 26, 7);
+      ctx.fill();
+      const eggs = fancy ? [-17, 0, 17] : [0];
+      eggs.forEach((ex, i) => {
+        const big = ex === 0 ? 1 : 0.7;
+        ctx.save();
+        ctx.translate(ex, -20);
+        ctx.rotate(Math.sin(t * 5 + i * 2) * 0.09);
+        ctx.fillStyle = "#fffaf0";
+        ctx.beginPath();
+        ctx.ellipse(0, -15 * big, 11 * big, 15 * big, 0, 0, TAU);
+        ctx.fill();
+        ctx.strokeStyle = "#d6b98a";
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        ctx.fillStyle = ["#86efac", "#f9a8d4", "#93c5fd"][i % 3];
+        ellipse(ctx, -3 * big, -18 * big, 3 * big, 3 * big);
+        ctx.fill();
+        ellipse(ctx, 4 * big, -10 * big, 2.2 * big, 2.2 * big);
+        ctx.fill();
+        ctx.restore();
+      });
+      ctx.fillStyle = "rgba(186, 230, 253, 0.42)";
+      ctx.beginPath();
+      ctx.ellipse(0, -18, 46, 64, 0, Math.PI, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,0.7)";
+      ctx.lineWidth = 4;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.ellipse(0, -18, 34, 52, 0, Math.PI * 1.15, Math.PI * 1.4);
+      ctx.stroke();
+      wall(ctx, -54, -20, 108, 20, gold ? "#fbbf24" : "#34d399", 8);
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      roundRect(ctx, -46, -16, 92, 4, 2);
+      ctx.fill();
+      ctx.fillStyle = "#fb7185";
+      heartPath(ctx, 0, -92 - warm * 3, 6);
+      ctx.fill();
+      break;
+    }
+    case "sparkle": {
+      wall(ctx, -22, -100, 44, 100, "#ddd0fb", 6);
+      door(ctx, 0, 0, 18, 28, "#7c3aed");
+      ctx.fillStyle = lit ? "#fde68a" : "#fef9c3";
+      starPath(ctx, 0, -48, 7);
+      ctx.fill();
+      starPath(ctx, 0, -76, 5.5);
+      ctx.fill();
+      wall(ctx, -32, -108, 64, 12, "#c4b5fd", 5);
+      gable(ctx, 0, -106, 34, 46, gold ? "#f5b301" : "#8b5cf6");
+      // The star on top, and sparkles that circle it.
+      const pulse = 1 + Math.sin(t * 3) * 0.12;
+      const halo = ctx.createRadialGradient(0, -160, 2, 0, -160, 26);
+      halo.addColorStop(0, "rgba(253, 224, 71, 0.8)");
+      halo.addColorStop(1, "rgba(253, 224, 71, 0)");
+      ctx.fillStyle = halo;
+      ellipse(ctx, 0, -160, 26, 26);
+      ctx.fill();
+      ctx.fillStyle = "#fde047";
+      starPath(ctx, 0, -160, 12 * pulse, 5, 0.5, -Math.PI / 2 + t * 0.6);
+      ctx.fill();
+      ctx.strokeStyle = "#d97706";
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      const colors = ["#f0abfc", "#a5f3fc", "#fef08a", "#fda4af"];
+      for (let i = 0; i < lv + 2; i++) {
+        const a = t * 1.1 + (i / (lv + 2)) * TAU;
+        ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 4 + i);
+        ctx.fillStyle = colors[i % colors.length];
+        starPath(ctx, Math.cos(a) * 36, -112 + Math.sin(a) * 15 - (i % 3) * 20, 4.5, 4, 0.35);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      break;
+    }
+  }
+}
+
+/** Five little stars under a building: gold ones for the levels it has. */
+function drawLevelPips(ctx: Ctx, x: number, y: number, lv: number) {
+  ctx.fillStyle = "rgba(20, 16, 50, 0.55)";
+  roundRect(ctx, x - 31, y - 8, 62, 16, 8);
+  ctx.fill();
+  for (let i = 0; i < 5; i++) {
+    ctx.fillStyle = i < lv ? "#fde047" : "rgba(255,255,255,0.28)";
+    starPath(ctx, x - 22 + i * 11, y + 0.5, 4.8);
+    ctx.fill();
+  }
+}
+
+function drawScaffold(ctx: Ctx, halfW: number, height: number) {
+  ctx.strokeStyle = "#b9814a";
+  ctx.lineCap = "round";
+  ctx.lineWidth = 4.5;
+  ctx.beginPath();
+  for (const x of [-halfW, halfW]) {
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, -height);
+  }
+  ctx.stroke();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(185,129,74,0.85)";
+  ctx.beginPath();
+  ctx.moveTo(-halfW, -height * 0.34);
+  ctx.lineTo(halfW, -height * 0.66);
+  ctx.moveTo(halfW, -height * 0.34);
+  ctx.lineTo(-halfW, -height * 0.66);
+  ctx.stroke();
+  ctx.fillStyle = "#e3b987";
+  for (const k of [0.34, 0.66, 1]) {
+    roundRect(ctx, -halfW - 7, -height * k - 3, halfW * 2 + 14, 6, 3);
+    ctx.fill();
+    ctx.strokeStyle = "#b9814a";
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+  }
+}
+
+const BUILDER_LOOK: Look = {
+  body: "#b7793f", belly: "#fde6b3", accent: "#7c4a12",
+  ears: "round", tail: "none", face: "smile", cheeks: "#fda4af",
+};
+
+/** A little beaver in a hard hat, hammering away. */
+function drawBuilder(ctx: Ctx, x: number, y: number, t: number, flip: boolean) {
+  const size = 36;
+  const hop = Math.abs(Math.sin(t * 6 + x)) * 5;
+  shadow(ctx, x, y + 1, 13, 0.16);
+  drawPet(ctx, BUILDER_LOOK, x, y - hop, size, { t, flip, mood: "happy", seed: x });
+  ctx.fillStyle = "#facc15";
+  ctx.beginPath();
+  ctx.arc(x, y - hop - size * 0.72, size * 0.27, Math.PI, 0);
+  ctx.closePath();
+  ctx.fill();
+  roundRect(ctx, x - size * 0.34, y - hop - size * 0.74, size * 0.68, 4, 2);
+  ctx.fill();
+  // Hammer.
+  const dir = flip ? -1 : 1;
+  ctx.save();
+  ctx.translate(x + dir * size * 0.42, y - hop - size * 0.4);
+  ctx.rotate(dir * (-0.9 + Math.abs(Math.sin(t * 6 + x)) * 1.1));
+  ctx.fillStyle = "#8a6a45";
+  roundRect(ctx, -1.5, -17, 3, 18, 1.5);
+  ctx.fill();
+  ctx.fillStyle = "#64748b";
+  roundRect(ctx, -6, -21, 12, 6, 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** The clock over a building site: time left and a bar that fills. */
+function drawBuildClock(ctx: Ctx, x: number, y: number, job: Job, now: number, t: number) {
+  const left = jobLeft(job, now);
+  const text = fmtCountdown(left);
+  const w = Math.max(64, text.length * 10 + 30);
+  const bob = Math.sin(t * 3) * 2;
+  ctx.fillStyle = "rgba(20, 16, 50, 0.82)";
+  roundRect(ctx, x - w / 2, y - 15 + bob, w, 34, 12);
+  ctx.fill();
+  label(ctx, text, x, y - 2 + bob, 17, "#ffffff");
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  roundRect(ctx, x - w / 2 + 8, y + 9 + bob, w - 16, 5, 2.5);
+  ctx.fill();
+  ctx.fillStyle = "#4ade80";
+  roundRect(ctx, x - w / 2 + 8, y + 9 + bob, Math.max(5, (w - 16) * jobProgress(job, now)), 5, 2.5);
+  ctx.fill();
+}
+
+type BubbleKind = "coin" | "cake" | "star";
+
+/** "Come and get it": a bobbing bubble over a building with something to collect. */
+function drawBubble(ctx: Ctx, x: number, y: number, kind: BubbleKind, count: number, t: number) {
+  const bob = Math.abs(Math.sin(t * 3.2)) * 7;
+  ctx.save();
+  ctx.translate(x, y - bob);
+  ctx.fillStyle = "rgba(20, 16, 50, 0.18)";
+  ellipse(ctx, 0, 3, 23, 23);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ellipse(ctx, 0, 0, 22, 22);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-7, 19);
+  ctx.lineTo(0, 31);
+  ctx.lineTo(7, 19);
+  ctx.closePath();
+  ctx.fill();
+  if (kind === "coin") {
+    ctx.fillStyle = "#f59e0b";
+    ellipse(ctx, 0, 0, 13, 13);
+    ctx.fill();
+    ctx.fillStyle = "#fbbf24";
+    ellipse(ctx, 0, 0, 10, 10);
+    ctx.fill();
+    ctx.fillStyle = "#fff7c2";
+    ellipse(ctx, -3.5, -4, 3.2, 2.2, -0.6);
+    ctx.fill();
+  } else if (kind === "cake") {
+    cupcake(ctx, 0, 13, 0.88);
+  } else {
+    ctx.fillStyle = "#fbbf24";
+    starPath(ctx, 0, 0, 14);
+    ctx.fill();
+    ctx.strokeStyle = "#d97706";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  if (count > 1) {
+    ctx.fillStyle = "#ef4444";
+    ellipse(ctx, 17, -15, 10, 10);
+    ctx.fill();
+    label(ctx, String(count), 17, -14.5, 13, "#ffffff");
+  }
+  ctx.restore();
+}
+
+/** An empty plot: a patch of earth and a signpost. */
+function drawPlot(ctx: Ctx, x: number, y: number, state: "locked" | "open" | "go", t: number) {
+  ctx.fillStyle = "rgba(201, 168, 110, 0.55)";
+  ellipse(ctx, x, y + 6, 52, 22);
+  ctx.fill();
+  ctx.setLineDash([9, 8]);
+  ctx.strokeStyle = state === "locked" ? "rgba(120, 96, 60, 0.4)" : "rgba(120, 96, 60, 0.75)";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const hop = state === "go" ? Math.abs(Math.sin(t * 4 + x)) * 6 : 0;
+  ctx.fillStyle = "#8a6a45";
+  roundRect(ctx, x - 2.5, y - 26, 5, 30, 2);
+  ctx.fill();
+  const board = state === "locked" ? "#cbd5e1" : state === "go" ? "#4ade80" : "#fde9c4";
+  ctx.fillStyle = board;
+  roundRect(ctx, x - 17, y - 50 - hop, 34, 27, 6);
+  ctx.fill();
+  ctx.strokeStyle = shade(board, -0.35);
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  if (state === "locked") {
+    ctx.strokeStyle = "#64748b";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(x, y - 39, 4.5, Math.PI, 0);
+    ctx.stroke();
+    ctx.fillStyle = "#64748b";
+    roundRect(ctx, x - 7, y - 39, 14, 11, 2.5);
+    ctx.fill();
+  } else {
+    label(ctx, "+", x, y - 36 - hop, 26, state === "go" ? "#ffffff" : "#a16207");
+  }
+}
+
+/** One plot in the town: empty, being built, or a finished building with its bubble. */
+function drawSite(ctx: Ctx, g: Game, id: BuildingId, t: number, now: number) {
+  const { x, y } = PLOTS[id];
+  const lv = g.town.lv[id];
+  const job = jobFor(g, id);
+  if (lv < 1 && !job) {
+    const block = buildBlock(g, id);
+    drawPlot(ctx, x, y, block === "house" ? "locked" : block === "ok" ? "go" : "open", t);
+    return;
+  }
+  const ground = y + 20;
+  const shown = Math.max(1, lv);
+  const s = 0.86 + 0.045 * shown;
+  const height = BUILDING_HEIGHT[id] * s;
+  ctx.fillStyle = "rgba(201, 168, 110, 0.5)";
+  ellipse(ctx, x, ground - 2, 62, 20);
+  ctx.fill();
+  shadow(ctx, x, ground, 52, 0.16);
+  ctx.save();
+  ctx.translate(x, ground);
+  ctx.scale(s, s);
+  if (lv < 1 && job) {
+    // A new building rises out of the ground as the work goes on.
+    const k = jobProgress(job, now);
+    ctx.globalAlpha = 0.35;
+    drawBuildingArt(ctx, id, 1, t, false);
+    ctx.globalAlpha = 1;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(-90, -BUILDING_HEIGHT[id] * k - 2, 180, BUILDING_HEIGHT[id] * k + 12);
+    ctx.clip();
+    drawBuildingArt(ctx, id, 1, t, g.night);
+    ctx.restore();
+  } else {
+    drawBuildingArt(ctx, id, lv, t, g.night);
+  }
+  if (job) drawScaffold(ctx, 58, Math.min(BUILDING_HEIGHT[id], 112));
+  ctx.restore();
+  if (lv > 0) drawLevelPips(ctx, x, ground + 15, lv);
+  if (job) {
+    drawBuilder(ctx, x - 62 * s, ground + 6, t, false);
+    drawBuildClock(ctx, x, ground - height - 26, job, now, t);
+    return;
+  }
+  if (readyToCollect(g, id)) {
+    const kind: BubbleKind = id === "mill" ? "coin" : id === "bakery" ? "cake" : "star";
+    drawBubble(ctx, x, ground - height - 30, kind, id === "mill" ? 1 : stockOf(g, id), t);
+  }
+}
+
+/** The house where the hut used to be, whatever size it has grown to. */
+function drawHouse(ctx: Ctx, g: Game, wob: number, t: number, now: number) {
+  const { x, y, r } = HUT;
+  const ground = y + r * 0.55;
+  const tier = g.town.house;
+  shadow(ctx, x, ground - 3, HOUSE_HALF_W[tier] * 1.12, 0.2);
+  ctx.save();
+  ctx.translate(x, ground);
+  if (wob > 0) ctx.scale(1 + Math.sin(wob * 18) * wob * 0.05, 1 - Math.sin(wob * 18) * wob * 0.05);
+  drawHouseArt(ctx, tier, g.town.paint, t, g.night);
+  const job = jobFor(g, "house");
+  if (job) drawScaffold(ctx, HOUSE_HALF_W[tier] + 4, HOUSE_HEIGHT[tier] * 0.78);
+  ctx.restore();
+  if (job) {
+    drawBuilder(ctx, x - HOUSE_HALF_W[tier] - 20, ground + 8, t, false);
+    drawBuilder(ctx, x + HOUSE_HALF_W[tier] + 20, ground + 8, t + 0.4, true);
+    drawBuildClock(ctx, x, ground - HOUSE_HEIGHT[tier] - 34, job, now, t);
+  }
+}
+
+/** Paths out to the building plots, so the town reads as one place. */
+function drawTownPaths(ctx: Ctx) {
+  const laneY = HOME_TOP + 270;
+  ctx.globalAlpha = 0.8;
+  ctx.fillStyle = HOME_PATH;
+  roundRect(ctx, PLOTS.well.x + 40, laneY - 21, PLOTS.workshop.x - PLOTS.well.x - 80, 42, 21);
+  ctx.fill();
+  ctx.globalAlpha = 0.9;
+  const hubs: [BuildingId, BuildingId[]][] = [
+    ["well", ["mill", "barn", "hatchery"]],
+    ["workshop", ["bakery", "sparkle"]],
+  ];
+  for (const [hub, spokes] of hubs) {
+    const a = PLOTS[hub];
+    for (const id of spokes) {
+      const b = PLOTS[id];
+      const steps = Math.max(2, Math.round(Math.hypot(b.x - a.x, b.y - a.y) / 34) - 2);
+      for (let i = 1; i <= steps; i++) {
+        const k = (i + 0.6) / (steps + 2.2);
+        ellipse(ctx, a.x + (b.x - a.x) * k + (i % 2 ? 5 : -5), a.y + (b.y - a.y) * k + 14, 11, 6.5);
+        ctx.fill();
+      }
+    }
+  }
+  ctx.globalAlpha = 1;
 }
 
 /* ---------- View ---------- */
@@ -2441,6 +3469,7 @@ export function render(
   const y0 = v.camY - visH / 2;
   const y1 = v.camY + visH / 2;
   const seen = (y: number, pad = 120) => y > y0 - pad && y < y1 + pad;
+  const now = Date.now();
 
   ctx.save();
   ctx.translate(w / 2, h / 2);
@@ -2461,13 +3490,12 @@ export function render(
 
   g.solids.forEach((s, i) => {
     if (!seen(s.y, 160)) return;
-    if (s.seed === -1) items.push({ y: s.y, draw: () => drawHut(ctx, g.wob[i]) });
+    if (s.seed === -1) items.push({ y: s.y, draw: () => drawHouse(ctx, g, g.wob[i], t, now) });
     else if (s.seed === -2) items.push({ y: s.y, draw: () => drawChest(ctx, g, t) });
     else if (s.seed === -3) items.push({ y: s.y, draw: () => drawBillboard(ctx, g, t, g.wob[i]) });
     else items.push({ y: s.y, draw: () => drawSolid(ctx, s, g.wob[i]) });
   });
 
-  const now = Date.now();
   for (const d of MINIS) {
     if (!seen(d.y, 200)) continue;
     const wait = Math.max(0, Math.ceil((g.prizeAt[d.id] + d.prizeMs - now) / 1000));
@@ -2491,6 +3519,11 @@ export function render(
   const mystery = g.mystery;
   if (mystery && seen(mystery.y, 500)) items.push({ y: mystery.y + 2, draw: () => drawMystery(ctx, mystery, t) });
   if (seen(biomeTop(BIOME_COUNT - 1) + 220, 200)) drawConstellation(ctx, t);
+
+  // The special buildings down either side of home.
+  if (seen(HOME_TOP + 300, 460)) {
+    for (const id of BUILDING_IDS) items.push({ y: PLOTS[id].y, draw: () => drawSite(ctx, g, id, t, now) });
+  }
 
   // Home decorations.
   if (seen(PEN.y0 + 80, 320)) {
@@ -2915,4 +3948,35 @@ export function paintPowerupIcon(canvas: HTMLCanvasElement, kind: PowerupId, css
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssSize, cssSize);
   drawPowerup(ctx, kind, cssSize / 2, cssSize / 2, cssSize * 0.46);
+}
+
+function iconCtx(canvas: HTMLCanvasElement, cssSize: number): Ctx | null {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.round(cssSize * dpr);
+  canvas.height = Math.round(cssSize * dpr);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssSize, cssSize);
+  return ctx;
+}
+
+/** A picture of the house at a tier, in the player's colours. */
+export function paintHouseIcon(canvas: HTMLCanvasElement, tier: number, paint: HousePaint | null, cssSize: number) {
+  const ctx = iconCtx(canvas, cssSize);
+  if (!ctx) return;
+  const k = Math.min(cssSize / (HOUSE_HALF_W[tier] * 2 + 26), cssSize / (HOUSE_HEIGHT[tier] + 46));
+  ctx.translate(cssSize / 2, cssSize * 0.96);
+  ctx.scale(k, k);
+  drawHouseArt(ctx, tier, paint ?? DEFAULT_PAINT, 0.4, false);
+}
+
+/** A picture of a special building at a level (level 0 shows what it will look like). */
+export function paintBuildingIcon(canvas: HTMLCanvasElement, id: BuildingId, level: number, cssSize: number) {
+  const ctx = iconCtx(canvas, cssSize);
+  if (!ctx) return;
+  const k = Math.min(cssSize / 150, cssSize / (BUILDING_HEIGHT[id] + 34));
+  ctx.translate(cssSize / 2, cssSize * 0.95);
+  ctx.scale(k, k);
+  drawBuildingArt(ctx, id, Math.max(1, level), 0.4, false);
 }

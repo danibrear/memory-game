@@ -9,13 +9,11 @@ import {
   faCoins,
   faDice,
   faDove,
-  faDroplet,
   faDumbbell,
   faFeatherPointed,
   faEgg,
   faFire,
   faForwardFast,
-  faGift,
   faHandSparkles,
   faHatWizard,
   faHeart,
@@ -28,25 +26,20 @@ import {
   faPersonRunning,
   faPiggyBank,
   faQuestion,
-  faRainbow,
-  faSeedling,
   faSocks,
-  faStairs,
   faStar,
   faSun,
   faWandMagicSparkles,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ChoiceGroup, KitButton } from "~/components/game/GameKit";
 import { ACHIEVEMENTS, type AchKind } from "~/games/eggs/achievements";
 import {
   BIOMES,
-  DECOR_BONUS,
   FEATHER_BONUS,
   FUSE_COUNT,
   HATS,
-  HOME_DECOR,
   MEDAL_COLORS,
   MEDAL_NAMES,
   MINIS,
@@ -81,7 +74,6 @@ import {
   treatsMult,
   upgradeCost,
   type HatId,
-  type HomeDecorId,
   type Look,
   type PetDef,
   type PowerEggId,
@@ -101,6 +93,8 @@ import {
   rebirthGain,
   sellPrice,
   type Game,
+  anyBuildable,
+  anyToCollect,
 } from "~/games/eggs/engine";
 import {
   paintEggIcon,
@@ -324,37 +318,32 @@ const UPGRADES: Record<UpgradeId, UpgradeInfo> = {
 
 export const upgradeName = (id: UpgradeId) => UPGRADES[id].name;
 
-type ShopTab = "upgrades" | "powers" | "hats" | "trails" | "home";
-
-const DECOR_ICON: Record<HomeDecorId, { icon: IconDefinition; color: string }> = {
-  garden: { icon: faSeedling, color: "#22c55e" },
-  balloons: { icon: faGift, color: "#f43f5e" },
-  fountain: { icon: faDroplet, color: "#0ea5e9" },
-  slide: { icon: faStairs, color: "#f59e0b" },
-  rainbow: { icon: faRainbow, color: "#a855f7" },
-  statue: { icon: faMedal, color: "#d97706" },
-};
+export type ShopTab = "upgrades" | "powers" | "hats" | "trails" | "home";
 
 export function ShopBody({
   g,
   playerLook,
+  startTab = "upgrades",
+  home,
   onBuy,
   onHat,
   onTrail,
-  onDecor,
   onEquip,
   onRebirth,
 }: {
   g: Game;
   playerLook: Look;
+  /** The section to open on. */
+  startTab?: ShopTab;
+  /** The Home section (house, buildings, decorations), drawn by the caller. */
+  home: ReactNode;
   onEquip: (id: PowerEggId) => void;
   onRebirth: () => void;
   onBuy: (id: UpgradeId) => void;
   onHat: (id: HatId) => void;
   onTrail: (id: TrailId) => void;
-  onDecor: (id: HomeDecorId) => void;
 }) {
-  const [tab, setTab] = useState<ShopTab>("upgrades");
+  const [tab, setTab] = useState<ShopTab>(startTab);
   return (
     <>
       <div className="se-wallet">
@@ -374,7 +363,15 @@ export function ShopBody({
           { value: "powers", label: "Powers" },
           { value: "hats", label: "Hats" },
           { value: "trails", label: "Trails" },
-          { value: "home", label: "Home" },
+          {
+            value: "home",
+            label: (
+              <>
+                Home
+                {(anyBuildable(g) || anyToCollect(g)) && <i className="se-dot" aria-label="Something to do" />}
+              </>
+            ),
+          },
         ]}
       />
 
@@ -483,45 +480,7 @@ export function ShopBody({
         </>
       )}
 
-      {tab === "home" && (
-        <>
-          <p className="se-tip">
-            <FontAwesomeIcon icon={faHouse} /> Decorate your home. Each one makes every pet earn{" "}
-            {Math.round(DECOR_BONUS * 100)}% more.
-          </p>
-          <div className="se-list">
-            {HOME_DECOR.map((d) => {
-              const placed = g.home.includes(d.id);
-              const look = DECOR_ICON[d.id];
-              return (
-                <div className="se-row" key={d.id}>
-                  <span className="se-row-icon" style={{ "--tile": look.color } as CSSProperties}>
-                    <FontAwesomeIcon icon={look.icon} />
-                  </span>
-                  <div className="se-row-text">
-                    <strong>{d.name}</strong>
-                    <small>{d.desc}</small>
-                  </div>
-                  {placed ? (
-                    <span className="se-max">
-                      <FontAwesomeIcon icon={faCheck} /> PLACED
-                    </span>
-                  ) : (
-                    <KitButton
-                      size="sm"
-                      disabled={g.coins < d.cost}
-                      onClick={() => onDecor(d.id)}
-                      aria-label={`Buy ${d.name} for ${fmtCoins(d.cost)} coins`}>
-                      <Coin />
-                      {fmtCoins(d.cost)}
-                    </KitButton>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+      {tab === "home" && home}
 
       {tab === "hats" && (
         <>

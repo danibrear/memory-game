@@ -352,6 +352,114 @@ before more are built. No new currency: each game has its own prize.
 ### Fast follows (not built)
 Burrow Maze, Egg Catch, Nest Shuffle, Crystal Chimes, Pet Race, Saucer Dodge;
 a pet that hatches only from mini games; a Glow variant above Rainbow.
+## Home town pass (Nov 15): a house that grows, and special buildings
+
+Dani's brief: let players customize their home more; upgrade the look and feel
+of the house; add special buildings that take time to upgrade, like existing
+idle games. Sits on `main` at `225a86b`, on top of the mini games. It does not
+include the stealth pass or the FanScout ad pass (neither was on GitHub or in
+the Mac repo at the time).
+
+Everything here runs on **real time** (`Date.now()`, like the gift chest), so a
+build keeps going while a menu is open and while the game is closed, and
+finishes on the next load.
+
+### The house
+- Five tiers where the hut stands: Little Hut, Cozy Cottage (4K coins, 1 min),
+  Farmhouse (150K, 10 min), Grand Manor (5M, 1 h), Castle (150M, 4 h).
+  `HOUSE_TIERS` in config. Each tier adds to all coin income (+10/20/35/50%)
+  and opens more buildings and higher building levels.
+- **Paint** (stars, like hats): 6 wall colours, 6 roof colours and 6 toppers
+  (flag, weather vane, heart, star, fairy lights). `WALL_PAINTS`, `ROOF_PAINTS`,
+  `TOPPERS`. Bought once, switched freely. Windows light up at night.
+- The hut's collision circle and the "knock knock" secret are unchanged.
+
+### Special buildings (7, five levels each)
+Plots sit down either side of home (`PLOTS`). Prices are `BUILD_COST[level] *
+price`, times are `BUILD_TIME` (20s, 5m, 30m, 2h, 6h). A building can only reach
+`level` when the house tier is at least `houseNeeded(id, level)`: its own
+`needHouse`, or `level - 1` if that is higher.
+
+| Building | Opens at | What it does (level 1 to 5) |
+| --- | --- | --- |
+| Windmill | Hut | Saves up 15/25/35/50/70% of pet income for up to 0.5/1/2/4/8 h. Walk into it or tap it to collect. |
+| Treat Bakery | Hut | A cupcake every 10/8/6/5/4 min (holds 1/1/2/2/3). Eating one adds 30/40/50/60/80 s of double coins (stacks to `FRENZY_MAX`, 5 min). |
+| Wishing Well | Cottage | A star every 30/24/18/12/8 min, holds 2/3/4/6/8. |
+| Builder's Workshop | Cottage | 2 builders (3 at level 5); builds 0/10/20/30/40% faster. |
+| Pet Barn | Farmhouse | +2/4/6/8/10 pet spaces on top of the pen upgrade (`penCap`). |
+| Hatchery | Farmhouse | Eggs hatch 10/20/30/40/50% faster, on top of Warm Nests (`hatchTime`). |
+| Sparkle Tower | Manor | 15/30/50/75/100% better odds of Shiny, Golden and Rainbow. |
+
+### Builders
+- One builder to start (`WORKSHOP_BUILDERS`). Each build holds a builder until
+  it is done. `buildBlock(g, site)` says why something can't start: `max`,
+  `working`, `house`, `builder`, `coins`.
+- **Tap the site** to hurry it: each tap takes off 2 s, or 0.3% of the whole
+  build if that is more (`BUILD_TAP_*`). **Finish now** costs 1 star per 15
+  minutes left (`RUSH_SECONDS_PER_STAR`).
+- **Cozy style:** builds take a fifth of the time (`COZY_BUILD_SCALE`).
+
+### The town is never wiped (Dani's rule, Nov 15)
+A six-hour build must never be lost, so nothing in the game takes the town away:
+- **A Grumble's catch** costs the eggs in your arms and sends you home. It
+  never touches `g.town`.
+- **Rebirth** resets coins, upgrades and pets. The house, the buildings, builds
+  still running and the paint all stay.
+- **"Start over"** on the title screen keeps the town too. `startOverSave` in
+  the engine builds the fresh save and carries the old town across; the
+  confirmation says "Your house and buildings stay." With no town to keep it
+  clears the save exactly as before.
+- The script that checks the engine catches the player with a build running,
+  rebirths, and starts over, and compares the town before and after each.
+
+Anything added later that resets progress should leave `g.town` alone too.
+
+### Where things are
+- `config.ts`: the "Home town" section at the end (every number above).
+- `engine.ts`: `Town`, `Job`, `Producer`; `startBuild`, `tapBuild`, `rushBuild`,
+  `tickTown` (finishes builds and runs the timers; called every 0.25 s from
+  `step`, once a second from the Home menu, and once on load), `collectFrom`,
+  `readyToCollect`, `pickPaint`, `penCap`, `hatchTime`. `tapWorld` handles taps
+  on the house, a building or an empty plot. Buildings are solid once there is
+  something on the plot (checked in `movePlayer`, separate from the shared
+  `solids` list).
+- `render.ts`: `drawHouseArt`, `drawBuildingArt`, `drawSite`, `drawHouse`,
+  `drawTownPaths`, and `paintHouseIcon` / `paintBuildingIcon` for the menus.
+  A new building rises out of the ground as its build goes on.
+- `app/components/eggs/HomeMenu.tsx`: the Shop's Home section, now three pages
+  (House, Buildings, Decor). The old decorations list moved to Decor.
+- `eggs.tsx`: a builder chip on the HUD (top right) with the soonest build's
+  countdown, or "Ready at home!" when something can be collected and the player
+  is out in the lands. Tapping a building or plot opens the Shop on that row.
+- Trophies: 12 new (111 in all with the mini games).
+- The Lucky Dice re-roll gets the Sparkle Tower's better odds, and the
+  Windmill ignores the short boosts (a frenzy, happy pets) when it works out
+  what to save up.
+
+### Saves
+- `SavedGame.town` is optional; a save without it loads as a hut and empty
+  plots. `loadTown` drops unknown buildings, silly levels, stray jobs and
+  paints that aren't owned, and restarts a timer whose clock went backwards.
+- Six new `stats` counters default to 0: `built`, `hammers`, `millRuns`,
+  `cakes`, `wellStars`, `paints`.
+- `savedRate` (away earnings) includes the house bonus.
+
+### Checked
+- A script drove the engine through builds, the one-builder rule, house
+  requirements, tapping, rushing, save and load with a build still running,
+  finishing on load, an old save with no town, a deliberately broken town,
+  the Windmill's cap, cupcakes, stars, the Barn, the Hatchery and paint.
+- In headless Chrome at 390x844 and 820x1180 with touch on: tapped a plot,
+  built from the menu, bought paint, tapped a site to hurry it, collected from
+  the menu and by walking into a building. No console errors.
+- `npm run typecheck` and `npm run build` pass.
+- Not tested in real Safari on an iPad. Prices and times are first guesses and
+  have not been played through by a person.
+
+### Ideas
+- Let Golden Feathers buy a permanent builder or shorter builds.
+- A second look for each building at level 5, and seasonal paint.
+- Pets wandering out of the pen to visit the buildings.
 
 ## Files
 - `app/games/eggs/config.ts` — every tuning number: lands, the 25 pets and their

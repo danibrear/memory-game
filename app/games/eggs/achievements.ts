@@ -6,7 +6,10 @@
 
 import {
   BIOMES,
+  BUILDING_IDS,
+  BUILDING_MAX,
   HATS,
+  HOUSE_MAX,
   HOME_DECOR,
   MINIS,
   PETS,
@@ -163,6 +166,19 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: "mini-gold", name: "Golden Trio", desc: "Win gold in all three mini games.", kind: "skill", stars: 6, target: 3, progress: (g) => MINIS.filter((m) => g.medals[m.id] >= 3).length },
   { id: "mini-prizes", name: "Prize Hunter", desc: "Win 10 tent prizes.", kind: "skill", stars: 3, target: 10, progress: (g) => g.stats.prizes },
   { id: "dice-5", name: "Lucky Roller", desc: "Roll 5 Lucky Dice on your pets.", kind: "pet", stars: 2, target: 5, progress: (g) => g.stats.diceUsed },
+  // Home town
+  { id: "build-1", name: "Home Improvement", desc: "Finish your first build at home.", kind: "upgrade", stars: 2, target: 1, progress: (g) => g.stats.built },
+  { id: "build-10", name: "Busy Builder", desc: "Finish 10 builds.", kind: "upgrade", stars: 4, target: 10, progress: (g) => g.stats.built },
+  { id: "build-30", name: "Master Builder", desc: "Finish 30 builds.", kind: "upgrade", stars: 8, target: 30, progress: (g) => g.stats.built },
+  { id: "house-1", name: "Moving Up in the World", desc: "Turn your hut into a Cozy Cottage.", kind: "upgrade", stars: 2, target: 1, progress: (g) => g.town.house },
+  { id: "house-4", name: "Home Sweet Castle", desc: "Build the Castle.", kind: "upgrade", stars: 10, target: HOUSE_MAX, progress: (g) => g.town.house },
+  { id: "town-all", name: "Our Little Town", desc: "Build every special building.", kind: "upgrade", stars: 6, target: BUILDING_IDS.length, progress: (g) => BUILDING_IDS.filter((id) => g.town.lv[id] > 0).length },
+  { id: "town-max", name: "Boom Town", desc: "Take every special building to level 5.", kind: "upgrade", stars: 12, target: BUILDING_IDS.length, progress: (g) => BUILDING_IDS.filter((id) => g.town.lv[id] >= BUILDING_MAX).length },
+  { id: "mill-25", name: "Daily Grind", desc: "Collect coins from the Windmill 25 times.", kind: "coin", stars: 3, target: 25, progress: (g) => g.stats.millRuns },
+  { id: "cake-10", name: "Sweet Tooth", desc: "Eat 10 cupcakes from the Treat Bakery.", kind: "care", stars: 3, target: 10, progress: (g) => g.stats.cakes },
+  { id: "well-25", name: "Make a Wish", desc: "Pull 25 stars out of the Wishing Well.", kind: "coin", stars: 4, target: 25, progress: (g) => g.stats.wellStars },
+  { id: "paint-3", name: "Fresh Coat", desc: "Buy 3 paints or toppers for your house.", kind: "style", stars: 2, target: 3, progress: (g) => g.stats.paints },
+  { id: "hammer-100", name: "Tap Tap Tap", desc: "Help the builders with 100 taps.", kind: "skill", stars: 2, target: 100, progress: (g) => g.stats.hammers },
 
   // Secrets
   { id: "secret-stars", name: "Explorer", desc: "Find the hidden star in every land.", kind: "secret", stars: 5, target: 5, progress: (g) => g.secrets.length },

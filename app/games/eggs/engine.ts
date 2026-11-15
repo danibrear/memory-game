@@ -154,6 +154,40 @@ import {
   type SolidKind,
   type TrailId,
   type UpgradeId,
+  BAKE_EVERY,
+  BAKE_HOLD,
+  BARN_SPACE,
+  BUILDINGS,
+  BUILDING_IDS,
+  BUILDING_MAX,
+  BUILD_TAP_SECONDS,
+  BUILD_TAP_SHARE,
+  CAKE_FRENZY,
+  COZY_BUILD_SCALE,
+  DEFAULT_PAINT,
+  FRENZY_MAX,
+  HATCHERY_SCALE,
+  HOUSE_MAX,
+  HOUSE_TIERS,
+  MILL_HOURS,
+  MILL_SHARE,
+  PAINTS,
+  PLOT_R,
+  PLOTS,
+  RUSH_SECONDS_PER_STAR,
+  SPARKLE_MULT,
+  WELL_EVERY,
+  WELL_HOLD,
+  WORKSHOP_BUILDERS,
+  WORKSHOP_SPEED,
+  houseNeeded,
+  siteCost,
+  siteMax,
+  siteTime,
+  type BuildingId,
+  type HousePaint,
+  type PaintSlot,
+  type SiteId,
 } from "./config";
 
 /* ---------- Types ---------- */
@@ -440,6 +474,13 @@ export interface Stats {
   diceUsed: number;
   /** Every coin ever earned. */
   earned: number;
+  /** Home town: builds finished, taps on building sites, and what the buildings have handed over. */
+  built: number;
+  hammers: number;
+  millRuns: number;
+  cakes: number;
+  wellStars: number;
+  paints: number;
 }
 
 const ZERO_STATS: Stats = {
@@ -451,7 +492,53 @@ const ZERO_STATS: Stats = {
   adsOpened: 0, adsDone: 0, adsClicked: 0, shares: 0, rebirths: 0, couriered: 0,
   minis: 0, prizes: 0, diceUsed: 0,
   adSeconds: 0, adRewards: 0,
+  built: 0, hammers: 0, millRuns: 0, cakes: 0, wellStars: 0, paints: 0,
 };
+
+// Nothing in the game wipes the town: not a Grumble's catch, not Rebirth, not
+// "Start over" (see `startOverSave`). A six-hour build is never lost.
+
+/** A builder at work. Times are real clock times (ms since 1970), so builds carry on while you're away. */
+export interface Job {
+  site: SiteId;
+  start: number;
+  end: number;
+}
+
+/** Something a building makes on a timer: when the current one was started, and how many are waiting. */
+export interface Producer {
+  at: number;
+  stock: number;
+}
+
+export interface Town {
+  /** House tier, 0 (Little Hut) to 4 (Castle). */
+  house: number;
+  lv: Record<BuildingId, number>;
+  jobs: Job[];
+  paint: HousePaint;
+  /** Paints and toppers bought, as "slot:id". */
+  owned: string[];
+  /** The Windmill's coins, the Bakery's cupcakes and the Wishing Well's stars. */
+  mill: Producer;
+  bakery: Producer;
+  well: Producer;
+}
+
+const ZERO_BUILDINGS: Record<BuildingId, number> = {
+  mill: 0, bakery: 0, well: 0, workshop: 0, barn: 0, hatchery: 0, sparkle: 0,
+};
+
+const newTown = (now: number): Town => ({
+  house: 0,
+  lv: { ...ZERO_BUILDINGS },
+  jobs: [],
+  paint: { ...DEFAULT_PAINT },
+  owned: [],
+  mill: { at: now, stock: 0 },
+  bakery: { at: now, stock: 0 },
+  well: { at: now, stock: 0 },
+});
 
 const ZERO_UPGRADES: Upgrades = {
   speed: 0, pen: 0, luck: 0, basket: 0, dash: 0, warm: 0, socks: 0, treats: 0, sparkle: 0,
@@ -515,6 +602,12 @@ export type GameEvent =
   | { type: "bug"; coins: number; golden: boolean }
   | { type: "frenzy" }
   | { type: "billboard"; tap: boolean }
+  | { type: "buildStart"; site: SiteId }
+  | { type: "hammer"; site: SiteId }
+  | { type: "built"; site: SiteId; level: number }
+  | { type: "collect"; id: BuildingId; amount: number }
+  | { type: "ready"; id: BuildingId }
+  | { type: "site"; site: SiteId }
   | { type: "mission"; kind: MissionKind; target: number; coins: number; stars: number };
 
 export interface Game {
@@ -602,6 +695,9 @@ export interface Game {
   happyT: number;
   /** A moment's peace after knocking on a tent, so the question doesn't pop straight back up. */
   doorCd: number;
+  /** The house, the special buildings and whatever the builders are up to. */
+  town: Town;
+  townT: number;
   /** When the gift chest was last opened (ms since 1970). */
   lastChest: number;
   chestAnim: number;
@@ -653,6 +749,7 @@ export interface SavedGame {
   happyT?: number;
   /** Seconds left on the timed boosts, so a reload doesn't throw them away. */
   boosts?: { coins?: number; hatch?: number; luck?: number };
+  town?: Partial<Town>;
 }
 
 /* ---------- Helpers ---------- */
@@ -1011,6 +1108,8 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
     zoomT: 0,
     happyT: 0,
     doorCd: 0,
+    town: newTown(Date.now()),
+    townT: 0,
     lastChest: 0,
     chestAnim: 0,
     ufoCd: 0,
@@ -1026,6 +1125,7 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
   if (saved) {
     g.coins = Math.max(0, Number(saved.coins) || 0);
     g.up = { ...g.up, ...saved.up };
+    g.town = loadTown(saved.town, Date.now());
     g.book = { ...saved.book };
     g.stats = { ...g.stats, ...saved.stats };
     // Saves from before coins were counted: start the tally from what's in the bank.
@@ -1038,7 +1138,7 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
     }
     (saved.pads ?? []).forEach((s, i) => {
       if (!s || i >= PAD_COUNT) return;
-      const total = RARITIES[s.rarity].hatch * hatchScale(g.up.warm);
+      const total = hatchTime(g, s.rarity);
       g.pads[i].egg = { biome: s.biome, rarity: s.rarity };
       g.pads[i].total = total;
       g.pads[i].left = clamp(s.left, 0, total);
@@ -1157,6 +1257,8 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
     }
     if (count) emit(g, { type: "catchup", count, stars });
   }
+  // Builds that finished while the game was closed finish now.
+  tickTown(g);
   return g;
 }
 
@@ -1198,6 +1300,16 @@ export function toSave(g: Game): SavedGame {
     zoomT: Math.ceil(g.zoomT),
     happyT: Math.ceil(g.happyT),
     boosts: { coins: Math.ceil(g.frenzy), hatch: Math.ceil(g.hatchT), luck: Math.ceil(g.luckT) },
+    town: {
+      house: g.town.house,
+      lv: { ...g.town.lv },
+      jobs: g.town.jobs.map((j) => ({ ...j })),
+      paint: { ...g.town.paint },
+      owned: [...g.town.owned],
+      mill: { at: g.town.mill.at, stock: Math.floor(g.town.mill.stock) },
+      bakery: { ...g.town.bakery },
+      well: { ...g.town.well },
+    },
   };
 }
 
@@ -1208,6 +1320,7 @@ export function coinMult(g: Game): number {
   return (
     treatsMult(g.up.treats) *
     (1 + DECOR_BONUS * g.home.length) *
+    (1 + HOUSE_TIERS[g.town.house].coins) *
     (1 + LEVEL_COIN_BONUS * (g.level - 1)) *
     (1 + FEATHER_BONUS * g.feathers) *
     (hasPower(g, "star") ? STAR_EGG_COINS : 1) *
@@ -1236,6 +1349,7 @@ export function savedRate(saved: SavedGame): number {
     sum *
     treatsMult(saved.up?.treats ?? 0) *
     (1 + DECOR_BONUS * (saved.home?.length ?? 0)) *
+    (1 + HOUSE_TIERS[clamp(Math.floor(saved.town?.house ?? 0), 0, HOUSE_MAX)].coins) *
     (1 + LEVEL_COIN_BONUS * ((saved.level ?? 1) - 1)) *
     (1 + FEATHER_BONUS * (saved.feathers ?? 0)) *
     ((saved.equipped ?? []).includes("star") ? STAR_EGG_COINS : 1)
@@ -1245,7 +1359,12 @@ export function savedRate(saved: SavedGame): number {
 export const bookCount = (book: Record<string, number>) =>
   PETS.reduce((n, p) => n + (book[p.id] ? 1 : 0), 0);
 
-export const penIsFull = (g: Game) => g.pets.length >= penSize(g.up.pen);
+/** Pet spaces: the pen upgrade plus whatever the Pet Barn adds. */
+export const penCap = (g: Game) => penSize(g.up.pen) + BARN_SPACE[g.town.lv.barn];
+export const penIsFull = (g: Game) => g.pets.length >= penCap(g);
+/** Seconds an egg of this rarity takes to hatch, after Warm Nests and the Hatchery. */
+export const hatchTime = (g: Game, rarity: Rarity) =>
+  RARITIES[rarity].hatch * hatchScale(g.up.warm) * HATCHERY_SCALE[g.town.lv.hatchery];
 
 export function countOf(g: Game, id: string): number {
   let n = 0;
@@ -1497,6 +1616,7 @@ export function tapWorld(g: Game, x: number, y: number): boolean {
     emit(g, { type: "billboard", tap: true });
     return true;
   }
+  if (y > HOME_TOP && tapSite(g, x, y)) return true;
 
   for (const gd of g.guards) {
     if (gd.state !== "sleep") continue;
@@ -1582,6 +1702,331 @@ export function checkAchievements(g: Game) {
     addXp(g, 10 * a.stars);
     emit(g, { type: "achievement", id: a.id });
   }
+}
+
+/* ---------- Home town: builders, buildings and paint ---------- */
+
+const sitePoint = (site: SiteId): Point => (site === "house" ? { x: HUT.x, y: HUT.y } : PLOTS[site]);
+
+/** Read a saved town, trusting nothing: unknown buildings, silly levels and stray jobs are dropped. */
+function loadTown(saved: Partial<Town> | undefined, now: number): Town {
+  const t = newTown(now);
+  if (!saved || typeof saved !== "object") return t;
+  t.house = clamp(Math.floor(Number(saved.house) || 0), 0, HOUSE_MAX);
+  for (const id of BUILDING_IDS) t.lv[id] = clamp(Math.floor(Number(saved.lv?.[id]) || 0), 0, BUILDING_MAX);
+  for (const j of Array.isArray(saved.jobs) ? saved.jobs : []) {
+    const known = j && (j.site === "house" || BUILDING_IDS.includes(j.site as BuildingId));
+    if (!known || t.jobs.some((o) => o.site === j.site)) continue;
+    const level = j.site === "house" ? t.house : t.lv[j.site];
+    if (level >= siteMax(j.site)) continue;
+    const end = Number(j.end) || now;
+    t.jobs.push({ site: j.site, start: Math.min(Number(j.start) || now, end), end });
+  }
+  t.owned = (Array.isArray(saved.owned) ? saved.owned : []).filter((key) => {
+    const [slot, id] = String(key).split(":");
+    return PAINTS[slot as PaintSlot]?.some((p) => p.id === id);
+  });
+  for (const slot of ["wall", "roof", "top"] as PaintSlot[]) {
+    const id = saved.paint?.[slot];
+    if (id && (PAINTS[slot][0].id === id || t.owned.includes(`${slot}:${id}`))) t.paint[slot] = id;
+  }
+  for (const key of ["mill", "bakery", "well"] as const) {
+    const at = Number(saved[key]?.at);
+    t[key] = {
+      // A clock that has gone backwards starts the timer again rather than waiting for ever.
+      at: at > 0 && at <= now ? at : now,
+      stock: Math.max(0, Number(saved[key]?.stock) || 0),
+    };
+  }
+  return t;
+}
+
+export const siteLevel = (g: Game, site: SiteId) => (site === "house" ? g.town.house : g.town.lv[site]);
+export const jobFor = (g: Game, site: SiteId): Job | undefined => g.town.jobs.find((j) => j.site === site);
+export const builderCount = (g: Game) => WORKSHOP_BUILDERS[g.town.lv.workshop];
+export const freeBuilders = (g: Game) => Math.max(0, builderCount(g) - g.town.jobs.length);
+
+/** Seconds a build takes right now, with the Workshop's help (and Cozy style's). */
+export function buildSeconds(g: Game, site: SiteId, level: number): number {
+  const base = siteTime(site, level) * WORKSHOP_SPEED[g.town.lv.workshop] * (g.cozy ? COZY_BUILD_SCALE : 1);
+  return Math.max(3, Math.round(base));
+}
+
+export type BuildBlock = "ok" | "max" | "working" | "house" | "builder" | "coins";
+
+/** Why the next level of something can't be started, or "ok". */
+export function buildBlock(g: Game, site: SiteId): BuildBlock {
+  const next = siteLevel(g, site) + 1;
+  if (jobFor(g, site)) return "working";
+  if (next > siteMax(site)) return "max";
+  if (site !== "house" && g.town.house < houseNeeded(site, next)) return "house";
+  if (freeBuilders(g) < 1) return "builder";
+  if (g.coins < siteCost(site, next)) return "coins";
+  return "ok";
+}
+
+export const anyBuildable = (g: Game) =>
+  buildBlock(g, "house") === "ok" || BUILDING_IDS.some((id) => buildBlock(g, id) === "ok");
+
+/** Pay for the next level and put a builder on it. */
+export function startBuild(g: Game, site: SiteId, now = Date.now()): boolean {
+  if (buildBlock(g, site) !== "ok") return false;
+  const level = siteLevel(g, site) + 1;
+  g.coins -= siteCost(site, level);
+  g.town.jobs.push({ site, start: now, end: now + buildSeconds(g, site, level) * 1000 });
+  const at = sitePoint(site);
+  burst(g, at.x, at.y, "#d6b98a", 14, "dot", 130);
+  emit(g, { type: "buildStart", site });
+  return true;
+}
+
+/** 0 to 1: how far along a build is. */
+export const jobProgress = (job: Job, now = Date.now()) =>
+  job.end <= job.start ? 1 : clamp((now - job.start) / (job.end - job.start), 0, 1);
+export const jobLeft = (job: Job, now = Date.now()) => Math.max(0, (job.end - now) / 1000);
+
+/** Lend the builders a hand: every tap on a site knocks a little time off. */
+export function tapBuild(g: Game, site: SiteId, now = Date.now()): boolean {
+  const job = jobFor(g, site);
+  if (!job) return false;
+  const total = (job.end - job.start) / 1000;
+  job.end -= Math.max(BUILD_TAP_SECONDS, total * BUILD_TAP_SHARE) * 1000;
+  g.stats.hammers++;
+  const at = sitePoint(site);
+  burst(g, at.x + rand(-26, 26), at.y - rand(10, 60), "#fde68a", 4, "star", 110);
+  emit(g, { type: "hammer", site });
+  tickTown(g, now);
+  return true;
+}
+
+/** Stars to finish a build this instant. */
+export function rushCost(g: Game, site: SiteId, now = Date.now()): number {
+  const job = jobFor(g, site);
+  return job ? Math.max(1, Math.ceil(jobLeft(job, now) / RUSH_SECONDS_PER_STAR)) : 0;
+}
+
+export function rushBuild(g: Game, site: SiteId, now = Date.now()): boolean {
+  const job = jobFor(g, site);
+  const cost = rushCost(g, site, now);
+  if (!job || g.stars < cost) return false;
+  g.stars -= cost;
+  job.end = now;
+  tickTown(g, now);
+  return true;
+}
+
+function finishJob(g: Game, job: Job, now: number) {
+  const t = g.town;
+  let level: number;
+  if (job.site === "house") {
+    t.house = Math.min(HOUSE_MAX, t.house + 1);
+    level = t.house;
+  } else {
+    t.lv[job.site] = Math.min(BUILDING_MAX, t.lv[job.site] + 1);
+    level = t.lv[job.site];
+    // A brand-new building starts its first batch now.
+    if (level === 1 && (job.site === "mill" || job.site === "bakery" || job.site === "well")) {
+      t[job.site] = { at: now, stock: 0 };
+    }
+  }
+  g.stats.built++;
+  addXp(g, 15 * level);
+  const at = sitePoint(job.site);
+  burst(g, at.x, at.y - 50, "#fde68a", 26, "star", 250);
+  burst(g, at.x, at.y - 30, "#ffffff", 14, "dot", 190);
+  emit(g, { type: "built", site: job.site, level });
+}
+
+/** Coins a second from pets, leaving out the short boosts (a frenzy, happy pets). */
+const steadyRate = (g: Game) => totalRate(g) / ((g.frenzy > 0 ? 2 : 1) * (g.happyT > 0 ? HAPPY_COINS : 1));
+
+/** Count the things a timer has finished making since we last looked. Returns true when the first one turns up. */
+function produce(p: Producer, every: number, hold: number, now: number): boolean {
+  if (!Number.isFinite(every) || hold <= 0 || now < p.at) {
+    p.at = now;
+    return false;
+  }
+  if (p.stock >= hold) {
+    // Full up: the timer waits until something is taken.
+    p.stock = hold;
+    p.at = now;
+    return false;
+  }
+  const made = Math.floor((now - p.at) / (every * 1000));
+  if (made <= 0) return false;
+  const had = p.stock;
+  p.stock = Math.min(hold, p.stock + made);
+  p.at = p.stock >= hold ? now : p.at + made * every * 1000;
+  return had < 1;
+}
+
+function updateProduction(g: Game, now: number) {
+  const t = g.town;
+  const mill = t.lv.mill;
+  if (mill > 0 && now > t.mill.at) {
+    const cap = MILL_HOURS[mill] * 3600;
+    const rate = steadyRate(g) * MILL_SHARE[mill];
+    const more = rate * Math.min(cap, (now - t.mill.at) / 1000);
+    // Never shrinks what's already in the sack, even if the pets were sold since.
+    t.mill.stock = Math.max(t.mill.stock, Math.min(rate * cap, t.mill.stock + more));
+  }
+  t.mill.at = now;
+  if (produce(t.bakery, BAKE_EVERY[t.lv.bakery], BAKE_HOLD[t.lv.bakery], now)) emit(g, { type: "ready", id: "bakery" });
+  if (produce(t.well, WELL_EVERY[t.lv.well], WELL_HOLD[t.lv.well], now)) emit(g, { type: "ready", id: "well" });
+}
+
+/**
+ * Move the town along to `now`: finish builds whose time is up and let the
+ * buildings make their things. Safe to call as often as you like. Returns
+ * true when a build finished.
+ */
+export function tickTown(g: Game, now = Date.now()): boolean {
+  const jobs = g.town.jobs;
+  let finished = false;
+  // The house first, so a building waiting on a bigger house isn't a step behind.
+  jobs.sort((a, b) => Number(b.site === "house") - Number(a.site === "house"));
+  for (let i = 0; i < jobs.length; ) {
+    if (jobs[i].end > now) {
+      i++;
+      continue;
+    }
+    const [job] = jobs.splice(i, 1);
+    finishJob(g, job, now);
+    finished = true;
+  }
+  updateProduction(g, now);
+  if (finished) checkAchievements(g);
+  return finished;
+}
+
+/** How many coins, cupcakes or stars are waiting in a building. */
+export function stockOf(g: Game, id: BuildingId): number {
+  if (id === "mill" || id === "bakery" || id === "well") return Math.floor(g.town[id].stock);
+  return 0;
+}
+
+/** Seconds until a building's next cupcake or star, or 0 when it isn't making one. */
+export function nextIn(g: Game, id: BuildingId, now = Date.now()): number {
+  const lv = g.town.lv[id];
+  if (id !== "bakery" && id !== "well") return 0;
+  const every = id === "bakery" ? BAKE_EVERY[lv] : WELL_EVERY[lv];
+  const hold = id === "bakery" ? BAKE_HOLD[lv] : WELL_HOLD[lv];
+  if (!Number.isFinite(every) || g.town[id].stock >= hold) return 0;
+  return Math.max(0, every - (now - g.town[id].at) / 1000);
+}
+
+/** The Windmill's sack, as a share of full (0 to 1). */
+export function millFill(g: Game): number {
+  const lv = g.town.lv.mill;
+  const cap = steadyRate(g) * MILL_SHARE[lv] * MILL_HOURS[lv] * 3600;
+  return cap > 0 ? clamp(g.town.mill.stock / cap, 0, 1) : 0;
+}
+
+/** Worth a trip: a cupcake, a star, or a decent pile of coins in the mill. */
+export function readyToCollect(g: Game, id: BuildingId): boolean {
+  if (g.town.lv[id] < 1) return false;
+  if (id === "bakery" || id === "well") return g.town[id].stock >= 1;
+  if (id !== "mill") return false;
+  const minute = steadyRate(g) * MILL_SHARE[g.town.lv.mill] * 60;
+  return g.town.mill.stock >= Math.max(5, minute);
+}
+
+export const anyToCollect = (g: Game) => BUILDING_IDS.some((id) => readyToCollect(g, id));
+
+/** Take whatever a building has made. */
+export function collectFrom(g: Game, id: BuildingId, now = Date.now()): boolean {
+  const t = g.town;
+  const lv = t.lv[id];
+  if (lv < 1) return false;
+  updateProduction(g, now);
+  const at = PLOTS[id];
+  if (id === "mill") {
+    const coins = Math.floor(t.mill.stock);
+    if (coins < 1) return false;
+    t.mill.stock -= coins;
+    earn(g, coins);
+    g.stats.millRuns++;
+    popup(g, at.x, at.y - 120, `+${fmtCoins(coins)}`, "#f59e0b", true);
+    burst(g, at.x, at.y - 60, "#fbbf24", 14, "dot", 190);
+    emit(g, { type: "collect", id, amount: coins });
+    return true;
+  }
+  if (id === "bakery") {
+    if (t.bakery.stock < 1) return false;
+    if (t.bakery.stock >= BAKE_HOLD[lv]) t.bakery.at = now;
+    t.bakery.stock -= 1;
+    const secs = CAKE_FRENZY[lv];
+    g.frenzy = Math.min(FRENZY_MAX, g.frenzy + secs);
+    g.stats.cakes++;
+    popup(g, at.x, at.y - 120, "Double coins!", "#a855f7", true);
+    puff(g, at.x, at.y - 70, "#f9a8d4", 8, "heart");
+    emit(g, { type: "collect", id, amount: secs });
+    return true;
+  }
+  if (id === "well") {
+    const stars = Math.floor(t.well.stock);
+    if (stars < 1) return false;
+    if (t.well.stock >= WELL_HOLD[lv]) t.well.at = now;
+    t.well.stock = 0;
+    g.stars += stars;
+    g.stats.wellStars += stars;
+    popup(g, at.x, at.y - 120, stars === 1 ? "+1 star" : `+${stars} stars`, "#f59e0b", true);
+    puff(g, at.x, at.y - 70, "#fde047", 8, "star");
+    emit(g, { type: "collect", id, amount: stars });
+    return true;
+  }
+  return false;
+}
+
+/** A quick tap on the house, a building or an empty plot. */
+function tapSite(g: Game, x: number, y: number): boolean {
+  const now = Date.now();
+  if (Math.hypot(HUT.x - x, HUT.y - 46 - y) < 76) {
+    if (!tapBuild(g, "house", now)) emit(g, { type: "site", site: "house" });
+    return true;
+  }
+  for (const b of BUILDINGS) {
+    const plot = PLOTS[b.id];
+    if (Math.hypot(plot.x - x, plot.y - 34 - y) > 64) continue;
+    if (!tapBuild(g, b.id, now) && !collectFrom(g, b.id, now)) emit(g, { type: "site", site: b.id });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * The town is never taken away. A catch only costs the eggs in your arms,
+ * Rebirth leaves `g.town` alone, and "Start over" keeps it too: this is the
+ * save a fresh game starts from, with the old town carried across (house,
+ * buildings, builds still running, paint). Null when there is no town to keep.
+ */
+export function startOverSave(saved: SavedGame | null | undefined): SavedGame | null {
+  if (!saved?.town) return null;
+  const town = loadTown(saved.town, Date.now());
+  const built =
+    town.house > 0 || town.jobs.length > 0 || town.owned.length > 0 || BUILDING_IDS.some((id) => town.lv[id] > 0);
+  if (!built) return null;
+  return { ...toSave(createGame(null)), town };
+}
+
+export const ownsPaint = (g: Game, slot: PaintSlot, id: string) =>
+  PAINTS[slot][0].id === id || g.town.owned.includes(`${slot}:${id}`);
+
+/** Put a paint or topper on the house, buying it with stars the first time. */
+export function pickPaint(g: Game, slot: PaintSlot, id: string): "bought" | "worn" | null {
+  const def = PAINTS[slot].find((p) => p.id === id);
+  if (!def) return null;
+  if (ownsPaint(g, slot, id)) {
+    g.town.paint[slot] = id;
+    return "worn";
+  }
+  if (g.stars < def.cost) return null;
+  g.stars -= def.cost;
+  g.town.owned.push(`${slot}:${id}`);
+  g.town.paint[slot] = id;
+  g.stats.paints++;
+  checkAchievements(g);
+  return "bought";
 }
 
 /* ---------- Step ---------- */
@@ -1781,6 +2226,14 @@ function movePlayer(g: Game, dt: number, input: Input) {
   for (const d of MINIS) {
     if (Math.abs(d.y - next.y) > 110) continue;
     if (pushOut(next, d.x, d.y, MINI_DOOR_R + PLAYER_R) && p.moving) knock(g, d.id);
+  }
+  // Buildings at home are solid once there's something standing on the plot.
+  if (next.y > HOME_TOP) {
+    for (const id of BUILDING_IDS) {
+      if (g.town.lv[id] < 1 && !jobFor(g, id)) continue;
+      const plot = PLOTS[id];
+      if (pushOut(next, plot.x, plot.y, PLOT_R + PLAYER_R) && p.moving && readyToCollect(g, id)) collectFrom(g, id);
+    }
   }
 
   // Fences between areas, each with one gate in the middle.
@@ -2271,7 +2724,7 @@ function updateFlights(g: Game, dt: number) {
     if (f.t < f.dur) continue;
     g.flights.splice(i, 1);
     const pad = g.pads[f.pad];
-    const total = RARITIES[f.egg.rarity].hatch * hatchScale(g.up.warm);
+    const total = hatchTime(g, f.egg.rarity);
     pad.egg = f.egg;
     pad.total = total;
     pad.left = total;
@@ -2296,7 +2749,10 @@ function hatch(g: Game, i: number) {
   const pad = g.pads[i];
   if (!pad.egg) return;
   const def = petFor(pad.egg.biome, pad.egg.rarity);
-  const v = rollVariant(g.up.sparkle + (g.luckT > 0 ? AD_LUCK_SPARKLE : 0));
+  const v = rollVariant(
+    g.up.sparkle + (g.luckT > 0 ? AD_LUCK_SPARKLE : 0),
+    SPARKLE_MULT[g.town.lv.sparkle],
+  );
   const size = rollSize();
   const at = { x: padX(i), y: PAD_Y };
   g.pets.push(makePet(g, def.id, v, size, at));
@@ -2872,7 +3328,8 @@ export function rollDice(g: Game, petId: string): boolean {
     .sort((a, b) => Number(b.s < 2) - Number(a.s < 2) || rollWorth(b) - rollWorth(a))[0];
   g.dice--;
   g.stats.diceUsed++;
-  const v = Math.max(pet.v, rollVariant(g.up.sparkle), rollVariant(g.up.sparkle));
+  const boost = SPARKLE_MULT[g.town.lv.sparkle];
+  const v = Math.max(pet.v, rollVariant(g.up.sparkle, boost), rollVariant(g.up.sparkle, boost));
   let size = Math.max(pet.s, rollSize(), rollSize());
   if (v === pet.v && size === pet.s && pet.s < 2) size = pet.s + 1;
   const better = v > pet.v || size > pet.s;
@@ -2935,7 +3392,8 @@ export const rebirthGain = (g: Game) => feathersFor(g.runEarned);
 
 /**
  * Start over for Golden Feathers. Coins, upgrades, pets and eggs go; the Pet
- * Book, trophies, stars, hats, trails, decorations, level and Power Eggs stay.
+ * Book, trophies, stars, hats, trails, decorations, level, Power Eggs and the
+ * whole town (house, buildings, running builds, paint) stay.
  */
 export function rebirth(g: Game): number {
   const gain = rebirthGain(g);
@@ -3053,6 +3511,12 @@ export function step(g: Game, dt: number, input: Input) {
   updateWorldEvents(g, dt);
   updateMissions(g, dt);
   updateFx(g, dt);
+
+  g.townT -= dt;
+  if (g.townT <= 0) {
+    g.townT = 0.25;
+    tickTown(g);
+  }
 
   g.achT -= dt;
   if (g.achT <= 0) {

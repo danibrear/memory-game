@@ -52,6 +52,13 @@
 .se-top-right {
   flex: none;
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.se-top-btns {
+  display: flex;
   gap: 8px;
   pointer-events: auto;
 }
@@ -1963,5 +1970,258 @@ button.se-speed {
   .se-buff.is-happy svg,
   .se-mini-prize.is-ready > svg {
     animation: none;
+  }
+}
+
+/* ---- Home town: the house, special buildings and the builder chip ---- */
+.se-buildchip svg {
+  color: #d97706;
+}
+.se-buildchip b {
+  font-variant-numeric: tabular-nums;
+  background: #d97706;
+}
+.se-buildchip.is-ready {
+  padding-right: 12px;
+  color: #fff;
+  background: linear-gradient(180deg, var(--dg-good-from), var(--dg-good));
+  border-color: transparent;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+}
+.se-buildchip.is-ready svg {
+  color: #fff;
+  animation: se-pulse 1s ease-in-out infinite;
+}
+/* A little "something to do here" dot on a tab. */
+.se-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--dg-good);
+  vertical-align: 0.15em;
+}
+.dg-seg-btn[aria-pressed="true"] .se-dot {
+  background: #fff;
+}
+.se-menu .se-hometabs {
+  width: 100%;
+}
+.se-menu .se-hometabs .dg-seg {
+  grid-template-columns: repeat(3, 1fr);
+}
+.se-menu .se-hometabs .dg-seg-btn {
+  gap: 6px;
+  padding: 7px 2px;
+  font-size: 0.86rem;
+}
+.se-house {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 20px;
+  text-align: left;
+  background:
+    radial-gradient(120% 90% at 20% 100%, color-mix(in srgb, #86efac 55%, transparent), transparent 62%),
+    linear-gradient(180deg, color-mix(in srgb, #7dd3fc 38%, var(--dg-surface)), var(--dg-surface-2));
+}
+.se-house .se-row-text strong {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+.se-site {
+  align-items: flex-start;
+}
+.se-site > .se-icon {
+  margin-top: 2px;
+}
+.se-site > .se-lock,
+.se-site > .se-max {
+  align-self: center;
+}
+.se-icon.is-dim {
+  filter: grayscale(1) opacity(0.45);
+}
+.se-lv {
+  display: inline-block;
+  white-space: nowrap;
+  margin-left: 7px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-style: normal;
+  font-size: 0.74rem;
+  font-weight: 600;
+  vertical-align: 0.12em;
+  color: #fff;
+  background: var(--g-to);
+}
+.se-working {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.se-working .se-bar {
+  flex: 1;
+  height: 22px;
+  margin: 0;
+}
+.se-working .se-bar i {
+  background: linear-gradient(90deg, #fcd34d, #f59e0b);
+  transition: width 0.9s linear;
+}
+.se-working .se-bar em {
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.se-working .dg-btn {
+  flex: none;
+  gap: 5px;
+}
+.se-buildbtn {
+  flex: none;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+.se-buildbtn small {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--dg-muted);
+}
+.se-stock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 4px;
+}
+.se-stock .dg-btn {
+  gap: 5px;
+}
+.se-menu .se-stock small {
+  white-space: nowrap;
+}
+.se-paint {
+  padding: 10px 10px 12px;
+  border-radius: 18px;
+  background: var(--dg-surface-2);
+  text-align: left;
+}
+.se-paint h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px 2px;
+  font-family: var(--dg-display);
+  font-weight: 600;
+  font-size: 0.98rem;
+}
+.se-paint h3 svg {
+  color: var(--g-to);
+}
+.se-swatches {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.se-swatch {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 2px 7px;
+  border: 3px solid transparent;
+  border-radius: 16px;
+  background: var(--dg-surface);
+  color: var(--dg-ink);
+  font-family: var(--dg-display);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.1s ease;
+}
+.se-swatch:active {
+  transform: scale(0.96);
+}
+.se-swatch > i {
+  display: block;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow:
+    inset 0 -4px 0 rgba(0, 0, 0, 0.14),
+    inset 0 3px 0 rgba(255, 255, 255, 0.45),
+    0 0 0 1px var(--dg-border);
+}
+.se-swatch span {
+  font-weight: 600;
+  font-size: 0.8rem;
+  line-height: 1.1;
+}
+.se-swatch b {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  background: var(--dg-surface-2);
+}
+.se-swatch.is-on {
+  border-color: var(--g-to);
+}
+.se-swatch.is-on b {
+  color: #fff;
+  background: var(--g-to);
+}
+.se-swatch.is-locked {
+  opacity: 0.55;
+}
+.se-swatch:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--g-to) 55%, transparent);
+  outline-offset: 2px;
+}
+@media (max-width: 380px) {
+  .se-house .se-icon {
+    width: 96px !important;
+    height: 96px !important;
+  }
+  .se-site > .se-icon {
+    width: 46px !important;
+    height: 46px !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .se-buildchip.is-ready svg {
+    animation: none;
+  }
+  .se-working .se-bar i {
+    transition: none;
+  }
+}
+/* On a phone the builder chip shrinks to a clock and drops level with the mission, clear of the star and speed chips. */
+@media (max-width: 519px) {
+  .se-buildchip {
+    margin-top: 34px;
+    padding: 5px 6px 5px 10px;
+  }
+  .se-buildchip span {
+    display: none;
+  }
+  .se-buildchip.is-ready {
+    padding: 8px 10px;
   }
 }
