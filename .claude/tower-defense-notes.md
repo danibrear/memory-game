@@ -106,15 +106,32 @@ loosening. Knobs: `DIFFICULTIES`, each wave's base health (first number in
   which only deepens the bar's shadow while it floats over the board.
 - On screens under 520px tall (a phone on its side) the bar is not sticky: it
   would hide too much of the board.
+- Speed, pause, sound, Auto and Start sit in one flex group (`ml: auto`), so
+  on a narrow screen they wrap to a second row together, right-aligned. On a
+  phone the group takes the whole row and Start grows to fill it.
 - The Start button is 44px tall, reads "Start", then "Start wave N" ("Wave N"
   on phones), and "Send next" during a wave. While the game is waiting on the
   player (`phase === "build"`) it gets `.td-start.is-waiting`, a ring that
   ripples out (`tdStartRing`, off under reduced motion).
 
+## Auto-start (2026-11-15)
+
+- The "Auto" switch sits next to Start in the top bar (key `A`), is off by
+  default and is remembered on the device (`td-auto`).
+- With it on, once a wave is cleared (`phase === "build"`, `wave > 0`) the game
+  loop counts `AUTO_START_DELAY` (5) real seconds and then calls `startWave`.
+  The count takes the play icon's place on the Start button
+  (`.td-start-count`), so the button does not change width.
+- The first wave never auto-starts, pausing (or the "Leave this battle?"
+  dialog) holds the count, and tapping Start sends the wave straight away.
+- It never sends a wave early while enemies are still on the board, and it
+  keeps going in Endless mode.
+
 ## Storage
 
 - `tower-defense` (via `~/storage`): `{ difficulty, stars: { [mapId]: { easy, normal, hard, brutal } }, endless: { [mapId]: bestWave } }`
 - `td-muted` (plain localStorage): `"1"` when sound is off.
+- `td-auto` (plain localStorage): `"1"` when auto-start is on.
 
 ## Ideas for next passes
 

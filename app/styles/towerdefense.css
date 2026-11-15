@@ -406,6 +406,27 @@
   }
 }
 
+/* Auto-start: the seconds left before the next wave sets off by itself. It
+   takes the play icon's place, so the button keeps its width. */
+.td-start span.td-start-count {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 -2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  font-size: 0.9rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  animation: tdCountTick 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes tdCountTick {
+  from {
+    transform: scale(1.45);
+  }
+}
+
 /* ---------- Final-form chooser ---------- */
 
 .td-specs {
@@ -502,7 +523,8 @@
   .td-result,
   .td-stars--big .is-lit,
   .td-ability.is-aiming,
-  .td-start.is-waiting {
+  .td-start.is-waiting,
+  .td-start-count {
     animation: none;
   }
   .td-map {

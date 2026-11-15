@@ -16,6 +16,7 @@ import {
   faMap,
   faPause,
   faPlay,
+  faRepeat,
   faRotateRight,
   faSkull,
   faStar,
@@ -127,6 +128,9 @@ export function meta({}: Route.MetaArgs) {
 
 const STEP = 1 / 60;
 const MUTE_KEY = "td-muted";
+const AUTO_KEY = "td-auto";
+/** With auto-start on: seconds between the board clearing and the next wave setting off. */
+const AUTO_START_DELAY = 5;
 /** Where the battle's top bar rests once the page scrolls: just under the site nav. */
 const HUD_TOP = NAV_HEIGHT + 8;
 const SAVE_KEY = "tower-defense";
@@ -787,17 +791,22 @@ function Battle({
   const [toast, setToast] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [aiming, setAiming] = useState(false);
+  /** Auto-start: after the first wave, each next one sets off by itself. */
+  const [auto, setAuto] = useState(false);
+  /** Whole seconds until auto-start sends the next wave (0 = not counting). */
+  const [autoIn, setAutoIn] = useState(0);
   /** True while the top bar is floating over the board instead of sitting above it. */
   const [hudStuck, setHudStuck] = useState(false);
   const [, bump] = useState(0);
 
   // Live values the animation loop reads without re-subscribing
-  const live = useRef({ tool, selectedId, selectedCell, speed, paused, muted, cs, aiming });
-  live.current = { tool, selectedId, selectedCell, speed, paused: paused || leaving, muted, cs, aiming };
+  const live = useRef({ tool, selectedId, selectedCell, speed, paused, muted, cs, aiming, auto });
+  live.current = { tool, selectedId, selectedCell, speed, paused: paused || leaving, muted, cs, aiming, auto };
 
   useEffect(() => {
     try {
       setMuted(localStorage.getItem(MUTE_KEY) === "1");
+      setAuto(localStorage.getItem(AUTO_KEY) === "1");
     } catch {
       /* storage unavailable */
     }
@@ -844,6 +853,9 @@ function Battle({
     let quality = 1;
     let frameMs = 16;
     let lateFor = 0;
+    // Auto-start countdown, in real seconds, and the number last shown for it.
+    let autoLeft = AUTO_START_DELAY;
+    let autoShown = 0;
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
       const g = gameRef.current!;
@@ -858,6 +870,19 @@ function Battle({
           quality -= 0.25;
           lateFor = 0;
           frameMs = 16;
+        }
+      }
+      // Auto-start: once the board is clear the next wave sets off after a
+      // short count. The first wave always waits for the player, and pausing
+      // holds the count.
+      const autoArmed = () => L.auto && g.phase === "build" && g.wave > 0 && canCallWave(g);
+      if (!autoArmed()) {
+        autoLeft = AUTO_START_DELAY;
+      } else if (!L.paused) {
+        autoLeft -= dt;
+        if (autoLeft <= 0) {
+          startWave(g);
+          autoLeft = AUTO_START_DELAY;
         }
       }
       if (!L.paused) {
@@ -927,6 +952,11 @@ function Battle({
 
       const snap = snapshot(g);
       setHud((prev) => (sameHud(prev, snap) ? prev : snap));
+      const count = autoArmed() ? Math.ceil(autoLeft) : 0;
+      if (count !== autoShown) {
+        autoShown = count;
+        setAutoIn(count);
+      }
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
@@ -1087,6 +1117,17 @@ function Battle({
     });
   };
 
+  const toggleAuto = useCallback(() => {
+    setAuto((a) => {
+      try {
+        localStorage.setItem(AUTO_KEY, a ? "0" : "1");
+      } catch {
+        /* ignore */
+      }
+      return !a;
+    });
+  }, []);
+
   // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1112,13 +1153,15 @@ function Battle({
         retarget();
       } else if (e.key.toLowerCase() === "p") {
         setPaused((p) => !p);
+      } else if (e.key.toLowerCase() === "a") {
+        toggleAuto();
       } else if (e.key === "Delete" || e.key === "Backspace") {
         sellSelected();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [chooseTool, callWave, upgradeSelected, sellSelected, retarget, toggleMeteor, coldSnap]);
+  }, [chooseTool, callWave, upgradeSelected, sellSelected, retarget, toggleMeteor, coldSnap, toggleAuto]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -1227,61 +1270,111 @@ function Battle({
             {hud.remaining} enemies left
           </Typography>
         )}
-        <Box sx={{ flex: 1 }} />
-        <ToggleButtonGroup
-          size="small"
-          exclusive
-          value={speed}
-          onChange={(_, v) => v && setSpeed(v)}
-          aria-label="Game speed">
-          <ToggleButton value={1} sx={{ fontWeight: 800, px: 1.25 }}>
-            1×
-          </ToggleButton>
-          <ToggleButton value={2} sx={{ fontWeight: 800, px: 1.25 }}>
-            2×
-          </ToggleButton>
-        </ToggleButtonGroup>
-        <Tooltip title={paused ? "Resume (P)" : "Pause (P)"}>
-          <span>
-            <IconButton onClick={() => setPaused((p) => !p)} disabled={over}>
-              <FontAwesomeIcon icon={paused ? faPlay : faPause} />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title={muted ? "Sound on" : "Mute"}>
-          <IconButton onClick={toggleMute}>
-            <FontAwesomeIcon icon={muted ? faVolumeXmark : faVolumeHigh} />
-          </IconButton>
-        </Tooltip>
-        <Button
-          variant="contained"
-          className={`td-start${waiting ? " is-waiting" : ""}`}
-          disabled={!hud.canCall}
-          onClick={callWave}
-          startIcon={<FontAwesomeIcon icon={hud.phase === "wave" ? faForward : faPlay} />}
+        {/* The controls travel as one group: when the bar is too narrow they
+            drop to a second row together, with Start at the right-hand edge. */}
+        <Box
           sx={{
-            fontWeight: 900,
-            fontSize: "0.95rem",
-            borderRadius: 99,
-            px: 2.5,
-            minHeight: 44,
-            whiteSpace: "nowrap",
-            background: hud.canCall ? "linear-gradient(135deg, #22c55e 0%, #15803d 100%)" : undefined,
-            boxShadow: hud.canCall ? "0 4px 14px rgba(34,197,94,0.45)" : undefined,
+            display: "flex",
+            alignItems: "center",
+            gap: { xs: 0.75, md: 1.5 },
+            ml: "auto",
+            flex: { xs: "1 1 100%", sm: "0 0 auto" },
           }}>
-          {hud.phase === "wave" ? (
-            "Send next"
-          ) : hud.wave === 0 ? (
-            "Start"
-          ) : (
-            <>
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={speed}
+            onChange={(_, v) => v && setSpeed(v)}
+            aria-label="Game speed">
+            <ToggleButton value={1} sx={{ fontWeight: 800, px: 1.25 }}>
+              1×
+            </ToggleButton>
+            <ToggleButton value={2} sx={{ fontWeight: 800, px: 1.25 }}>
+              2×
+            </ToggleButton>
+          </ToggleButtonGroup>
+          <Tooltip title={paused ? "Resume (P)" : "Pause (P)"}>
+            <span>
+              <IconButton onClick={() => setPaused((p) => !p)} disabled={over}>
+                <FontAwesomeIcon icon={paused ? faPlay : faPause} />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title={muted ? "Sound on" : "Mute"}>
+            <IconButton onClick={toggleMute}>
+              <FontAwesomeIcon icon={muted ? faVolumeXmark : faVolumeHigh} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip
+            title={
+              auto
+                ? "Auto-start is on: after the first wave, each next one sets off by itself (A)"
+                : "Auto-start: let each next wave set off by itself (A)"
+            }>
+            <ToggleButton
+              value="auto"
+              size="small"
+              selected={auto}
+              onChange={toggleAuto}
+              aria-label="Auto-start waves"
+              sx={{
+                fontWeight: 800,
+                px: 1.25,
+                gap: 0.75,
+                borderRadius: 99,
+                "&.Mui-selected, &.Mui-selected:hover": {
+                  color: "success.main",
+                  bgcolor: "rgba(34,197,94,0.16)",
+                  borderColor: "rgba(34,197,94,0.55)",
+                },
+              }}>
+              <FontAwesomeIcon icon={faRepeat} />
               <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                Start&nbsp;
+                Auto
               </Box>
-              wave {hud.wave + 1}
-            </>
-          )}
-        </Button>
+            </ToggleButton>
+          </Tooltip>
+          <Button
+            variant="contained"
+            className={`td-start${waiting ? " is-waiting" : ""}`}
+            disabled={!hud.canCall}
+            onClick={callWave}
+            startIcon={
+              autoIn > 0 ? (
+                // Auto-start is counting down. Keyed so the number pops on every tick.
+                <span key={autoIn} className="td-start-count" aria-label={`starts in ${autoIn} seconds`}>
+                  {autoIn}
+                </span>
+              ) : (
+                <FontAwesomeIcon icon={hud.phase === "wave" ? faForward : faPlay} />
+              )
+            }
+            sx={{
+              fontWeight: 900,
+              fontSize: "0.95rem",
+              borderRadius: 99,
+              px: { xs: 2, sm: 2.5 },
+              minHeight: 44,
+              // On a phone the button takes whatever is left of its row.
+              flexGrow: { xs: 1, sm: 0 },
+              whiteSpace: "nowrap",
+              background: hud.canCall ? "linear-gradient(135deg, #22c55e 0%, #15803d 100%)" : undefined,
+              boxShadow: hud.canCall ? "0 4px 14px rgba(34,197,94,0.45)" : undefined,
+            }}>
+            {hud.phase === "wave" ? (
+              "Send next"
+            ) : hud.wave === 0 ? (
+              "Start"
+            ) : (
+              <>
+                <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+                  Start&nbsp;
+                </Box>
+                wave {hud.wave + 1}
+              </>
+            )}
+          </Button>
+        </Box>
       </Paper>
 
       {/* Board */}
@@ -1554,8 +1647,8 @@ function Battle({
         while enemies are on the board makes them all run faster.
       </Typography>
       <Typography variant="caption" sx={{ display: { xs: "none", md: "block" }, color: "text.disabled", mt: 0.5 }}>
-        Shortcuts: 1–7 pick a tower · Space start / send wave · Q meteor · E cold snap · U upgrade · T change
-        target · Delete sell · P pause · Esc cancel
+        Shortcuts: 1–7 pick a tower · Space start / send wave · A auto-start · Q meteor · E cold snap · U
+        upgrade · T change target · Delete sell · P pause · Esc cancel
       </Typography>
 
       <KitDialog game={game} open={leaving} onClose={() => setLeaving(false)} icon={faMap} title="Leave this battle?">
