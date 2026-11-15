@@ -37,6 +37,7 @@ import {
 } from "@mui/material";
 import { useCallback, useEffect, useRef, useState } from "react";
 import GameIconTile from "~/components/GameIconTile";
+import { NAV_HEIGHT } from "~/components/NavBar";
 import {
   ChoiceGroup,
   Confetti,
@@ -126,6 +127,8 @@ export function meta({}: Route.MetaArgs) {
 
 const STEP = 1 / 60;
 const MUTE_KEY = "td-muted";
+/** Where the battle's top bar rests once the page scrolls: just under the site nav. */
+const HUD_TOP = NAV_HEIGHT + 8;
 const SAVE_KEY = "tower-defense";
 
 // ─── Saved progress ───────────────────────────────────────────────────────────
@@ -767,6 +770,7 @@ function Battle({
   if (!gameRef.current) gameRef.current = createGame(map, difficulty);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const hudMarkRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<{ canvas: HTMLCanvasElement; key: string } | null>(null);
   const hoverRef = useRef<Cell | null>(null);
   /** Exact pointer position on the board in cell units (for aiming the meteor). */
@@ -783,6 +787,8 @@ function Battle({
   const [toast, setToast] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [aiming, setAiming] = useState(false);
+  /** True while the top bar is floating over the board instead of sitting above it. */
+  const [hudStuck, setHudStuck] = useState(false);
   const [, bump] = useState(0);
 
   // Live values the animation loop reads without re-subscribing
@@ -806,6 +812,19 @@ function Battle({
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
+  }, []);
+
+  // The top bar follows the player down the page (to the shop and back), so
+  // Start, gold and lives never scroll away. Note when it lifts off so it can
+  // cast a deeper shadow over the board.
+  useEffect(() => {
+    const mark = hudMarkRef.current;
+    if (!mark || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([entry]) => setHudStuck(!entry.isIntersecting), {
+      rootMargin: `-${HUD_TOP + 1}px 0px 0px 0px`,
+    });
+    io.observe(mark);
+    return () => io.disconnect();
   }, []);
 
   // Toast auto-hide
@@ -1109,12 +1128,15 @@ function Battle({
   const nextWave = hud.endless || hud.wave < TOTAL_WAVES ? waveDef(hud.wave) : null;
   const over = hud.phase === "gameover" || hud.phase === "win";
   const stars = hud.phase === "win" ? starsFor(hud.lives, g.maxLives) : 0;
+  // Nothing is happening until the player sends the wave, so the button asks for a tap.
+  const waiting = hud.phase === "build" && hud.canCall;
 
   return (
     <Box sx={{ pb: 6, pt: 1, maxWidth: COLS * 52 + 16, mx: "auto", px: { xs: 0.5, sm: 1 } }}>
+      <Box ref={hudMarkRef} aria-hidden sx={{ height: "1px", mb: "-1px" }} />
       {/* HUD */}
       <Paper
-        elevation={2}
+        elevation={hudStuck ? 8 : 2}
         sx={{
           display: "flex",
           alignItems: "center",
@@ -1124,6 +1146,11 @@ function Battle({
           py: 1,
           mb: 1.5,
           borderRadius: 3,
+          position: "sticky",
+          top: HUD_TOP,
+          zIndex: 30, // over the board and its overlays, under the site nav
+          // A phone on its side is too short to give up a strip of the board.
+          "@media (max-height: 520px)": { position: "static" },
         }}>
         <Tooltip title={`${map.name} on ${DIFFICULTIES[difficulty].name}. Back to the maps`}>
           <Button
@@ -1228,17 +1255,32 @@ function Battle({
         </Tooltip>
         <Button
           variant="contained"
+          className={`td-start${waiting ? " is-waiting" : ""}`}
           disabled={!hud.canCall}
           onClick={callWave}
           startIcon={<FontAwesomeIcon icon={hud.phase === "wave" ? faForward : faPlay} />}
           sx={{
             fontWeight: 900,
+            fontSize: "0.95rem",
             borderRadius: 99,
             px: 2.5,
+            minHeight: 44,
+            whiteSpace: "nowrap",
             background: hud.canCall ? "linear-gradient(135deg, #22c55e 0%, #15803d 100%)" : undefined,
             boxShadow: hud.canCall ? "0 4px 14px rgba(34,197,94,0.45)" : undefined,
           }}>
-          {hud.phase === "wave" ? "Send next" : hud.wave === 0 ? "Start" : `Wave ${hud.wave + 1}`}
+          {hud.phase === "wave" ? (
+            "Send next"
+          ) : hud.wave === 0 ? (
+            "Start"
+          ) : (
+            <>
+              <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+                Start&nbsp;
+              </Box>
+              wave {hud.wave + 1}
+            </>
+          )}
         </Button>
       </Paper>
 

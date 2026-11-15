@@ -94,6 +94,23 @@ loosening. Knobs: `DIFFICULTIES`, each wave's base health (first number in
 `wave(...)`; it grows 20% a wave from wave 15), `startGold` per map, and
 `ENEMIES[...].hpMult`.
 
+## Battle screen layout (2026-11-15)
+
+- The top bar (map, gold, lives, wave, speed, pause, sound, Start) is
+  `position: sticky` just under the site nav (`HUD_TOP = NAV_HEIGHT + 8`), so
+  it follows the player down to the shop. It needs every ancestor to stay
+  free of `overflow: hidden/auto` (`.dg-shell` uses `overflow-x: clip`, which
+  is fine). `z-index: 30` keeps it over the board's overlays (confetti is 20,
+  the result card 21) and under the nav (1000).
+- A 1px marker above the bar plus an `IntersectionObserver` sets `hudStuck`,
+  which only deepens the bar's shadow while it floats over the board.
+- On screens under 520px tall (a phone on its side) the bar is not sticky: it
+  would hide too much of the board.
+- The Start button is 44px tall, reads "Start", then "Start wave N" ("Wave N"
+  on phones), and "Send next" during a wave. While the game is waiting on the
+  player (`phase === "build"`) it gets `.td-start.is-waiting`, a ring that
+  ripples out (`tdStartRing`, off under reduced motion).
+
 ## Storage
 
 - `tower-defense` (via `~/storage`): `{ difficulty, stars: { [mapId]: { easy, normal, hard, brutal } }, endless: { [mapId]: bestWave } }`

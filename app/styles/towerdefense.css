@@ -385,6 +385,27 @@
   }
 }
 
+/* ---------- Start button ---------- */
+
+/* Between waves the game is waiting on the player: a ring ripples out of the
+   button so it is the first thing a kid's eye lands on. */
+.td-start.is-waiting {
+  animation: tdStartRing 1.8s ease-out infinite;
+}
+@keyframes tdStartRing {
+  0% {
+    box-shadow:
+      0 4px 14px rgba(34, 197, 94, 0.45),
+      0 0 0 0 rgba(34, 197, 94, 0.65);
+  }
+  70%,
+  100% {
+    box-shadow:
+      0 4px 14px rgba(34, 197, 94, 0.45),
+      0 0 0 12px rgba(34, 197, 94, 0);
+  }
+}
+
 /* ---------- Final-form chooser ---------- */
 
 .td-specs {
@@ -480,7 +501,8 @@
   .td-menu,
   .td-result,
   .td-stars--big .is-lit,
-  .td-ability.is-aiming {
+  .td-ability.is-aiming,
+  .td-start.is-waiting {
     animation: none;
   }
   .td-map {
