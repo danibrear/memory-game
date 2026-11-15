@@ -80,6 +80,32 @@ export const sfx = {
     tone(NOTE(0 + rarity * 2), 0.09, { type: "triangle", vol: 0.22 });
     tone(NOTE(7 + rarity * 2), 0.14, { type: "triangle", vol: 0.22, delay: 0.07 });
   },
+  powerup() {
+    [7, 12, 19].forEach((n, i) => tone(NOTE(n), 0.12, { type: "square", vol: 0.1, delay: i * 0.06 }));
+  },
+  freeze() {
+    tone(1800, 0.5, { type: "sine", vol: 0.14, to: 500 });
+    tone(2400, 0.35, { type: "triangle", vol: 0.08, to: 900, delay: 0.05 });
+  },
+  pop() {
+    tone(500, 0.08, { type: "square", vol: 0.14, to: 1400 });
+  },
+  /** Starting to lift a heavy egg. */
+  grab() {
+    tone(220, 0.28, { type: "triangle", vol: 0.12, to: 440 });
+  },
+  /** A rare egg just finished ripening. */
+  ripe() {
+    tone(NOTE(12), 0.12, { type: "sine", vol: 0.14 });
+    tone(NOTE(19), 0.24, { type: "sine", vol: 0.14, delay: 0.1 });
+  },
+  /** A Golden, Rainbow, Huge or Titanic hatch. */
+  jackpot() {
+    [0, 4, 7, 12, 16, 19, 24].forEach((s, i) =>
+      tone(NOTE(s), 0.26, { type: "triangle", vol: 0.2, delay: 0.5 + i * 0.07 }),
+    );
+    tone(NOTE(31), 0.6, { type: "sine", vol: 0.14, delay: 1.0 });
+  },
   wake() {
     tone(880, 0.09, { type: "square", vol: 0.1 });
     tone(880, 0.09, { type: "square", vol: 0.1, delay: 0.13 });

@@ -3,7 +3,7 @@
 // Everything a parent might want to tweak lives here: how fast the Grumbles
 // are, what eggs hatch into, what upgrades cost.
 
-export const WORLD_W = 960;
+export const WORLD_W = 1680;
 export const BIOME_H = 640;
 export const HOME_H = 580;
 export const BIOME_COUNT = 5;
@@ -21,7 +21,21 @@ export const PAD_COUNT = 4;
 /** Each tap on a hatching egg knocks this many seconds off. */
 export const TAP_BOOST = 0.6;
 export const SHINY_CHANCE = 0.05;
-export const SHINY_MULT = 3;
+
+/* ---------- Valuable eggs cost time ---------- */
+// Indexed by egg rarity: Common, Rare, Epic, Legendary.
+
+/** Seconds a freshly laid egg needs before it can be picked up. */
+export const RIPEN_TIME = [0, 6, 14, 26];
+/**
+ * How long you must stand at the nest to lift the egg, as a multiple of that
+ * land's Grumble wake time. The Grumble starts waking the moment you begin.
+ */
+export const GRAB_TIME = [0, 0.25, 0.5, 0.9];
+/** Share of your speed each carried egg takes away. */
+export const EGG_WEIGHT = [0, 0.03, 0.07, 0.12];
+/** However many heavy eggs you carry, you never lose more speed than this. */
+export const MAX_WEIGHT = 0.35;
 /** Selling a pet pays this many seconds of its income. */
 export const SELL_SECONDS = 20;
 /** Delivering an egg pays this many seconds of the pet's income up front. */
@@ -318,9 +332,48 @@ export const petById = (id: string): PetDef | undefined => PET_BY_ID.get(id);
 export const petFor = (biome: number, rarity: Rarity): PetDef =>
   PETS.find((p) => p.biome === biome && p.rarity === rarity) ?? PETS[0];
 
-/** Coins per second for one pet. */
-export const petRate = (def: PetDef, shiny = false) =>
-  BIOMES[def.biome].mult * RARITIES[def.rarity].mult * (shiny ? SHINY_MULT : 1);
+/* ---------- Hatch rolls: every pet gets a variant and a size ---------- */
+
+export interface Variant {
+  name: string;
+  mult: number;
+  color: string;
+}
+
+/** Index 0 is a plain pet. Each step up is rarer and earns more. */
+export const VARIANTS: Variant[] = [
+  { name: "", mult: 1, color: "#94a3b8" },
+  { name: "Shiny", mult: 3, color: "#facc15" },
+  { name: "Golden", mult: 8, color: "#f59e0b" },
+  { name: "Rainbow", mult: 25, color: "#e879f9" },
+];
+
+export interface SizeTier {
+  name: string;
+  mult: number;
+  /** How much bigger it is drawn. */
+  scale: number;
+  /** Chance of rolling this size. */
+  chance: number;
+}
+
+export const SIZES: SizeTier[] = [
+  { name: "", mult: 1, scale: 1, chance: 0.7 },
+  { name: "Big", mult: 1.5, scale: 1.2, chance: 0.2 },
+  { name: "Huge", mult: 2.5, scale: 1.45, chance: 0.08 },
+  { name: "Titanic", mult: 5, scale: 1.8, chance: 0.02 },
+];
+
+/** Coins per second for one pet, before upgrades and decorations. */
+export const petRate = (def: PetDef, variant = 0, size = 0) =>
+  BIOMES[def.biome].mult * RARITIES[def.rarity].mult * VARIANTS[variant].mult * SIZES[size].mult;
+
+/** "Huge Golden Honey Cub" */
+export const traitName = (def: PetDef, variant = 0, size = 0) =>
+  [SIZES[size].name, VARIANTS[variant].name, def.name].filter(Boolean).join(" ");
+
+/** A hatch worth stopping the game to show off. */
+export const isJackpot = (variant: number, size: number) => variant >= 2 || size >= 2;
 
 /* ---------- The player ---------- */
 
@@ -351,10 +404,12 @@ export const dressed = (look: Look, hat: HatId | undefined): Look =>
 
 export type UpgradeId =
   | "speed" | "basket" | "pen" | "luck"
-  | "dash" | "warm" | "socks" | "treats" | "sparkle";
+  | "dash" | "warm" | "socks" | "treats" | "sparkle"
+  | "hands" | "arms" | "ripen"
+  | "courier" | "jar";
 
 export const UPGRADE_IDS: UpgradeId[] = [
-  "speed", "dash", "basket", "pen", "treats", "warm", "luck", "sparkle", "socks",
+  "speed", "dash", "hands", "arms", "basket", "pen", "treats", "courier", "jar", "warm", "ripen", "luck", "sparkle", "socks",
 ];
 
 export const playerSpeed = (level: number) => 190 + 16 * level;
@@ -387,7 +442,29 @@ const COSTS: Record<UpgradeId, number[]> = {
   treats: [500, 3_000, 20_000, 120_000, 800_000, 5_000_000, 30_000_000, 150_000_000],
   // Sparkle Charm: more shiny pets.
   sparkle: [1_000, 15_000, 250_000, 4_000_000, 40_000_000],
+  // Quick Hands: lift valuable eggs faster.
+  hands: [600, 12_000, 300_000, 8_000_000],
+  // Strong Arms: heavy eggs slow you less.
+  arms: [900, 20_000, 500_000, 12_000_000],
+  // Sunny Nests: eggs ripen sooner.
+  ripen: [1_500, 40_000, 1_000_000, 25_000_000],
+  // Egg Courier: a little bird that brings eggs home by itself.
+  courier: [2_500, 30_000, 400_000, 5_000_000, 60_000_000],
+  // Coin Jar: pets keep earning for longer, and more, while you're away.
+  jar: [1_000, 15_000, 250_000, 4_000_000, 50_000_000],
 };
+/** Seconds between the courier's deliveries. */
+export const courierEvery = (level: number) => [Infinity, 60, 45, 30, 20, 12][Math.min(level, 5)];
+/** How long pets keep earning while the game is closed, and at what share of full speed. */
+export const awayCap = (level: number) => [600, 1800, 3600, 7200, 14_400, 28_800][Math.min(level, 5)];
+export const awayShare = (level: number) => [0.5, 0.6, 0.7, 0.8, 0.9, 1][Math.min(level, 5)];
+
+/* ---------- Rebirth ---------- */
+
+/** Each Golden Feather adds this much to all coin income, forever. */
+export const FEATHER_BONUS = 0.1;
+/** Golden Feathers a rebirth would pay for the coins earned since the last one. */
+export const feathersFor = (runEarned: number) => Math.floor(Math.pow(Math.max(0, runEarned) / 1_000_000, 0.4));
 
 export const penSize = (level: number) => PEN_SIZES[Math.min(level, PEN_SIZES.length - 1)];
 export const basketSize = (level: number) => 1 + level;
@@ -399,6 +476,27 @@ export const hatchScale = (level: number) => [1, 0.85, 0.7, 0.55, 0.42, 0.32][Ma
 export const sockBonus = (level: number) => 0.2 * level;
 export const treatsMult = (level: number) => 1 + 0.25 * level;
 export const shinyChance = (level: number) => SHINY_CHANCE + 0.03 * level;
+export const handsScale = (level: number) => [1, 0.82, 0.66, 0.52, 0.4][Math.min(level, 4)];
+export const armsScale = (level: number) => [1, 0.75, 0.5, 0.25, 0][Math.min(level, 4)];
+export const ripenScale = (level: number) => [1, 0.85, 0.7, 0.55, 0.4][Math.min(level, 4)];
+
+/** Roll a hatch variant. Golden is 5x rarer than Shiny, Rainbow 5x rarer again. */
+export function rollVariant(sparkleLevel: number): number {
+  const shiny = shinyChance(sparkleLevel);
+  const r = Math.random();
+  if (r < shiny / 25) return 3;
+  if (r < shiny / 5) return 2;
+  return r < shiny ? 1 : 0;
+}
+
+export function rollSize(): number {
+  let r = Math.random();
+  for (let i = SIZES.length - 1; i > 0; i--) {
+    if (r < SIZES[i].chance) return i;
+    r -= SIZES[i].chance;
+  }
+  return 0;
+}
 
 export const maxLevel = (id: UpgradeId): number => COSTS[id].length;
 
@@ -544,28 +642,127 @@ export interface Point {
 
 /** Where things sit inside a biome, relative to its top edge. */
 export const GUARD_POST = { x: CENTER_X, dy: 220 };
-const NEST_SPOTS: { dx: number; dy: number; golden: boolean }[] = [
+/** Half the width of the middle of a land. Past it, left and right, are the side groves. */
+export const WING_X = 480;
+const NEST_SPOTS: { dx: number; dy: number; golden: boolean; far?: boolean }[] = [
   { dx: -245, dy: 305, golden: false },
   { dx: 245, dy: 305, golden: false },
   // The golden nest (better eggs) hides up behind the Grumble, off the path.
   { dx: -172, dy: 104, golden: true },
+  // Grove nests: a long way off to the sides, past the mini-Grumbles, with better eggs.
+  { dx: -625, dy: 440, golden: false, far: true },
+  { dx: 655, dy: 175, golden: false, far: true },
 ];
-/** Nest positions in world space. The golden nest swaps sides each biome. */
-export const nestSpots = (biome: number): (Point & { golden: boolean })[] =>
+/** Nest positions in world space. The golden and grove nests swap sides each biome. */
+export const nestSpots = (biome: number): (Point & { golden: boolean; far: boolean })[] =>
   NEST_SPOTS.map((n) => ({
-    x: CENTER_X + (n.golden && biome % 2 === 1 ? -n.dx : n.dx),
+    x: CENTER_X + ((n.golden || n.far) && biome % 2 === 1 ? -n.dx : n.dx),
     y: biomeTop(biome) + n.dy,
     golden: n.golden,
+    far: Boolean(n.far),
   }));
+export const FAR_NEST_LUCK = 2;
+
+/* ---------- Ancient nests and Power Eggs ---------- */
+
+export type PowerEggId = "clover" | "snail" | "frost" | "feather" | "star";
+export interface PowerEggDef {
+  id: PowerEggId;
+  /** The land whose ancient nest lays it. */
+  biome: number;
+  name: string;
+  desc: string;
+  color: string;
+}
+export const POWER_EGGS: PowerEggDef[] = [
+  { id: "clover", biome: 0, name: "Clover Egg", desc: "+2 luck on every nest.", color: "#22c55e" },
+  { id: "snail", biome: 1, name: "Snail Egg", desc: "Every Grumble moves 25% slower.", color: "#f97316" },
+  { id: "frost", biome: 2, name: "Frost Egg", desc: "Adds a FREEZE button that stops every Grumble for 3 seconds.", color: "#38bdf8" },
+  { id: "feather", biome: 3, name: "Feather Egg", desc: "Once every 90 seconds, getting caught doesn't send you home.", color: "#ec4899" },
+  { id: "star", biome: 4, name: "Star Egg", desc: "Your pets earn 50% more coins.", color: "#a855f7" },
+];
+export const powerEggById = (id: string) => POWER_EGGS.find((e) => e.id === id);
+/** One ancient nest per land, deep in a side grove. */
+export const ancientSpot = (biome: number): Point => ({
+  x: CENTER_X + (biome % 2 === 0 ? 748 : -748),
+  y: biomeTop(biome) + 330,
+});
+/** Seconds an ancient nest takes to lay its Power Egg, per land. */
+export const ANCIENT_TIME = [120, 180, 240, 300, 360];
+/** Lifting a Power Egg, in Grumble wake times, and how much it slows you. */
+export const ANCIENT_GRAB = 1.2;
+export const ANCIENT_WEIGHT = 0.15;
+export const CLOVER_LUCK = 2;
+export const SNAIL_SLOW = 0.75;
+export const STAR_EGG_COINS = 1.5;
+export const FREEZE_TIME = 3;
+export const FREEZE_CD = 40;
+export const FEATHER_CD = 90;
+/** How many Power Eggs you can wear at once. */
+export const equipSlots = (level: number) => (level >= 12 ? 3 : level >= 7 ? 2 : level >= 3 ? 1 : 0);
+export const SLOT_LEVELS = [3, 7, 12];
+
+/* ---------- Mini-Grumbles ---------- */
+
+export const MINI_R = 24;
+/** They pace up and down this far either side of the path. */
+export const MINI_LANE = 452;
+export const MINI_SEE = 190;
+export const MINI_LEASH = 380;
+/** Pace and chase speed, as a share of the land's big Grumble. */
+export const MINI_PATROL = 0.42;
+export const MINI_CHASE = 0.88;
+/** Grabbing an egg wakes every Grumble; this long they stay on the lookout. */
+export const ALERT_TIME = 20;
+/** A Grumble never chases slower than this share of your own top speed. */
+export const ALARM_SPEED = 0.6;
+
+/* ---------- Power-ups you find lying around ---------- */
+
+export type PowerupId = "dizzy" | "bubble" | "clock";
+export const POWERUPS: Record<PowerupId, { name: string; desc: string; color: string }> = {
+  dizzy: { name: "Dizzy Candy", desc: "Grumbles wander around confused for 6 seconds.", color: "#e879f9" },
+  bubble: { name: "Bubble Shield", desc: "Pops by itself to save you from one catch.", color: "#38bdf8" },
+  clock: { name: "Hourglass", desc: "Every egg ripens right now.", color: "#facc15" },
+};
+export const POWERUP_IDS = Object.keys(POWERUPS) as PowerupId[];
+export const DIZZY_TIME = 6;
+export const POWERUP_EVERY = [25, 45];
+export const POWERUP_LIFE = 70;
+export const CLOCK_ANCIENT_SKIP = 60;
+
+/* ---------- Levels ---------- */
+
+export const MAX_LEVEL = 50;
+/** XP needed to get from this level to the next. */
+export const xpNeed = (level: number) => Math.round(30 * Math.pow(level, 1.5));
+/** Every level adds this much to all coin income. */
+export const LEVEL_COIN_BONUS = 0.02;
+const LEVEL_TITLES = ["Egg Rookie", "Nest Ninja", "Grumble Dodger", "Grove Explorer", "Egg Master", "Shadow Sneak", "Legend of the Lands"];
+export const levelTitle = (level: number) => LEVEL_TITLES[Math.min(LEVEL_TITLES.length - 1, Math.floor(level / 5))];
+
+/* ---------- A house ad, and sharing ---------- */
+
+/** Shown when a player chooses "Hatch now". It only ever advertises our own app. */
+export const HOUSE_AD = {
+  name: "FanScout",
+  tagline: "Find where your team's fans are watching the game.",
+  body: "Check in, earn points and become the captain of your favorite spot.",
+  cta: "Get FanScout",
+  url: "https://apps.apple.com/us/app/fanscout/id1510257001",
+  seconds: 5,
+};
+export const AD_COOLDOWN = 45;
+export const SHARE_URL = "https://games.db.rocks/eggs";
 
 export const PLAYER_START: Point = { x: CENTER_X, y: HOME_TOP + 285 };
 export const PAD_Y = HOME_TOP + 190;
 export const padX = (i: number) => CENTER_X + (i - (PAD_COUNT - 1) / 2) * 124;
 /** Carried eggs drop off once the player is this far into home. */
 export const DELIVER_Y = HOME_TOP + 70;
-export const PEN = { x0: 150, x1: WORLD_W - 150, y0: HOME_TOP + 350, y1: HOME_TOP + 540 };
-export const HUT = { x: 122, y: HOME_TOP + 150, r: 58 };
-export const CHEST = { x: WORLD_W - 122, y: HOME_TOP + 158, r: 34 };
+export const PEN = { x0: CENTER_X - 330, x1: CENTER_X + 330, y0: HOME_TOP + 350, y1: HOME_TOP + 540 };
+export const HUT = { x: CENTER_X - 358, y: HOME_TOP + 150, r: 58 };
+export const CHEST = { x: CENTER_X + 358, y: HOME_TOP + 158, r: 34 };
 /** A little flying saucer hides at the very top of the last land. */
 export const UFO = { x: CENTER_X, y: 58, r: 34 };
 /** Where the map drops you in a land: just inside its gate. */

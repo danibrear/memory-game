@@ -5,6 +5,11 @@ import {
   faBullseye,
   faCoins,
   faEgg,
+  faFeather,
+  faFeatherPointed,
+  faShareNodes,
+  faSnowflake,
+  faRectangleAd,
   faForwardFast,
   faHouse,
   faMapLocationDot,
@@ -13,11 +18,13 @@ import {
   faPlay,
   faRotateLeft,
   faStar,
+  faStopwatch,
   faStore,
   faTrophy,
   faVolumeHigh,
   faVolumeXmark,
   faWandMagicSparkles,
+  faWeightHanging,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -37,6 +44,7 @@ import {
   noBreak,
   PetIcon,
   PetsBody,
+  PowerupIcon,
   RarityChip,
   ShopBody,
   StarIcon,
@@ -45,6 +53,7 @@ import {
 } from "~/components/eggs/Menus";
 import {
   Banner,
+  ChoiceGroup,
   GameShell,
   getGame,
   KitButton,
@@ -53,6 +62,7 @@ import {
   StartScreen,
   StatPill,
   WinScreen,
+  type Choice,
 } from "~/components/game/GameKit";
 import { ACHIEVEMENTS, achievementById } from "~/games/eggs/achievements";
 import { setMusic, setMusicMood, setMuted, sfx, unlockAudio } from "~/games/eggs/audio";
@@ -61,22 +71,38 @@ import {
   HATS,
   HOME_DECOR,
   PETS,
+  HOUSE_AD,
+  AD_COOLDOWN,
+  FREEZE_CD,
+  POWERUPS,
   RARITIES,
+  SHARE_URL,
+  SIZES,
   SKINS,
   TRAILS,
   UPGRADE_IDS,
+  VARIANTS,
+  awayCap,
+  awayShare,
   dashCooldown,
   dressed,
   fmtCoins,
+  isJackpot,
+  levelTitle,
+  powerEggById,
+  xpNeed,
   missionText,
   penSize,
   petById,
   petRate,
   skinById,
+  traitName,
   upgradeCost,
   type HatId,
   type HomeDecorId,
   type PetDef,
+  type PowerEggId,
+  type PowerupId,
   type TrailId,
   type UpgradeId,
 } from "~/games/eggs/config";
@@ -87,10 +113,18 @@ import {
   buyDecor,
   buyHat,
   buyTrail,
+  carryWeight,
   coinMult,
   createGame,
   dash,
+  equip,
+  freeze,
   fuse,
+  hatchNow,
+  hatchWait,
+  rebirth,
+  rebirthGain,
+  usePower,
   missionProgress,
   penIsFull,
   savedRate,
@@ -138,9 +172,21 @@ export function meta({}: Route.MetaArgs) {
 const STORAGE_KEY = "sneaky-eggs";
 const STEP = 1 / 60;
 /** Pets keep earning (at half speed) for up to this long while you're away. */
-const AWAY_CAP_SECONDS = 600;
+
 /** Joystick reach in px: roomier on tablets, where thumbs travel further. */
 const joyRadius = (w: number, h: number) => (Math.min(w, h) >= 700 ? 76 : 56);
+
+const STYLE_OPTIONS: Choice<"sneaky" | "cozy">[] = [
+  { value: "sneaky", label: "Sneaky", icon: faStopwatch, title: "Timers and heavy eggs" },
+  { value: "cozy", label: "Cozy", icon: faFeather, title: "No timers, light eggs" },
+];
+
+/** True the first time it's asked about a tip, so each one is only explained once. */
+function tellOnce(g: Game, key: string): boolean {
+  if (g.flags[key]) return false;
+  g.flags[key] = 1;
+  return true;
+}
 
 type Phase = "START" | "PLAYING" | "WON";
 type PanelId = "shop" | "pets" | "book" | "trophies" | "map";
@@ -152,6 +198,8 @@ interface Save {
   music: boolean;
   /** The title-screen secret. */
   giant: boolean;
+  /** Cozy mode: no ripening timers, no lifting time, weightless eggs. */
+  cozy: boolean;
   lastSeen: number;
 }
 
@@ -161,6 +209,7 @@ const DEFAULT_SAVE: Save = {
   muted: false,
   music: true,
   giant: false,
+  cozy: false,
   lastSeen: 0,
 };
 
@@ -169,6 +218,16 @@ interface Hud {
   rate: number;
   stars: number;
   speed: number;
+  /** Percent of speed lost to heavy eggs right now. */
+  heavy: number;
+  level: number;
+  /** XP toward the next level, 0-100. */
+  xp: number;
+  held: PowerupId | "";
+  frost: boolean;
+  /** True while there's an egg worth skipping the wait for. */
+  hatching: boolean;
+  feathers: number;
   pets: number;
   cap: number;
   book: number;
@@ -188,6 +247,13 @@ const EMPTY_HUD: Hud = {
   rate: 0,
   stars: 0,
   speed: 0,
+  heavy: 0,
+  level: 1,
+  xp: 0,
+  held: "",
+  frost: false,
+  hatching: false,
+  feathers: 0,
   pets: 0,
   cap: penSize(0),
   book: 0,
@@ -203,8 +269,10 @@ const EMPTY_HUD: Hud = {
 
 interface Reveal {
   def: PetDef;
-  shiny: boolean;
+  v: number;
+  s: number;
   fused: boolean;
+  isNew: boolean;
 }
 
 interface Toast {
@@ -228,6 +296,13 @@ function hudOf(g: Game): Hud {
     rate: totalRate(g),
     stars: g.stars,
     speed: g.up.speed,
+    heavy: Math.round(carryWeight(g) * 100),
+    level: g.level,
+    xp: Math.min(100, Math.round((g.xp / xpNeed(g.level)) * 20) * 5),
+    held: g.held ?? "",
+    frost: g.equipped.includes("frost"),
+    hatching: !g.cozy && hatchWait(g) > 4,
+    feathers: g.feathers,
     pets: g.pets.length,
     cap: penSize(g.up.pen),
     book: bookCount(g.book),
@@ -268,6 +343,11 @@ export default function SneakyEggs() {
   const [cheers, setCheers] = useState<Cheer[]>([]);
   const [place, setPlace] = useState<{ id: number; text: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmRebirth, setConfirmRebirth] = useState(false);
+  const [adOpen, setAdOpen] = useState(false);
+  const [adLeft, setAdLeft] = useState(HOUSE_AD.seconds);
+  const [freezeKey, setFreezeKey] = useState(0);
+  const lastAdRef = useRef(-Infinity);
   const [seenTrophies, setSeenTrophies] = useState(0);
   const [dashKey, setDashKey] = useState(0);
   const [tickles, setTickles] = useState(0);
@@ -298,7 +378,7 @@ export default function SneakyEggs() {
 
   const reveal = reveals[0] ?? null;
   const cheer = cheers[0] ?? null;
-  pausedRef.current = panel !== null || reveal !== null;
+  pausedRef.current = panel !== null || reveal !== null || adOpen || confirmRebirth;
 
   /* ── Saving ── */
 
@@ -323,8 +403,9 @@ export default function SneakyEggs() {
       setSave(merged);
       setMuted(merged.muted);
       if (merged.game && merged.lastSeen) {
-        const secs = Math.min(AWAY_CAP_SECONDS, (Date.now() - merged.lastSeen) / 1000);
-        if (secs > 60) setAway(Math.floor(secs * savedRate(merged.game) * 0.5));
+        const jar = merged.game.up?.jar ?? 0;
+        const secs = Math.min(awayCap(jar), (Date.now() - merged.lastSeen) / 1000);
+        if (secs > 60) setAway(Math.floor(secs * savedRate(merged.game) * awayShare(jar)));
       }
     }
     setLoaded(true);
@@ -348,6 +429,12 @@ export default function SneakyEggs() {
   const say = useCallback((text: string, tone: Toast["tone"] = "info") => {
     setToast({ id: Date.now() + Math.random(), text, tone });
   }, []);
+
+  useEffect(() => {
+    if (!adOpen || adLeft <= 0) return;
+    const id = window.setTimeout(() => setAdLeft((n) => n - 1), 1000);
+    return () => clearTimeout(id);
+  }, [adOpen, adLeft]);
 
   useEffect(() => {
     if (!toast) return;
@@ -388,13 +475,99 @@ export default function SneakyEggs() {
           sfx.pickup(e.rarity);
           if (e.mystery) say("You got the Mystery Egg! Run!", "good");
           else if (g.stats.eggs < 2) say("Run home before the Grumble catches you!");
+          else if (carryWeight(g) > 0 && tellOnce(g, "toldHeavy")) {
+            say("Rare eggs are heavy, so you run slower. Strong Arms in the Shop helps!");
+          }
+          break;
+        case "grab":
+          sfx.grab();
+          if (tellOnce(g, "toldGrab")) say("Rare eggs take a moment to lift. Hold still... the Grumble is waking!");
+          break;
+        case "ripe":
+          if (e.rarity >= 2) {
+            sfx.ripe();
+            say(
+              e.biome === g.biome
+                ? `${RARITIES[e.rarity].name} egg is ripe. Go go go!`
+                : `${RARITIES[e.rarity].name} egg is ripe in ${BIOMES[e.biome].name}!`,
+              "good",
+            );
+          }
           break;
         case "wake":
           sfx.wake();
           break;
         case "caught":
           sfx.caught();
-          say("The Grumble took the egg back. Try again!", "bad");
+          say(
+            e.home
+              ? e.eggs > 0
+                ? `Caught! The Grumble took the ${e.eggs > 1 ? "eggs" : "egg"} and sent you back to the start.`
+                : "Caught! Back to the start you go."
+              : e.eggs > 0
+                ? `The Grumble took the ${e.eggs > 1 ? "eggs" : "egg"} back. Try again!`
+                : "Too slow! The Grumble shooed you off the nest.",
+            "bad",
+          );
+          break;
+        case "level":
+          sfx.achievement();
+          setCheers((list) => [
+            ...list,
+            { id: Date.now() + Math.random(), name: `Level ${e.level}: ${levelTitle(e.level)}`, stars: e.stars },
+          ]);
+          break;
+        case "alarm":
+          if (tellOnce(g, "toldAlarm")) say("Uh oh, that woke EVERY Grumble. Dodge them all the way home!", "bad");
+          break;
+        case "mini":
+          sfx.wake();
+          if (tellOnce(g, "toldMini")) say("A mini-Grumble spotted you! They guard the groves.", "bad");
+          break;
+        case "shield":
+          sfx.pop();
+          say("Your Bubble Shield popped and saved you!", "good");
+          break;
+        case "feather":
+          say("Your Feather Egg kept you from being sent home.", "good");
+          break;
+        case "gotPower":
+          sfx.powerup();
+          say(`${POWERUPS[e.kind].name}! ${e.kind === "bubble" ? POWERUPS[e.kind].desc : "Tap its button to use it."}`, "good");
+          break;
+        case "power":
+          sfx.powerup();
+          say(e.kind === "dizzy" ? "The Grumbles are all dizzy!" : "Every egg just ripened!", "good");
+          break;
+        case "powerHint":
+          say(POWERUPS.bubble.desc);
+          break;
+        case "freeze":
+          sfx.freeze();
+          setFreezeKey((k) => k + 1);
+          break;
+        case "powerEgg": {
+          const def = powerEggById(e.id);
+          if (!def) break;
+          sfx.jackpot();
+          say(
+            e.isNew
+              ? `You found the ${def.name}! Wear it from the Shop's Powers tab.`
+              : `Another ${def.name}: +5 stars!`,
+            "good",
+          );
+          break;
+        }
+        case "ancientReady":
+          sfx.ripe();
+          say(`The ancient nest in ${BIOMES[e.biome].name} has a Power Egg ready!`, "good");
+          break;
+        case "courier":
+          sfx.tap();
+          break;
+        case "rebirth":
+          sfx.win();
+          say(`Reborn with ${e.feathers} new Golden ${e.feathers === 1 ? "Feather" : "Feathers"}!`, "good");
           break;
         case "escape":
           sfx.escape(e.close);
@@ -412,10 +585,11 @@ export default function SneakyEggs() {
           if (!def) break;
           if (e.fused) sfx.fuse();
           else sfx.hatch(def.rarity);
-          if (e.isNew) {
-            setReveals((list) => [...list, { def, shiny: e.shiny, fused: e.fused }]);
+          if (e.isNew || isJackpot(e.v, e.s)) {
+            if (isJackpot(e.v, e.s)) sfx.jackpot();
+            setReveals((list) => [...list, { def, v: e.v, s: e.s, fused: e.fused, isNew: e.isNew }]);
           } else {
-            say(`${e.shiny ? "Shiny " : ""}${def.name} joined your pen!`, "good");
+            say(`${traitName(def, e.v, e.s)} joined your pen!`, "good");
           }
           break;
         }
@@ -424,6 +598,23 @@ export default function SneakyEggs() {
           setMusicMood(e.biome, g.night);
           break;
         case "blocked":
+          if (e.reason === "ripening") {
+            // The countdown over the nest says it all, so only explain it the first time.
+            if (tellOnce(g, "toldRipen")) {
+              say("That egg isn't ripe yet. Wait for its countdown to finish!");
+            }
+            break;
+          }
+          if (e.reason === "ancient") {
+            if (tellOnce(g, "toldAncient")) {
+              say("An ancient nest! It lays a Power Egg, but it takes its time. Check the Map for its timer.");
+            }
+            break;
+          }
+          if (e.reason === "holding") {
+            if (tellOnce(g, "toldHolding")) say("Use the power-up you're holding before picking up another.");
+            break;
+          }
           sfx.nope();
           if (e.reason === "gate") {
             say(`You need Speed ${BIOMES[e.biome].speedReq} sneakers for ${BIOMES[e.biome].name}!`, "bad");
@@ -556,7 +747,10 @@ export default function SneakyEggs() {
 
   const play = () => {
     unlockAudio();
-    const g = createGame(saveRef.current.game, { giant: saveRef.current.giant });
+    const g = createGame(saveRef.current.game, {
+      giant: saveRef.current.giant,
+      cozy: saveRef.current.cozy,
+    });
     if (away > 0) {
       g.coins += away;
       g.stats.earned += away;
@@ -737,6 +931,84 @@ export default function SneakyEggs() {
     if (!g) return;
     if (travel(g, biome)) setPanel(null);
     afterAction(g);
+  };
+
+  const onFreeze = () => {
+    const g = gameRef.current;
+    if (!g || pausedRef.current) return;
+    unlockAudio();
+    if (freeze(g)) eventsRef.current(g);
+  };
+
+  const onPower = () => {
+    const g = gameRef.current;
+    if (!g || pausedRef.current) return;
+    unlockAudio();
+    usePower(g);
+    eventsRef.current(g);
+  };
+
+  const onEquip = (id: PowerEggId) => {
+    const g = gameRef.current;
+    if (!g) return;
+    if (equip(g, id)) sfx.buy();
+    else {
+      sfx.nope();
+      say("No free slot. Take one off first, or level up for another.");
+    }
+    afterAction(g);
+  };
+
+  const doRebirth = () => {
+    const g = gameRef.current;
+    setConfirmRebirth(false);
+    if (!g) return;
+    setPanel(null);
+    if (rebirth(g) > 0) eventsRef.current(g);
+    afterAction(g);
+  };
+
+  /* The house ad: watch it through and every egg on a pad hatches at once. */
+  const openAd = () => {
+    const g = gameRef.current;
+    if (!g) return;
+    if (g.time - lastAdRef.current < AD_COOLDOWN) {
+      say("Give it a minute before the next one.");
+      return;
+    }
+    g.stats.adsOpened++;
+    setAdLeft(HOUSE_AD.seconds);
+    setAdOpen(true);
+  };
+  const closeAd = (finished: boolean) => {
+    const g = gameRef.current;
+    setAdOpen(false);
+    if (!g || !finished) return;
+    lastAdRef.current = g.time;
+    g.stats.adsDone++;
+    if (hatchNow(g) > 0) say("Thanks for watching! Your eggs are hatching.", "good");
+    afterAction(g);
+  };
+
+  const share = async () => {
+    const g = gameRef.current;
+    const found = g ? bookCount(g.book) : save.game ? bookCount(save.game.book) : 0;
+    const level = g?.level ?? save.game?.level ?? 1;
+    const text =
+      found > 0
+        ? `I'm level ${level} with ${found} of ${PETS.length} pets in Sneaky Eggs. Bet you can't sneak past the Grumbles!`
+        : "Sneak eggs past the sleepy Grumbles and hatch rare pets. Bet you can't beat me!";
+    if (g) g.stats.shares++;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Sneaky Eggs", text, url: SHARE_URL });
+      } else {
+        await navigator.clipboard.writeText(`${text} ${SHARE_URL}`);
+        say("Copied! Paste it to a friend.", "good");
+      }
+    } catch {
+      // Closing the share sheet isn't an error worth mentioning.
+    }
   };
 
   const onDash = () => {
@@ -1073,7 +1345,22 @@ export default function SneakyEggs() {
               <li>Run home before the Grumble catches you!</li>
               <li>Tap your egg to hatch a pet. Pets earn coins.</li>
               <li>Buy faster sneakers to open new lands.</li>
+              <li>Explore the side groves for better eggs, power-ups and Power Eggs.</li>
             </ol>
+          </Panel>
+
+          <Panel label="Game style">
+            <ChoiceGroup
+              label="Game style"
+              options={STYLE_OPTIONS}
+              value={save.cozy ? "cozy" : "sneaky"}
+              onChange={(v) => persist({ cozy: v === "cozy" })}
+            />
+            <span className="dg-caption">
+              {save.cozy
+                ? "Gentle rules: no timers, light eggs, and a Grumble only bumps you."
+                : "Timers, heavy eggs, mini-Grumbles, and one catch sends you back to the start!"}
+            </span>
           </Panel>
 
           <Panel label="Pick your color">
@@ -1121,6 +1408,9 @@ export default function SneakyEggs() {
               aria-pressed={save.music}
               onClick={() => persist({ music: !save.music })}>
               Music {save.music ? "on" : "off"}
+            </KitButton>
+            <KitButton variant="neutral" size="sm" icon={faShareNodes} onClick={share}>
+              Tell a friend
             </KitButton>
             {save.game && (
               <KitButton variant="neutral" size="sm" icon={faRotateLeft} onClick={() => setConfirmReset(true)}>
@@ -1195,8 +1485,21 @@ export default function SneakyEggs() {
                 aria-label={`${hud.stars} stars. Open trophies.`}>
                 <StarIcon /> {hud.stars}
               </button>
-              <span className="se-speed" data-ui>
-                <FontAwesomeIcon icon={faBolt} /> Speed {hud.speed}
+              <span
+                className="se-speed se-level"
+                data-ui
+                style={{ "--xp": `${hud.xp}%` } as CSSProperties}
+                aria-label={`Level ${hud.level}, ${hud.xp}% of the way to the next`}>
+                Lv {hud.level}
+              </span>
+              {hud.feathers > 0 && (
+                <span className="se-speed se-feathers" data-ui aria-label={`${hud.feathers} Golden Feathers`}>
+                  <FontAwesomeIcon icon={faFeatherPointed} /> {hud.feathers}
+                </span>
+              )}
+              <span className={cx("se-speed", hud.heavy > 0 && "is-heavy")} data-ui>
+                <FontAwesomeIcon icon={hud.heavy > 0 ? faWeightHanging : faBolt} />{" "}
+                {hud.heavy > 0 ? `Heavy −${hud.heavy}%` : `Speed ${hud.speed}`}
               </span>
             </div>
             {hud.mission && (
@@ -1259,6 +1562,37 @@ export default function SneakyEggs() {
           <div className={cx("se-toast", `is-${toast.tone}`)} key={toast.id} role="status">
             {toast.text}
           </div>
+        )}
+
+        <div className="se-actions" data-ui>
+          {hud.held && (
+            <button
+              type="button"
+              className="se-act is-power"
+              style={{ "--act": POWERUPS[hud.held].color } as CSSProperties}
+              onPointerDown={onPower}
+              aria-label={`Use ${POWERUPS[hud.held].name}`}>
+              <PowerupIcon kind={hud.held} size={40} />
+            </button>
+          )}
+          {hud.frost && (
+            <button
+              type="button"
+              key={freezeKey}
+              className={cx("se-act is-freeze", freezeKey > 0 && "is-cooling")}
+              style={{ "--cd": `${FREEZE_CD}s` } as CSSProperties}
+              onPointerDown={onFreeze}
+              aria-label="Freeze the Grumbles">
+              <FontAwesomeIcon icon={faSnowflake} />
+              <span>FREEZE</span>
+            </button>
+          )}
+        </div>
+
+        {hud.hatching && (
+          <button type="button" className="se-adbtn" data-ui onClick={openAd}>
+            <FontAwesomeIcon icon={faRectangleAd} /> Hatch now
+          </button>
         )}
 
         {hud.dash > 0 && (
@@ -1334,6 +1668,8 @@ export default function SneakyEggs() {
           onHat={onHat}
           onTrail={onTrail}
           onDecor={onDecor}
+          onEquip={onEquip}
+          onRebirth={() => setConfirmRebirth(true)}
         />
         <KitButton variant="neutral" onClick={() => setPanel(null)}>
           Back to the eggs
@@ -1397,32 +1733,109 @@ export default function SneakyEggs() {
 
       <KitDialog
         game={game}
+        open={confirmRebirth}
+        onClose={() => setConfirmRebirth(false)}
+        icon={faFeatherPointed}
+        title="Rebirth?">
+        <p className="dg-subtitle" style={{ margin: "0 auto 8px" }}>
+          You'll get <strong>{rebirthGain(g)}</strong> Golden {rebirthGain(g) === 1 ? "Feather" : "Feathers"}, each
+          worth +10% coins forever. Your coins, upgrades and pets start over. Your Pet Book, trophies, stars, hats,
+          level and Power Eggs stay.
+        </p>
+        <div className="dg-row">
+          <KitButton variant="neutral" onClick={() => setConfirmRebirth(false)}>
+            Not yet
+          </KitButton>
+          <KitButton onClick={doRebirth}>Rebirth</KitButton>
+        </div>
+      </KitDialog>
+
+      <KitDialog game={game} open={adOpen} onClose={() => closeAd(false)} icon={faRectangleAd} title="A quick ad">
+        <div className="se-ad">
+          <small>Ad · from the maker of this game</small>
+          <strong>{HOUSE_AD.name}</strong>
+          <p>{HOUSE_AD.tagline}</p>
+          <p className="se-ad-body">{HOUSE_AD.body}</p>
+          <a
+            className="dg-btn dg-btn--neutral dg-btn--sm"
+            href={HOUSE_AD.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => {
+              if (gameRef.current) gameRef.current.stats.adsClicked++;
+            }}>
+            {HOUSE_AD.cta}
+          </a>
+        </div>
+        <div className="dg-row">
+          <KitButton variant="neutral" onClick={() => closeAd(false)}>
+            No thanks
+          </KitButton>
+          <KitButton disabled={adLeft > 0} onClick={() => closeAd(true)}>
+            {adLeft > 0 ? `Hatch in ${adLeft}...` : "Hatch my eggs!"}
+          </KitButton>
+        </div>
+      </KitDialog>
+
+      <KitDialog
+        game={game}
         open={reveal !== null}
         onClose={closeReveal}
         icon={reveal?.fused ? faWandMagicSparkles : faStar}
-        title={reveal?.def.rarity === 4 ? "A Mythic pet!" : reveal?.fused ? "Fusion!" : "New pet!"}>
+        title={
+          reveal && isJackpot(reveal.v, reveal.s)
+            ? "Jackpot!"
+            : reveal?.def.rarity === 4
+              ? "A Mythic pet!"
+              : reveal?.fused
+                ? "Fusion!"
+                : "New pet!"
+        }>
         {reveal && (
           <>
             <div
-              className={cx("se-reveal", reveal.shiny && "is-shiny")}
-              style={{ "--chip": RARITIES[reveal.def.rarity].color } as CSSProperties}>
-              <PetIcon look={reveal.def.look} size={150} mood="happy" />
+              className={cx("se-reveal", reveal.v > 0 && "is-shiny", reveal.v === 3 && "is-rainbow")}
+              style={
+                {
+                  "--chip": reveal.v > 0 ? VARIANTS[reveal.v].color : RARITIES[reveal.def.rarity].color,
+                  "--grow": SIZES[reveal.s].scale,
+                } as CSSProperties
+              }>
+              <PetIcon look={reveal.def.look} size={150} mood="happy" variant={reveal.v} />
             </div>
-            <strong className="se-reveal-name">
-              {reveal.shiny && "Shiny "}
-              {noBreak(reveal.def.name)}
-            </strong>
-            <RarityChip rarity={reveal.def.rarity} />
+            <strong className="se-reveal-name">{noBreak(traitName(reveal.def, reveal.v, reveal.s))}</strong>
+            <span className="se-row-chips">
+              <RarityChip rarity={reveal.def.rarity} />
+              {reveal.v > 0 && (
+                <span
+                  className={cx("se-trait", reveal.v === 3 && "is-rainbow")}
+                  style={{ "--chip": VARIANTS[reveal.v].color } as CSSProperties}>
+                  {VARIANTS[reveal.v].name} ×{VARIANTS[reveal.v].mult}
+                </span>
+              )}
+              {reveal.s > 0 && (
+                <span className="se-trait" style={{ "--chip": "#0ea5e9" } as CSSProperties}>
+                  {SIZES[reveal.s].name} ×{SIZES[reveal.s].mult}
+                </span>
+              )}
+            </span>
             <p className="dg-subtitle" style={{ margin: 0 }}>
               {reveal.def.blurb}
             </p>
             <p className="dg-subtitle" style={{ margin: 0 }}>
-              <Coin /> Earns {fmtCoins(petRate(reveal.def, reveal.shiny) * coinMult(g))}{" "}
-              {petRate(reveal.def, reveal.shiny) * coinMult(g) === 1 ? "coin" : "coins"} every second
+              <Coin /> Earns {fmtCoins(petRate(reveal.def, reveal.v, reveal.s) * coinMult(g))}{" "}
+              {petRate(reveal.def, reveal.v, reveal.s) * coinMult(g) === 1 ? "coin" : "coins"} every second
             </p>
-            <KitButton size="lg" onClick={closeReveal}>
-              Yay!
-            </KitButton>
+            <div className="dg-row">
+              {isJackpot(reveal.v, reveal.s) && (
+                <KitButton variant="neutral" icon={faShareNodes} onClick={share}>
+                  Brag
+                </KitButton>
+              )}
+              <KitButton size="lg" onClick={closeReveal}>
+                Yay!
+              </KitButton>
+            </div>
           </>
         )}
       </KitDialog>
