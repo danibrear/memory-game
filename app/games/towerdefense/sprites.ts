@@ -23,45 +23,27 @@ import {
 import { coverageOutline, createGame, isGate, needsSight, rangeAt, towerRange, towerStats } from "./engine";
 import type { Bolt, Enemy, Game, Level, Particle, Projectile, Tower } from "./engine";
 
-type Ctx = CanvasRenderingContext2D;
-const TAU = Math.PI * 2;
+import {
+  INK,
+  TAU,
+  blinking,
+  cel,
+  cheeks,
+  circle,
+  drawEyes,
+  drawMouth,
+  easeOutBack,
+  ink,
+  mulberry32,
+  shadeHex,
+  shadow,
+  starPath,
+  type Ctx,
+  type Mood,
+} from "./art";
+import { drawTower, type TowerPose } from "./towers";
 
-// ─── Small utilities ──────────────────────────────────────────────────────────
-
-function mulberry32(seed: number) {
-  let a = seed;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function shadow(ctx: Ctx, x: number, y: number, rx: number, ry: number, a = 0.28) {
-  ctx.fillStyle = `rgba(0,0,0,${a})`;
-  ctx.beginPath();
-  ctx.ellipse(x, y, rx, ry, 0, 0, TAU);
-  ctx.fill();
-}
-
-function circle(ctx: Ctx, x: number, y: number, r: number, fill: string) {
-  ctx.fillStyle = fill;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, TAU);
-  ctx.fill();
-}
-
-function shadeHex(hex: string, amt: number) {
-  const n = parseInt(hex.slice(1), 16);
-  const ch = (v: number) =>
-    Math.max(0, Math.min(255, Math.round(v + (amt > 0 ? (255 - v) * amt : v * amt))));
-  const r = ch((n >> 16) & 255);
-  const g = ch((n >> 8) & 255);
-  const b = ch(n & 255);
-  return `rgb(${r},${g},${b})`;
-}
+export { drawTower, type TowerPose };
 
 // ─── Themes ───────────────────────────────────────────────────────────────────
 
@@ -702,28 +684,42 @@ export function drawPortal(ctx: Ctx, s: number, time: number, entry: EntryDef, o
   // Stand tall on the left/right edges, lie wide on the top/bottom ones.
   const rx = s * (entry.dr !== 0 ? 0.62 : edge ? 0.42 : 0.46);
   const ry = s * (entry.dr !== 0 ? 0.42 : edge ? 0.62 : 0.46);
+  const breathe = open ? 1 + Math.sin(time * 3) * 0.03 : 1;
   ctx.save();
-  // Stone frame
-  ctx.fillStyle = "#57534e";
+  // Stone ring
   ctx.beginPath();
   ctx.ellipse(x, y, rx, ry, 0, 0, TAU);
+  ctx.fillStyle = "#78716c";
   ctx.fill();
-  const grad = ctx.createRadialGradient(x, y, 0, x, y, Math.max(rx, ry) * 0.9);
-  if (open) {
-    grad.addColorStop(0, "#f5d0fe");
-    grad.addColorStop(0.35, "#a855f7");
-    grad.addColorStop(1, "#3b0764");
-  } else {
-    grad.addColorStop(0, "#6b7280");
-    grad.addColorStop(1, "#1f2937");
+  ink(ctx, s, 1);
+  // Chunky stones around the ring
+  ctx.strokeStyle = "rgba(35,42,61,0.45)";
+  ctx.lineWidth = Math.max(1, s * 0.025);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * TAU + 0.2;
+    ctx.beginPath();
+    ctx.moveTo(x + Math.cos(a) * rx * 0.8, y + Math.sin(a) * ry * 0.84);
+    ctx.lineTo(x + Math.cos(a) * rx * 0.98, y + Math.sin(a) * ry * 0.98);
+    ctx.stroke();
   }
-  ctx.fillStyle = grad;
+  ctx.strokeStyle = "rgba(255,255,255,0.3)";
+  ctx.lineWidth = Math.max(1, s * 0.03);
   ctx.beginPath();
-  ctx.ellipse(x, y, rx * 0.78, ry * 0.84, 0, 0, TAU);
-  ctx.fill();
+  ctx.ellipse(x, y, rx * 0.9, ry * 0.92, 0, Math.PI * 1.1, Math.PI * 1.55);
+  ctx.stroke();
+  // The swirl: flat rings of colour, no gradient
+  const rings = open ? ["#3b0764", "#7e22ce", "#a855f7", "#e9d5ff"] : ["#1f2937", "#374151", "#4b5563"];
+  rings.forEach((color, i) => {
+    const k = (1 - i * 0.26) * (i === 0 ? 1 : breathe);
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx * 0.78 * k, ry * 0.84 * k, 0, 0, TAU);
+    ctx.fillStyle = color;
+    ctx.fill();
+    if (i === 0) ink(ctx, s, 0.8);
+  });
   if (open) {
-    ctx.strokeStyle = "rgba(255,255,255,0.55)";
-    ctx.lineWidth = s * 0.035;
+    ctx.strokeStyle = "rgba(255,255,255,0.7)";
+    ctx.lineWidth = Math.max(1, s * 0.035);
     ctx.lineCap = "round";
     for (let i = 0; i < 3; i++) {
       const a0 = time * 2.5 + (i * TAU) / 3;
@@ -732,6 +728,16 @@ export function drawPortal(ctx: Ctx, s: number, time: number, entry: EntryDef, o
       ctx.ellipse(x, y, rx * k, ry * k, 0, a0, a0 + 1.6);
       ctx.stroke();
     }
+    // Sparkles drifting up out of it
+    for (let i = 0; i < 3; i++) {
+      const t = (time * 0.6 + i / 3) % 1;
+      const a = i * 2.4 + Math.floor(time * 0.6 + i / 3) * 1.3;
+      ctx.globalAlpha = Math.sin(t * Math.PI);
+      starPath(ctx, x + Math.cos(a) * rx * 0.75, y - ry * (0.2 + t * 0.95), s * (0.05 + 0.03 * Math.sin(t * Math.PI)), time * 2 + i);
+      ctx.fillStyle = "#f5d0fe";
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   } else if (s >= 22) {
     // Shut for now: say when it opens.
     const label = `Wave ${entry.fromWave}`;
@@ -753,559 +759,187 @@ export function drawPortal(ctx: Ctx, s: number, time: number, entry: EntryDef, o
   ctx.restore();
 }
 
-export function drawCastle(ctx: Ctx, s: number, time: number, lives: number, maxLives: number, exit: Cell) {
-  const cx = (exit.c + 0.5) * s;
-  const base = (exit.r + 0.5) * s + s * 0.42;
-  const w = s * 0.92;
-  const h = s * 0.8;
-  const left = cx - w / 2;
-  const top = base - h;
-
-  shadow(ctx, cx, base, w * 0.6, s * 0.12);
-  // Side towers
-  const towerW = w * 0.3;
-  const drawTowerBlock = (x: number) => {
-    ctx.fillStyle = "#9ca3af";
-    ctx.fillRect(x, top - s * 0.12, towerW, h + s * 0.12);
-    ctx.fillStyle = "#6b7280";
-    ctx.fillRect(x + towerW * 0.75, top - s * 0.12, towerW * 0.25, h + s * 0.12);
-    // crenellations
-    for (let i = 0; i < 3; i++) {
-      ctx.fillStyle = "#9ca3af";
-      ctx.fillRect(x + (i * towerW) / 3 + towerW * 0.04, top - s * 0.22, towerW / 3 - towerW * 0.08, s * 0.1);
-    }
-    // roof
-    ctx.fillStyle = "#2563eb";
-    ctx.beginPath();
-    ctx.moveTo(x - s * 0.03, top - s * 0.22);
-    ctx.lineTo(x + towerW / 2, top - s * 0.52);
-    ctx.lineTo(x + towerW + s * 0.03, top - s * 0.22);
-    ctx.closePath();
-    ctx.fill();
-  };
-  // Wall
-  ctx.fillStyle = "#d1d5db";
-  ctx.fillRect(left, top + s * 0.08, w, h - s * 0.08);
-  ctx.fillStyle = "#b5bac2";
-  for (let i = 0; i < 4; i++) {
-    ctx.fillRect(left + (i * w) / 4 + s * 0.02, top - s * 0.02, w / 4 - s * 0.04, s * 0.1);
-  }
-  drawTowerBlock(left - towerW * 0.15);
-  drawTowerBlock(left + w - towerW * 0.85);
-  // Door
-  ctx.fillStyle = "#78350f";
-  ctx.beginPath();
-  ctx.moveTo(cx - w * 0.16, base);
-  ctx.lineTo(cx - w * 0.16, base - h * 0.42);
-  ctx.arc(cx, base - h * 0.42, w * 0.16, Math.PI, 0);
-  ctx.lineTo(cx + w * 0.16, base);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = "#451a03";
-  ctx.lineWidth = Math.max(1, s * 0.025);
-  ctx.stroke();
-  // Flag
-  const fx = cx;
-  const fy = top - s * 0.25;
-  ctx.strokeStyle = "#4b5563";
-  ctx.lineWidth = Math.max(1, s * 0.03);
-  ctx.beginPath();
-  ctx.moveTo(fx, top + s * 0.05);
-  ctx.lineTo(fx, fy - s * 0.25);
-  ctx.stroke();
-  const wave = Math.sin(time * 5) * s * 0.03;
-  ctx.fillStyle = lives / maxLives > 0.35 ? "#ef4444" : "#7f1d1d";
-  ctx.beginPath();
-  ctx.moveTo(fx, fy - s * 0.25);
-  ctx.quadraticCurveTo(fx + s * 0.15, fy - s * 0.2 + wave, fx + s * 0.3, fy - s * 0.17);
-  ctx.quadraticCurveTo(fx + s * 0.15, fy - s * 0.1 - wave, fx, fy - s * 0.05);
-  ctx.closePath();
-  ctx.fill();
-}
-
-// ─── Towers ───────────────────────────────────────────────────────────────────
-
-const BASE_COLORS: Record<Level, { top: string; side: string; rim: string }> = {
-  0: { top: "#a8a29e", side: "#78716c", rim: "#57534e" },
-  1: { top: "#cbd5e1", side: "#64748b", rim: "#475569" },
-  2: { top: "#fcd34d", side: "#b45309", rim: "#92400e" },
-};
-
-/** Final forms stand on their own platforms: dark steel or white marble. */
-const SPEC_COLORS: [{ top: string; side: string; rim: string; pip: string }, { top: string; side: string; rim: string; pip: string }] = [
-  { top: "#4b5563", side: "#111827", rim: "#030712", pip: "#f87171" },
-  { top: "#f8fafc", side: "#94a3b8", rim: "#475569", pip: "#38bdf8" },
-];
-
-export interface TowerPose {
-  angle: number;
-  recoil: number;
-  flash: number;
-}
-
-export function drawTower(
+export function drawCastle(
   ctx: Ctx,
-  type: TowerType,
-  level: Level,
-  pose: TowerPose,
-  x: number,
-  y: number,
   s: number,
   time: number,
-  spec: 0 | 1 | null = null,
+  lives: number,
+  maxLives: number,
+  exit: Cell,
+  /** Seconds since an enemy last got in (for the flinch). */
+  sinceHit = 99,
 ) {
-  const def = TOWERS[type];
-  const bc = spec !== null ? SPEC_COLORS[spec] : BASE_COLORS[level];
-  const half = s * 0.4;
+  const cx = (exit.c + 0.5) * s;
+  const base = (exit.r + 0.5) * s + s * 0.42;
+  const w = s * 0.94;
+  const h = s * 0.8;
+  const frac = maxLives > 0 ? lives / maxLives : 1;
+  const hit = sinceHit < 0.45;
+  const mood: Mood = hit ? "hurt" : frac <= 0.35 ? "worried" : "happy";
+  // Flinch when something gets in, otherwise breathe very gently.
+  const flinch = hit ? Math.sin((sinceHit / 0.45) * Math.PI) : 0;
+  const sx = 1 + flinch * 0.1 + Math.sin(time * 2) * 0.008;
+  const sy = 1 - flinch * 0.12 - Math.sin(time * 2) * 0.008;
 
-  // Platform
-  shadow(ctx, x, y + s * 0.3, s * 0.42, s * 0.14);
-  ctx.fillStyle = bc.side;
-  ctx.beginPath();
-  ctx.roundRect(x - half, y - half + s * 0.08, half * 2, half * 2, s * 0.14);
-  ctx.fill();
-  ctx.fillStyle = bc.top;
-  ctx.beginPath();
-  ctx.roundRect(x - half, y - half, half * 2, half * 2 - s * 0.02, s * 0.14);
-  ctx.fill();
-  // Bricks / bevel
-  ctx.strokeStyle = spec !== null ? def.color : "rgba(0,0,0,0.12)";
-  ctx.lineWidth = Math.max(1, s * (spec !== null ? 0.035 : 0.02));
-  ctx.beginPath();
-  ctx.roundRect(x - half * 0.78, y - half * 0.78, half * 1.56, half * 1.56, s * 0.1);
-  ctx.stroke();
-  if (def.role === "attack") {
-    // Tower-colour ring
-    circle(ctx, x, y, s * 0.27, bc.rim);
-    circle(ctx, x, y, s * 0.24, shadeHex(def.color, -0.35));
-  }
-
-  // Level pips (a row of gems once the tower has its final form)
-  for (let i = 0; i <= level; i++) {
-    const px = x + (i - level / 2) * s * 0.13;
-    const py = y + half + s * 0.02;
-    if (spec !== null) {
-      ctx.save();
-      ctx.translate(px, py);
-      ctx.rotate(Math.PI / 4);
-      ctx.fillStyle = "#0f172a";
-      ctx.fillRect(-s * 0.055, -s * 0.055, s * 0.11, s * 0.11);
-      ctx.fillStyle = SPEC_COLORS[spec].pip;
-      ctx.fillRect(-s * 0.038, -s * 0.038, s * 0.076, s * 0.076);
-      ctx.restore();
-    } else {
-      circle(ctx, px, py, s * 0.055, "#78350f");
-      circle(ctx, px, py, s * 0.04, "#fde047");
-    }
-  }
-
+  shadow(ctx, cx, base, w * 0.62, s * 0.12);
   ctx.save();
-  ctx.translate(x, y);
-  // Final forms are a touch bigger.
-  if (spec !== null && def.role === "attack") ctx.scale(1.12, 1.12);
-  switch (type) {
-    case "beacon":
-      drawBeacon(ctx, level, s, time, spec);
-      break;
-    case "mine":
-      drawMine(ctx, level, s, time, spec);
-      break;
-    case "blaster":
-      drawBlaster(ctx, def.color, level, pose, s);
-      break;
-    case "sniper":
-      drawSniper(ctx, def.color, level, pose, s);
-      break;
-    case "bomb":
-      drawBomber(ctx, def.color, level, pose, s);
-      break;
-    case "frost":
-      drawFrost(ctx, level, pose, s, time);
-      break;
-    case "tesla":
-      drawTesla(ctx, level, pose, s, time);
-      break;
-  }
-  ctx.restore();
-}
+  ctx.translate(cx, base);
+  ctx.scale(sx, sy);
+  if (hit) ctx.translate(Math.sin(sinceHit * 70) * s * 0.02, 0);
 
-function drawBeacon(ctx: Ctx, level: Level, s: number, time: number, spec: 0 | 1 | null) {
-  const tall = s * (0.26 + level * 0.02 + (spec === 1 ? 0.05 : 0));
-  const lampY = -tall - s * 0.02;
-  const lamp = spec === 0 ? "#fb923c" : "#fde68a";
-  // Sweeping light
-  ctx.save();
-  ctx.translate(0, lampY);
-  ctx.rotate(time * 1.6);
-  for (const dir of [0, Math.PI]) {
-    const g = ctx.createLinearGradient(0, 0, Math.cos(dir) * s * 0.55, Math.sin(dir) * s * 0.55);
-    g.addColorStop(0, "rgba(254,240,138,0.6)");
-    g.addColorStop(1, "rgba(254,240,138,0)");
-    ctx.fillStyle = g;
+  const stone = frac <= 0.35 ? "#c4c8d0" : "#dfe3ea";
+  const towerW = w * 0.32;
+  const roof = frac <= 0.35 ? "#3b5fb8" : "#3b82f6";
+
+  const sideTower = (side: number) => {
+    const x = side * (w / 2 - towerW * 0.42) - towerW / 2;
+    const top = -h - s * 0.1;
+    // Crenellated block
+    cel(
+      ctx,
+      () => {
+        ctx.beginPath();
+        ctx.roundRect(x, top, towerW, h + s * 0.1, [s * 0.03, s * 0.03, s * 0.04, s * 0.04]);
+      },
+      shadeHex(stone, -0.12),
+      s,
+      { cx: x + towerW / 2, cy: top + h / 2, w: towerW, h: h, outline: 0.9, shine: false },
+    );
+    // Roof
+    cel(
+      ctx,
+      () => {
+        ctx.beginPath();
+        ctx.moveTo(x - s * 0.05, top + s * 0.02);
+        ctx.quadraticCurveTo(x + towerW / 2, top - s * 0.12, x + towerW / 2, top - s * 0.34);
+        ctx.quadraticCurveTo(x + towerW / 2, top - s * 0.12, x + towerW + s * 0.05, top + s * 0.02);
+        ctx.closePath();
+      },
+      roof,
+      s,
+      { cx: x + towerW / 2, cy: top - s * 0.14, w: towerW * 0.9, h: s * 0.3, outline: 0.9, shine: false },
+    );
+    // Arrow slit
     ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.arc(0, 0, s * 0.55, dir - 0.28, dir + 0.28);
-    ctx.closePath();
+    ctx.roundRect(x + towerW / 2 - s * 0.025, top + h * 0.3, s * 0.05, s * 0.15, s * 0.025);
+    ctx.fillStyle = INK;
     ctx.fill();
-  }
-  ctx.restore();
-  // Striped tower
-  const bw = s * 0.17;
-  const tw = s * 0.11;
-  ctx.fillStyle = "#f8fafc";
-  ctx.strokeStyle = "#334155";
-  ctx.lineWidth = Math.max(1, s * 0.025);
-  ctx.beginPath();
-  ctx.moveTo(-bw, s * 0.2);
-  ctx.lineTo(-tw, -tall + s * 0.08);
-  ctx.lineTo(tw, -tall + s * 0.08);
-  ctx.lineTo(bw, s * 0.2);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  ctx.save();
-  ctx.clip();
-  ctx.fillStyle = spec === 0 ? "#dc2626" : "#10b981";
-  for (let i = 0; i < 3; i++) ctx.fillRect(-bw, s * 0.12 - i * s * 0.15, bw * 2, s * 0.07);
-  ctx.restore();
-  // Gallery and lamp
-  ctx.fillStyle = "#334155";
-  ctx.fillRect(-tw - s * 0.04, -tall + s * 0.04, tw * 2 + s * 0.08, s * 0.05);
-  const glow = 0.75 + 0.25 * Math.sin(time * 4);
-  ctx.save();
-  ctx.globalAlpha = 0.45 * glow;
-  circle(ctx, 0, lampY, s * (0.17 + level * 0.015), lamp);
-  ctx.restore();
-  circle(ctx, 0, lampY, s * 0.1, "#334155");
-  circle(ctx, 0, lampY, s * 0.075, lamp);
-  circle(ctx, -s * 0.02, lampY - s * 0.02, s * 0.025, "#ffffff");
-  // Roof
-  ctx.fillStyle = spec === 0 ? "#7f1d1d" : "#065f46";
-  ctx.beginPath();
-  ctx.moveTo(-s * 0.11, lampY - s * 0.07);
-  ctx.lineTo(0, lampY - s * 0.2);
-  ctx.lineTo(s * 0.11, lampY - s * 0.07);
-  ctx.closePath();
-  ctx.fill();
-}
+  };
 
-function drawMine(ctx: Ctx, level: Level, s: number, time: number, spec: 0 | 1 | null) {
-  // Tunnel mouth
-  ctx.fillStyle = "#1c1917";
-  ctx.beginPath();
-  ctx.moveTo(-s * 0.2, s * 0.2);
-  ctx.lineTo(-s * 0.2, -s * 0.06);
-  ctx.arc(0, -s * 0.06, s * 0.2, Math.PI, 0);
-  ctx.lineTo(s * 0.2, s * 0.2);
-  ctx.closePath();
-  ctx.fill();
-  // Timber frame
-  ctx.strokeStyle = "#92400e";
-  ctx.lineWidth = Math.max(2, s * 0.07);
+  // Keep: the wall with battlements
+  cel(
+    ctx,
+    () => {
+      const l = -w * 0.34;
+      const r = w * 0.34;
+      const top = -h * 0.86;
+      const notch = s * 0.07;
+      const step = (r - l) / 5;
+      ctx.beginPath();
+      ctx.moveTo(l, 0);
+      ctx.lineTo(l, top);
+      for (let i = 0; i < 5; i++) {
+        const x0 = l + i * step;
+        if (i % 2 === 0) {
+          ctx.lineTo(x0, top - notch);
+          ctx.lineTo(x0 + step, top - notch);
+          ctx.lineTo(x0 + step, top);
+        } else {
+          ctx.lineTo(x0 + step, top);
+        }
+      }
+      ctx.lineTo(r, 0);
+      ctx.closePath();
+    },
+    stone,
+    s,
+    { cx: 0, cy: -h * 0.45, w: w * 0.6, h: h * 0.9, outline: 0.9, shine: false },
+  );
+  sideTower(-1);
+  sideTower(1);
+
+  // A few bricks
+  ctx.strokeStyle = "rgba(35,42,61,0.22)";
+  ctx.lineWidth = Math.max(1, s * 0.02);
   ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(-s * 0.23, s * 0.2);
-  ctx.lineTo(-s * 0.2, -s * 0.2);
-  ctx.moveTo(s * 0.23, s * 0.2);
-  ctx.lineTo(s * 0.2, -s * 0.2);
-  ctx.moveTo(-s * 0.26, -s * 0.21);
-  ctx.lineTo(s * 0.26, -s * 0.21);
+  for (const [bx, by] of [
+    [-0.2, -0.74],
+    [0.12, -0.7],
+    [-0.24, -0.16],
+    [0.2, -0.2],
+  ]) {
+    ctx.moveTo(bx * w, by * h);
+    ctx.lineTo((bx + 0.09) * w, by * h);
+  }
   ctx.stroke();
-  ctx.strokeStyle = "rgba(255,255,255,0.25)";
-  ctx.lineWidth = Math.max(1, s * 0.02);
-  ctx.beginPath();
-  ctx.moveTo(-s * 0.24, -s * 0.23);
-  ctx.lineTo(s * 0.24, -s * 0.23);
-  ctx.stroke();
-  // Gold: more of it at each level
-  const nuggets: [number, number, number][] = [
-    [-0.07, 0.16, 0.07],
-    [0.06, 0.17, 0.065],
-    [0, 0.08, 0.07],
-    [-0.14, 0.2, 0.05],
-    [0.14, 0.21, 0.05],
-    [0.07, 0.05, 0.055],
-    [-0.07, 0.04, 0.055],
-    [0, -0.04, 0.06],
-  ];
-  const count = spec !== null ? nuggets.length : 3 + level * 2;
-  for (let i = 0; i < count; i++) {
-    const [nx, ny, nr] = nuggets[i];
-    circle(ctx, nx * s, ny * s + s * 0.015, nr * s, "#a16207");
-    circle(ctx, nx * s, ny * s, nr * s * 0.92, "#facc15");
-    circle(ctx, nx * s - nr * s * 0.3, ny * s - nr * s * 0.3, nr * s * 0.3, "#fef9c3");
-  }
-  if (spec === 1) {
-    // Bounty Board: a wanted poster nailed to the frame
-    ctx.fillStyle = "#fef3c7";
-    ctx.fillRect(s * 0.08, -s * 0.36, s * 0.16, s * 0.2);
-    ctx.fillStyle = "#b91c1c";
-    ctx.fillRect(s * 0.11, -s * 0.33, s * 0.1, s * 0.03);
-    circle(ctx, s * 0.16, -s * 0.24, s * 0.035, "#78350f");
-  }
-  // Twinkle
-  const tw = (time * 0.9) % 1;
-  const sx = (tw < 0.5 ? -0.07 : 0.07) * s;
-  const sy = (tw < 0.5 ? 0.1 : 0.02) * s;
-  const size = Math.sin((tw % 0.5) * 2 * Math.PI) * s * 0.07;
-  if (size > 0) {
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.moveTo(sx, sy - size);
-    ctx.lineTo(sx + size * 0.25, sy - size * 0.25);
-    ctx.lineTo(sx + size, sy);
-    ctx.lineTo(sx + size * 0.25, sy + size * 0.25);
-    ctx.lineTo(sx, sy + size);
-    ctx.lineTo(sx - size * 0.25, sy + size * 0.25);
-    ctx.lineTo(sx - size, sy);
-    ctx.lineTo(sx - size * 0.25, sy - size * 0.25);
-    ctx.closePath();
-    ctx.fill();
-  }
-}
 
-function turretHead(ctx: Ctx, r: number, color: string) {
-  const grad = ctx.createRadialGradient(-r * 0.35, -r * 0.35, r * 0.1, 0, 0, r);
-  grad.addColorStop(0, shadeHex(color, 0.55));
-  grad.addColorStop(0.6, color);
-  grad.addColorStop(1, shadeHex(color, -0.35));
-  ctx.fillStyle = grad;
+  // Face: the gate is its mouth
+  const doorW = w * 0.15;
+  const doorH = h * (hit ? 0.3 : mood === "worried" ? 0.22 : 0.26);
   ctx.beginPath();
-  ctx.arc(0, 0, r, 0, TAU);
-  ctx.fill();
-  ctx.strokeStyle = shadeHex(color, -0.5);
-  ctx.lineWidth = Math.max(1, r * 0.12);
-  ctx.stroke();
-}
-
-function barrel(ctx: Ctx, x0: number, y: number, len: number, w: number, color: string, tip?: string) {
-  ctx.fillStyle = shadeHex(color, -0.45);
-  ctx.beginPath();
-  ctx.roundRect(x0, y - w / 2, len, w, w * 0.3);
-  ctx.fill();
-  ctx.fillStyle = shadeHex(color, -0.15);
-  ctx.fillRect(x0, y - w / 2 + w * 0.15, len, w * 0.3);
-  ctx.fillStyle = tip ?? shadeHex(color, -0.6);
-  ctx.fillRect(x0 + len - w * 0.7, y - w * 0.6, w * 0.7, w * 1.2);
-}
-
-function muzzleFlash(ctx: Ctx, x: number, y: number, size: number, flash: number) {
-  if (flash <= 0) return;
-  ctx.save();
-  ctx.globalAlpha = Math.min(1, flash / 0.05);
-  ctx.fillStyle = "#fde047";
-  ctx.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * TAU;
-    const r = i % 2 === 0 ? size : size * 0.45;
-    ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
-  }
+  ctx.moveTo(-doorW, 0);
+  ctx.lineTo(-doorW, -doorH);
+  ctx.arc(0, -doorH, doorW, Math.PI, 0);
+  ctx.lineTo(doorW, 0);
   ctx.closePath();
+  ctx.fillStyle = "#7c2d12";
   ctx.fill();
-  circle(ctx, x, y, size * 0.4, "#ffffff");
-  ctx.restore();
-}
-
-function drawBlaster(ctx: Ctx, color: string, level: Level, p: TowerPose, s: number) {
-  ctx.rotate(p.angle);
-  const kick = -p.recoil * s * 0.08;
-  const len = s * (0.36 + level * 0.03);
-  const bw = s * (0.11 + level * 0.015);
-  const tip = level === 2 ? "#f59e0b" : undefined;
-  if (level === 0) {
-    barrel(ctx, kick, 0, len, bw, color, tip);
-  } else {
-    barrel(ctx, kick, -s * 0.075, len, bw, color, tip);
-    barrel(ctx, kick, s * 0.075, len, bw, color, tip);
-  }
-  turretHead(ctx, s * 0.2, color);
-  // Visor
-  ctx.fillStyle = "rgba(255,255,255,0.75)";
+  ink(ctx, s, 0.85);
+  // Portcullis teeth
+  ctx.strokeStyle = "#fde68a";
+  ctx.lineWidth = Math.max(1, s * 0.022);
   ctx.beginPath();
-  ctx.ellipse(s * 0.06, 0, s * 0.05, s * 0.1, 0, 0, TAU);
-  ctx.fill();
-  if (level === 2) {
-    ctx.strokeStyle = "#fde047";
-    ctx.lineWidth = Math.max(1, s * 0.03);
-    ctx.beginPath();
-    ctx.arc(0, 0, s * 0.14, 0, TAU);
-    ctx.stroke();
+  for (const k of [-0.5, 0, 0.5]) {
+    ctx.moveTo(k * doorW, -doorH - doorW * (k === 0 ? 0.95 : 0.8));
+    ctx.lineTo(k * doorW, -doorH * 0.45);
   }
-  muzzleFlash(ctx, len + kick + s * 0.04, 0, s * 0.13, p.flash);
-}
-
-function drawSniper(ctx: Ctx, color: string, level: Level, p: TowerPose, s: number) {
-  ctx.rotate(p.angle);
-  const kick = -p.recoil * s * 0.12;
-  const len = s * (0.5 + level * 0.04);
-  barrel(ctx, kick, 0, len, s * 0.075, color, level === 2 ? "#f59e0b" : undefined);
-  // Muzzle brake
-  ctx.fillStyle = shadeHex(color, -0.6);
-  ctx.fillRect(kick + len - s * 0.04, -s * 0.06, s * 0.06, s * 0.12);
-  // Body
-  const grad = ctx.createLinearGradient(0, -s * 0.15, 0, s * 0.15);
-  grad.addColorStop(0, shadeHex(color, 0.45));
-  grad.addColorStop(1, shadeHex(color, -0.3));
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.roundRect(-s * 0.2, -s * 0.15, s * 0.36, s * 0.3, s * 0.08);
-  ctx.fill();
-  ctx.strokeStyle = shadeHex(color, -0.5);
-  ctx.lineWidth = Math.max(1, s * 0.025);
   ctx.stroke();
-  // Scope
-  ctx.fillStyle = level === 2 ? "#f59e0b" : "#1f2937";
-  ctx.beginPath();
-  ctx.roundRect(-s * 0.04, -s * 0.2, s * 0.24, s * 0.08, s * 0.04);
-  ctx.fill();
-  circle(ctx, s * 0.2, -s * 0.16, s * 0.035, "#67e8f9");
-  if (level >= 1) {
-    ctx.fillStyle = shadeHex(color, -0.4);
-    ctx.fillRect(-s * 0.22, -s * 0.05, s * 0.04, s * 0.1);
-  }
-  muzzleFlash(ctx, len + kick + s * 0.05, 0, s * 0.12, p.flash);
-}
-
-function drawBomber(ctx: Ctx, color: string, level: Level, p: TowerPose, s: number) {
-  ctx.rotate(p.angle);
-  const kick = -p.recoil * s * 0.07;
-  const len = s * (0.4 + level * 0.025);
-  const bw = s * (0.19 + level * 0.025);
-  ctx.fillStyle = "#374151";
-  ctx.beginPath();
-  ctx.roundRect(kick, -bw / 2, len, bw, bw * 0.25);
-  ctx.fill();
-  ctx.fillStyle = "#4b5563";
-  ctx.fillRect(kick, -bw / 2 + bw * 0.12, len, bw * 0.22);
-  ctx.fillStyle = level === 2 ? "#f59e0b" : "#1f2937";
-  ctx.beginPath();
-  ctx.roundRect(kick + len - s * 0.08, -bw / 2 - s * 0.03, s * 0.08, bw + s * 0.06, s * 0.03);
-  ctx.fill();
-  circle(ctx, kick + len - s * 0.02, 0, bw * 0.3, "#111827");
-  turretHead(ctx, s * 0.22, color);
-  // Bands
-  ctx.strokeStyle = level >= 1 ? "#fde047" : shadeHex(color, -0.4);
-  ctx.lineWidth = Math.max(1, s * 0.03);
-  ctx.beginPath();
-  ctx.arc(0, 0, s * 0.13, 0, TAU);
-  ctx.stroke();
-  circle(ctx, 0, 0, s * 0.05, shadeHex(color, -0.4));
-  if (p.flash > 0) {
-    ctx.save();
-    ctx.globalAlpha = Math.min(1, p.flash / 0.05) * 0.8;
-    circle(ctx, kick + len + s * 0.05, 0, s * 0.12, "#a8a29e");
-    ctx.restore();
-  }
-}
-
-function crystal(ctx: Ctx, x: number, y: number, w: number, h: number, glow: number) {
-  const grad = ctx.createLinearGradient(x - w, y - h, x + w, y + h);
-  grad.addColorStop(0, "#ffffff");
-  grad.addColorStop(0.45, "#a5f3fc");
-  grad.addColorStop(1, "#0891b2");
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.moveTo(x, y - h);
-  ctx.lineTo(x + w, y - h * 0.2);
-  ctx.lineTo(x, y + h);
-  ctx.lineTo(x - w, y - h * 0.2);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = "#0e7490";
-  ctx.lineWidth = Math.max(1, w * 0.12);
-  ctx.stroke();
-  ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.beginPath();
-  ctx.moveTo(x, y - h);
-  ctx.lineTo(x - w * 0.35, y - h * 0.2);
-  ctx.lineTo(x, y + h * 0.3);
-  ctx.closePath();
-  ctx.fill();
-  if (glow > 0) {
-    ctx.save();
-    ctx.globalAlpha = glow;
-    circle(ctx, x, y, w * 1.6, "rgba(207,250,254,0.8)");
-    ctx.restore();
-  }
-}
-
-function drawFrost(ctx: Ctx, level: Level, p: TowerPose, s: number, time: number) {
-  // Frosty pad
-  circle(ctx, 0, 0, s * 0.2, "#ecfeff");
-  circle(ctx, 0, 0, s * 0.15, "#a5f3fc");
-  const bob = Math.sin(time * 2.5) * s * 0.035;
-  const glow = Math.min(1, p.flash / 0.05) * 0.7;
-  // Orbiting shards
-  const orbit = level === 0 ? 0 : level === 1 ? 2 : 3;
-  for (let i = 0; i < orbit; i++) {
-    const a = time * 1.6 + (i * TAU) / orbit;
-    const ox = Math.cos(a) * s * 0.25;
-    const oy = Math.sin(a) * s * 0.13 - s * 0.05;
-    crystal(ctx, ox, oy, s * 0.045, s * 0.08, 0);
-  }
-  const size = 1 + level * 0.15;
-  crystal(ctx, 0, -s * 0.1 + bob, s * 0.1 * size, s * 0.2 * size, glow);
-  if (level === 2) {
-    ctx.strokeStyle = "rgba(253,224,71,0.9)";
+  cheeks(ctx, 0, -h * 0.42, w * 0.25, s * 0.045);
+  drawEyes(ctx, {
+    x: 0,
+    y: -h * 0.58,
+    r: s * 0.095,
+    spread: w * 0.135,
+    lookX: Math.sin(time * 0.7) * 0.5,
+    lookY: 0.1,
+    mood,
+    blink: blinking(time, exit.c + exit.r),
+    time,
+  });
+  if (mood === "worried") {
+    // Cracks once things look bad
+    ctx.strokeStyle = "rgba(35,42,61,0.55)";
     ctx.lineWidth = Math.max(1, s * 0.025);
+    ctx.lineJoin = "round";
     ctx.beginPath();
-    ctx.arc(0, 0, s * 0.2, 0, TAU);
+    ctx.moveTo(w * 0.2, -h * 0.84);
+    ctx.lineTo(w * 0.15, -h * 0.72);
+    ctx.lineTo(w * 0.22, -h * 0.64);
+    ctx.moveTo(-w * 0.27, -h * 0.4);
+    ctx.lineTo(-w * 0.22, -h * 0.3);
     ctx.stroke();
   }
-}
 
-function drawTesla(ctx: Ctx, level: Level, p: TowerPose, s: number, time: number) {
-  const rings = 3 + level;
-  const copper = level === 2 ? "#fbbf24" : "#d97706";
-  // Pole
-  ctx.fillStyle = "#44403c";
-  ctx.fillRect(-s * 0.035, -s * 0.32, s * 0.07, s * 0.36);
-  // Coils
-  for (let i = 0; i < rings; i++) {
-    const ry = s * 0.08 - i * s * (0.24 / rings);
-    const rw = s * (0.19 - i * 0.022);
-    ctx.fillStyle = shadeHex(copper, -0.35);
-    ctx.beginPath();
-    ctx.ellipse(0, ry + s * 0.02, rw, rw * 0.38, 0, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = copper;
-    ctx.beginPath();
-    ctx.ellipse(0, ry, rw, rw * 0.38, 0, 0, TAU);
-    ctx.fill();
-  }
-  // Orb
-  const pulse = 0.5 + 0.5 * Math.sin(time * 6);
-  const orbR = s * (0.1 + level * 0.015);
-  const oy = -s * 0.32;
-  ctx.save();
-  ctx.globalAlpha = 0.35 + pulse * 0.25 + Math.min(1, p.flash / 0.05) * 0.4;
-  circle(ctx, 0, oy, orbR * 2, "#fef08a");
-  ctx.restore();
-  const grad = ctx.createRadialGradient(-orbR * 0.3, oy - orbR * 0.3, 0, 0, oy, orbR);
-  grad.addColorStop(0, "#ffffff");
-  grad.addColorStop(0.5, "#fde047");
-  grad.addColorStop(1, "#ca8a04");
-  ctx.fillStyle = grad;
+  // Flag
+  const fy = -h * 0.86 - s * 0.07;
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = Math.max(1.25, s * 0.035);
+  ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.arc(0, oy, orbR, 0, TAU);
+  ctx.moveTo(0, fy);
+  ctx.lineTo(0, fy - s * 0.4);
+  ctx.stroke();
+  const wave = Math.sin(time * 5) * s * 0.035;
+  ctx.beginPath();
+  ctx.moveTo(0, fy - s * 0.4);
+  ctx.quadraticCurveTo(s * 0.14, fy - s * 0.36 + wave, s * 0.3, fy - s * 0.31 - wave * 0.5);
+  ctx.quadraticCurveTo(s * 0.14, fy - s * 0.24 - wave, 0, fy - s * 0.2);
+  ctx.closePath();
+  ctx.fillStyle = frac > 0.35 ? "#ef4444" : "#991b1b";
   ctx.fill();
-  // Idle crackle
-  const rnd = mulberry32(Math.floor(time * 12));
-  if (rnd() < 0.6) {
-    ctx.strokeStyle = "rgba(254,249,195,0.9)";
-    ctx.lineWidth = Math.max(1, s * 0.02);
-    ctx.beginPath();
-    const a = rnd() * TAU;
-    let px = Math.cos(a) * orbR;
-    let py = oy + Math.sin(a) * orbR;
-    ctx.moveTo(px, py);
-    for (let i = 0; i < 3; i++) {
-      px += Math.cos(a) * s * 0.05 + (rnd() - 0.5) * s * 0.06;
-      py += Math.sin(a) * s * 0.05 + (rnd() - 0.5) * s * 0.06;
-      ctx.lineTo(px, py);
-    }
-    ctx.stroke();
-  }
+  ink(ctx, s, 0.75);
+  ctx.restore();
 }
 
 // ─── Enemies ──────────────────────────────────────────────────────────────────
@@ -1320,13 +954,13 @@ function bodyPath(ctx: Ctx, type: EnemyType, r: number, squash: number) {
   switch (type) {
     case "tank":
       ctx.roundRect(-rx, -ry, rx * 2, ry * 2, r * 0.45);
-      break;
+      return;
     case "swarm":
       ctx.ellipse(0, 0, rx * 1.1, ry * 0.85, 0, 0, TAU);
-      break;
+      return;
     case "flyer":
       ctx.ellipse(0, 0, rx, ry * 0.92, 0, 0, TAU);
-      break;
+      return;
     case "shade": {
       // Ghost: domed head, ragged hem
       ctx.moveTo(-rx, ry);
@@ -1339,10 +973,10 @@ function bodyPath(ctx: Ctx, type: EnemyType, r: number, squash: number) {
     }
     case "jammer":
       ctx.roundRect(-rx * 0.95, -ry * 0.85, rx * 1.9, ry * 1.8, r * 0.32);
-      break;
+      return;
     case "splitter":
       ctx.roundRect(-rx * 1.12, -ry * 0.95, rx * 2.24, ry * 1.9, r * 0.8);
-      break;
+      return;
     case "fast":
       ctx.moveTo(-rx, ry * 0.3);
       ctx.quadraticCurveTo(-rx, -ry, 0, -ry);
@@ -1361,6 +995,9 @@ function bodyPath(ctx: Ctx, type: EnemyType, r: number, squash: number) {
   ctx.closePath();
 }
 
+/** How the enemy being drawn right now is feeling (set by drawEnemySprite). */
+const FACE = { hurt: false, scared: false, frozen: false, blink: false, time: 0 };
+
 function eyes(
   ctx: Ctx,
   r: number,
@@ -1368,26 +1005,23 @@ function eyes(
   lookY: number,
   opts: { size?: number; angry?: boolean; y?: number; spread?: number },
 ) {
-  const size = r * (opts.size ?? 0.27);
-  const spread = r * (opts.spread ?? 0.36);
-  const ey = r * (opts.y ?? -0.18);
-  for (const side of [-1, 1]) {
-    const ex = side * spread + lookX * r * 0.12;
-    const yy = ey + lookY * r * 0.08;
-    circle(ctx, ex, yy, size, "#ffffff");
-    circle(ctx, ex + lookX * size * 0.35, yy + lookY * size * 0.35, size * 0.55, "#111827");
-    circle(ctx, ex + lookX * size * 0.35 - size * 0.18, yy + lookY * size * 0.35 - size * 0.2, size * 0.18, "#ffffff");
-    if (opts.angry) {
-      ctx.strokeStyle = "#111827";
-      ctx.lineWidth = Math.max(1, r * 0.12);
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(ex - side * size * 1.1, yy - size * 1.35);
-      ctx.lineTo(ex + side * size * 0.9, yy - size * 0.85);
-      ctx.stroke();
-    }
-  }
+  const mood: Mood = FACE.hurt ? "hurt" : FACE.scared ? "worried" : opts.angry ? "angry" : "calm";
+  drawEyes(ctx, {
+    x: lookX * r * 0.1,
+    y: r * (opts.y ?? -0.18) + lookY * r * 0.06,
+    r: r * (opts.size ?? 0.27) * 1.08,
+    spread: r * (opts.spread ?? 0.36),
+    lookX,
+    lookY,
+    mood,
+    // Frozen solid: eyes stuck wide open.
+    blink: FACE.blink && !FACE.frozen,
+    time: FACE.time,
+  });
 }
+
+/** Sizes are drawn a little larger than the hit radius so faces stay readable. */
+const ENEMY_SCALE = 1.12;
 
 export function drawEnemySprite(
   ctx: Ctx,
@@ -1409,10 +1043,19 @@ export function drawEnemySprite(
     frozen?: boolean;
     /** 0..1, how worked up a Rager is. */
     rage?: number;
+    /** Health left, 0..1. Nearly beaten enemies look worried. */
+    hpFrac?: number;
+    /** Seconds since it came out of the portal (for the pop-in). */
+    age?: number;
   } = {},
 ) {
   const def = ENEMIES[type];
-  const r = def.radius * s;
+  const r = def.radius * s * ENEMY_SCALE;
+  FACE.hurt = (opts.hitFlash ?? 0) > 0.045;
+  FACE.scared = (opts.hpFrac ?? 1) < 0.35 && type !== "boss" && type !== "emperor" && type !== "charger";
+  FACE.frozen = !!opts.frozen;
+  FACE.blink = blinking(time, opts.seed ?? 0);
+  FACE.time = time;
   const dirX = opts.dirX ?? 1;
   const dirY = opts.dirY ?? 0;
   const phase = time * (opts.speed ?? 2) * 3.2 + (opts.seed ?? 0);
@@ -1440,6 +1083,10 @@ export function drawEnemySprite(
   ctx.save();
   if (opts.hidden) ctx.globalAlpha = 0.3;
   ctx.translate(x, y - hop - lift);
+  if (opts.age !== undefined && opts.age < 0.3) {
+    const pop = easeOutBack(opts.age / 0.3);
+    ctx.scale(pop, pop);
+  }
 
   // A Rager's temper shows as a growing red glow.
   if (opts.rage && opts.rage > 0.05) {
@@ -1581,44 +1228,42 @@ export function drawEnemySprite(
     }
   }
 
-  // Body
-  bodyPath(ctx, type, r, squash);
-  const grad = ctx.createRadialGradient(-r * 0.4, -r * 0.5, r * 0.1, 0, 0, r * 1.2);
-  grad.addColorStop(0, shadeHex(def.body, 0.5));
-  grad.addColorStop(0.55, def.body);
-  grad.addColorStop(1, def.shade);
-  ctx.fillStyle = grad;
-  ctx.fill();
-  ctx.strokeStyle = def.shade;
-  ctx.lineWidth = Math.max(1, s * 0.035);
-  ctx.stroke();
-  // Shine
-  ctx.fillStyle = "rgba(255,255,255,0.45)";
-  ctx.beginPath();
-  ctx.ellipse(-r * 0.4, -r * 0.5, r * 0.18, r * 0.11, -0.6, 0, TAU);
-  ctx.fill();
+  // Little feet that take turns (ghosts, bugs and flyers go without)
+  if (!flying && type !== "shade" && type !== "swarm") {
+    for (const side of [-1, 1]) {
+      const step = Math.max(0, Math.sin(phase + (side > 0 ? Math.PI : 0)));
+      ctx.beginPath();
+      ctx.ellipse(side * r * 0.42, r * (0.92 - step * 0.22) / squash, r * 0.3, r * 0.17, 0, 0, TAU);
+      ctx.fillStyle = def.shade;
+      ctx.fill();
+      ink(ctx, s, 0.75);
+    }
+  }
+
+  // Body: flat colour, one shadow, one highlight, ink outline
+  cel(ctx, () => bodyPath(ctx, type, r, squash), def.body, s, { w: r * 2.3, h: r * 2.3, outline: 0.95 });
 
   // Type-specific features on top of the body
   const lookX = dirX;
   const lookY = dirY;
   switch (type) {
     case "normal":
+      cheeks(ctx, lookX * r * 0.1, r * 0.2, r * 0.62, r * 0.15);
       eyes(ctx, r, lookX, lookY, {});
-      ctx.strokeStyle = "#14532d";
-      ctx.lineWidth = Math.max(1, r * 0.1);
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.arc(lookX * r * 0.1, r * 0.15, r * 0.2, 0.2 * Math.PI, 0.8 * Math.PI);
-      ctx.stroke();
+      drawMouth(ctx, lookX * r * 0.12, r * 0.38, r * 0.42, FACE.hurt ? "o" : FACE.scared ? "frown" : "grin");
       break;
     case "fast":
       eyes(ctx, r, lookX, lookY, { angry: true, size: 0.25 });
+      drawMouth(ctx, lookX * r * 0.12, r * 0.4, r * 0.36, FACE.hurt ? "o" : "grit");
       break;
     case "swarm":
       eyes(ctx, r, lookX, lookY, { size: 0.3, spread: 0.38, y: -0.1 });
+      drawMouth(ctx, lookX * r * 0.1, r * 0.42, r * 0.3, FACE.hurt ? "o" : "smile");
       break;
     case "mini":
+      cheeks(ctx, lookX * r * 0.1, r * 0.25, r * 0.62, r * 0.15);
       eyes(ctx, r, lookX, lookY, { size: 0.3, y: -0.1 });
+      drawMouth(ctx, lookX * r * 0.1, r * 0.42, r * 0.34, FACE.hurt || FACE.scared ? "o" : "grin");
       break;
     case "shade":
       // Blank glowing eyes and a small round mouth
@@ -1723,6 +1368,7 @@ export function drawEnemySprite(
       }
       break;
     case "healer":
+      cheeks(ctx, lookX * r * 0.1, -r * 0.05, r * 0.66, r * 0.13);
       eyes(ctx, r, lookX, lookY, { size: 0.24, y: -0.3 });
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(-r * 0.09, r * 0.02, r * 0.18, r * 0.5);
@@ -1789,6 +1435,22 @@ export function drawEnemySprite(
       circle(ctx, r * 0.3, cy + r * 0.05, r * 0.06, "#22c55e");
       break;
     }
+  }
+
+  // Nearly beaten: a bead of sweat
+  if (FACE.scared && !opts.frozen) {
+    const fall = (time * 1.4 + (opts.seed ?? 0)) % 1;
+    ctx.save();
+    ctx.globalAlpha *= 1 - fall * 0.6;
+    ctx.translate(r * 0.85, -r * 0.75 + fall * r * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 0.26);
+    ctx.quadraticCurveTo(r * 0.2, r * 0.05, 0, r * 0.14);
+    ctx.quadraticCurveTo(-r * 0.2, r * 0.05, 0, -r * 0.26);
+    ctx.fillStyle = "#7dd3fc";
+    ctx.fill();
+    ink(ctx, s, 0.5);
+    ctx.restore();
   }
 
   // Frozen tint
@@ -1860,10 +1522,12 @@ function drawEnemy(ctx: Ctx, e: Enemy, s: number, time: number) {
     burning: e.burnUntil > time,
     frozen: e.stunUntil > time,
     rage: def.enrage ? 1 - Math.max(0, e.hp) / e.maxHp : 0,
+    hpFrac: Math.max(0, e.hp) / e.maxHp,
+    age: time - e.born,
   });
   // Health bar
   if (e.hp < e.maxHp && !(def.stealth && !e.revealed)) {
-    const r = ENEMIES[e.type].radius * s;
+    const r = ENEMIES[e.type].radius * s * ENEMY_SCALE;
     const w = Math.max(s * 0.5, r * 1.8);
     const h = Math.max(3, s * 0.08);
     const bx = x - w / 2;
@@ -2064,6 +1728,29 @@ function drawParticle(ctx: Ctx, p: Particle, s: number) {
       ctx.stroke();
       break;
     }
+    case "coin": {
+      // A little gold coin, spinning as it arcs up and drops
+      const rad = Math.max(2.5, p.size * s);
+      ctx.globalAlpha = Math.min(1, a * 3);
+      ctx.beginPath();
+      ctx.ellipse(x, y, rad * (0.35 + 0.65 * Math.abs(Math.cos(p.life * 14 + p.vx))), rad, 0, 0, TAU);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+      ctx.strokeStyle = "#a16207";
+      ctx.lineWidth = Math.max(1, s * 0.025);
+      ctx.stroke();
+      break;
+    }
+    case "star":
+      starPath(ctx, x, y, p.size * s * (0.5 + a * 0.7), p.life * 6);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+      break;
+    case "puff":
+      // Cartoon dust cloud: grows as it fades
+      ctx.globalAlpha = a * 0.75;
+      circle(ctx, x, y, p.size * s * (0.35 + (1 - a) * 0.55), p.color);
+      break;
     case "text": {
       const fs = Math.max(11, p.size * s);
       ctx.font = `900 ${fs}px Inter, system-ui, sans-serif`;
@@ -2220,25 +1907,26 @@ function drawBeaconLight(ctx: Ctx, g: Game, s: number, strong: boolean) {
 /** A tower a Jinx has switched off: dimmed, with a crackle of static. */
 function drawJammed(ctx: Ctx, x: number, y: number, s: number, now: number) {
   ctx.save();
-  ctx.fillStyle = "rgba(15,23,42,0.5)";
-  ctx.beginPath();
-  ctx.roundRect(x - s * 0.4, y - s * 0.4, s * 0.8, s * 0.86, s * 0.14);
-  ctx.fill();
-  const rnd = mulberry32(Math.floor(now * 14) + Math.round(x * 7 + y * 13));
-  ctx.strokeStyle = "#fde047";
-  ctx.lineWidth = Math.max(1.5, s * 0.05);
+  const rnd = mulberry32(Math.floor(now * 10) + Math.round(x * 7 + y * 13));
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  for (let k = 0; k < 2; k++) {
+  // One crackle of static across the tower, drawn ink-then-yellow so it reads on any colour
+  const pts: [number, number][] = [];
+  let px = x + (rnd() - 0.5) * s * 0.5;
+  let py = y - s * 0.3;
+  for (let i = 0; i < 5; i++) {
+    pts.push([px, py]);
+    px += (rnd() - 0.5) * s * 0.34;
+    py += s * 0.15;
+  }
+  for (const [color, width] of [
+    [INK, 0.085],
+    ["#fde047", 0.045],
+  ] as const) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1.5, s * width);
     ctx.beginPath();
-    let px = x + (rnd() - 0.5) * s * 0.6;
-    let py = y - s * 0.34;
-    ctx.moveTo(px, py);
-    for (let i = 0; i < 4; i++) {
-      px += (rnd() - 0.5) * s * 0.3;
-      py += s * 0.17;
-      ctx.lineTo(px, py);
-    }
+    pts.forEach(([qx, qy], i) => (i ? ctx.lineTo(qx, qy) : ctx.moveTo(qx, qy)));
     ctx.stroke();
   }
   ctx.restore();
@@ -2364,6 +2052,123 @@ export interface RenderOpts {
   aim: { x: number; y: number } | null;
 }
 
+// ─── Tower sprite cache ───────────────────────────────────────────────────────
+//
+// The tower characters are the most detailed things on the board, and a late
+// maze can have dozens of them. Each tower therefore keeps its own small
+// off-screen picture, which is only repainted when the tower visibly changes:
+// it turns, fires, changes mood, or its idle animation ticks over (20 times a
+// second, staggered so the towers don't all repaint on the same frame).
+// Everything else on the board still animates on every frame.
+
+const TOWER_FPS = 20;
+/**
+ * How much room each character needs around its cell centre, in cells:
+ * [to each side, above, below]. Long barrels need width, lighthouses height.
+ */
+const SPRITE_BOX: Record<TowerType, [number, number, number]> = {
+  blaster: [1.0, 0.95, 0.9],
+  frost: [0.65, 0.95, 0.62],
+  bomb: [0.95, 0.95, 0.88],
+  sniper: [1.08, 0.95, 1.0],
+  tesla: [0.65, 0.95, 0.62],
+  beacon: [0.78, 1.22, 0.62],
+  mine: [0.6, 0.8, 0.62],
+};
+const AIM_STEP = TAU / 72;
+
+const towerSprites = new Map<number, { canvas: HTMLCanvasElement; key: string }>();
+const spareCanvases: HTMLCanvasElement[] = [];
+
+function drawTowerCached(ctx: Ctx, t: Tower, x: number, y: number, s: number, time: number) {
+  const age = time - t.born;
+  const cheer = time - t.pulse;
+  const idle = Math.max(0, -t.cooldown);
+  const jammed = t.jamUntil > time;
+  const m = typeof document === "undefined" ? null : ctx.getTransform();
+  const scale = m && m.b === 0 && m.c === 0 && m.a === m.d ? m.a : 0;
+  // Popping in or cheering: those are quick, bouncy moves, so draw them live.
+  if (!m || scale <= 0 || age < 0.45 || cheer < 0.75) {
+    drawTower(
+      ctx,
+      t.type,
+      t.level,
+      { angle: t.angle, recoil: t.recoil, flash: t.flash, idle, jammed, age, cheer, seed: t.id },
+      x,
+      y,
+      s,
+      time + t.id,
+      t.spec,
+    );
+    return;
+  }
+
+  // Round the pose off to what you can actually see.
+  const aim = Math.round(t.angle / AIM_STEP);
+  const recoil = t.recoil > 0.6 ? 1 : t.recoil > 0.15 ? 0.5 : 0;
+  const flash = t.flash > 0.02 ? 0.06 : 0;
+  const rest = idle > 9 ? 10 : idle > 2.5 ? 3 : 0;
+  const phase = (t.id * 0.618) % 1;
+  const tick = Math.floor((time + t.id) * TOWER_FPS + phase);
+  // Keep the picture pixel-sharp wherever the cell centre lands.
+  const px = x * scale;
+  const py = y * scale;
+  const fx = Math.round((px - Math.floor(px)) * 4) / 4;
+  const fy = Math.round((py - Math.floor(py)) * 4) / 4;
+  const key = `${t.type}|${t.level}|${t.spec}|${s}|${scale}|${aim}|${recoil}|${flash}|${rest}|${jammed ? 1 : 0}|${tick}|${fx}|${fy}`;
+
+  const [side, above, below] = SPRITE_BOX[t.type];
+  const ox = Math.ceil(side * s * scale);
+  const oy = Math.ceil(above * s * scale);
+  const w = ox * 2 + 1;
+  const h = oy + Math.ceil(below * s * scale) + 1;
+  let sprite = towerSprites.get(t.id);
+  if (!sprite) {
+    sprite = { canvas: spareCanvases.pop() ?? document.createElement("canvas"), key: "" };
+    towerSprites.set(t.id, sprite);
+  }
+  if (sprite.key !== key) {
+    const canvas = sprite.canvas;
+    const sctx = canvas.getContext("2d");
+    if (!sctx) return;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    } else {
+      sctx.setTransform(1, 0, 0, 1, 0, 0);
+      sctx.clearRect(0, 0, w, h);
+    }
+    sctx.setTransform(scale, 0, 0, scale, ox + fx, oy + fy);
+    drawTower(
+      sctx,
+      t.type,
+      t.level,
+      { angle: aim * AIM_STEP, recoil, flash, idle: rest, jammed, age: 9, cheer: 9, seed: t.id },
+      0,
+      0,
+      s,
+      (tick - phase) / TOWER_FPS,
+      t.spec,
+    );
+    sprite.key = key;
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(sprite.canvas, Math.floor(px) + m.e - ox, Math.floor(py) + m.f - oy);
+  ctx.restore();
+}
+
+/** Hand back the pictures of towers that have been sold, ready for the next one. */
+function pruneTowerSprites(g: Game) {
+  if (towerSprites.size <= g.towers.length) return;
+  const alive = new Set(g.towers.map((t) => t.id));
+  for (const [id, sprite] of towerSprites) {
+    if (alive.has(id)) continue;
+    towerSprites.delete(id);
+    if (spareCanvases.length < 24) spareCanvases.push(sprite.canvas);
+  }
+}
+
 export function renderFrame(ctx: Ctx, g: Game, o: RenderOpts) {
   const { s } = o;
   const time = g.time;
@@ -2406,13 +2211,16 @@ export function renderFrame(ctx: Ctx, g: Game, o: RenderOpts) {
     ctx.restore();
   }
 
-  for (const t of g.towers) {
+  // Back row first, so a tall character overlaps the one behind it.
+  const towers = g.towers.length > 1 ? [...g.towers].sort((a, b) => a.r - b.r) : g.towers;
+  for (const t of towers) {
     const x = (t.c + 0.5) * s;
     const y = (t.r + 0.5) * s;
-    drawTower(ctx, t.type, t.level, t, x, y, s, time + t.id, t.spec);
+    drawTowerCached(ctx, t, x, y, s, time);
     if (t.onHill) drawHillBadge(ctx, x + s * 0.32, y - s * 0.32, s);
     if (t.jamUntil > time) drawJammed(ctx, x, y, s, now);
   }
+  pruneTowerSprites(g);
   if (o.selected) {
     const t = o.selected;
     ctx.save();
@@ -2428,7 +2236,7 @@ export function renderFrame(ctx: Ctx, g: Game, o: RenderOpts) {
   const enemies = [...g.enemies].sort((a, b) => Number(a.flying) - Number(b.flying) || a.y - b.y);
   for (const e of enemies) if (!e.flying) drawEnemy(ctx, e, s, time);
 
-  for (const exit of g.exits) drawCastle(ctx, s, now, g.lives, g.maxLives, exit);
+  for (const exit of g.exits) drawCastle(ctx, s, now, g.lives, g.maxLives, exit, time - g.hurtAt);
   for (const e of enemies) if (e.flying) drawEnemy(ctx, e, s, time);
 
   for (const p of g.projectiles) drawProjectile(ctx, p, s, time);

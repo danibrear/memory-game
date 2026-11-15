@@ -820,12 +820,27 @@ function Battle({
     let raf = 0;
     let last = performance.now();
     let acc = 0;
+    // Keeps play smooth on slower tablets: if frames keep arriving late, the
+    // board is drawn with fewer pixels (it stays the same size on screen).
+    let quality = 1;
+    let frameMs = 16;
+    let lateFor = 0;
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
       const g = gameRef.current!;
       const L = live.current;
-      const dt = Math.min(0.1, (now - last) / 1000);
+      const elapsed = now - last;
+      const dt = Math.min(0.1, elapsed / 1000);
       last = now;
+      if (elapsed < 250 && !document.hidden) {
+        frameMs = frameMs * 0.9 + elapsed * 0.1;
+        lateFor = frameMs > 26 ? lateFor + elapsed : 0;
+        if (lateFor > 2500 && quality > 0.5) {
+          quality -= 0.25;
+          lateFor = 0;
+          frameMs = 16;
+        }
+      }
       if (!L.paused) {
         acc += dt * L.speed;
         let steps = 0;
@@ -848,7 +863,8 @@ function Battle({
       const ctx = canvas?.getContext("2d");
       if (canvas && ctx) {
         const s = L.cs;
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = Math.max(1, (window.devicePixelRatio || 1) * quality);
+        if (canvas.dataset.quality !== String(quality)) canvas.dataset.quality = String(quality);
         const pw = Math.round(COLS * s * dpr);
         const ph = Math.round(ROWS * s * dpr);
         if (canvas.width !== pw || canvas.height !== ph) {

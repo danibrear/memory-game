@@ -87,6 +87,8 @@ export interface Enemy {
   abilityTimer: number;
   /** Speed multiplier that grows each time the maze is opened up mid-wave. */
   haste: number;
+  /** Game time it appeared (for the pop out of the portal). */
+  born: number;
 }
 
 export interface Tower {
@@ -116,6 +118,9 @@ export interface Tower {
   shielded: boolean;
   /** Waves started when this was built (mines pay from the wave after). */
   builtWave: number;
+  /** Game time it was built, and last upgraded (for the pop-in and the cheer). */
+  born: number;
+  pulse: number;
 }
 
 export interface Projectile {
@@ -146,7 +151,7 @@ export interface Bolt {
   level: Level;
 }
 
-export type ParticleKind = "spark" | "smoke" | "ring" | "shard" | "text" | "blob";
+export type ParticleKind = "spark" | "smoke" | "ring" | "shard" | "text" | "blob" | "coin" | "star" | "puff";
 
 export interface Particle {
   kind: ParticleKind;
@@ -267,6 +272,8 @@ export interface Game {
   /** Fades out after a Cold Snap (for the screen tint). */
   frost: number;
   shake: number;
+  /** Game time an enemy last reached a castle (the castle flinches). */
+  hurtAt: number;
   banner: Banner | null;
   sfx: Sfx[];
   nextId: number;
@@ -464,6 +471,7 @@ export function createGame(map: MapDef, difficulty: Difficulty): Game {
     bounty: 0,
     frost: 0,
     shake: 0,
+    hurtAt: -99,
     banner: null,
     sfx: [],
     nextId: 1,
@@ -706,6 +714,8 @@ export function placeTower(
     buffRange: 0,
     shielded: false,
     builtWave: g.wave,
+    born: g.time,
+    pulse: -99,
   };
   g.towers.push(tower);
   refreshAuras(g);
@@ -727,6 +737,7 @@ export function upgradeTower(g: Game, id: number): boolean {
   g.gold -= cost;
   t.spent += cost;
   t.level = (t.level + 1) as Level;
+  t.pulse = g.time;
   refreshAuras(g);
   burst(g, t.c, t.r, 18, "#fde047", 0.07, 4, "spark");
   g.particles.push(ring(t.c, t.r, "#fde047", 0.9, 0.45));
@@ -746,6 +757,7 @@ export function chooseSpec(g: Game, id: number, spec: 0 | 1): boolean {
   g.gold -= cost;
   t.spent += cost;
   t.spec = spec;
+  t.pulse = g.time;
   refreshAuras(g);
   burst(g, t.c, t.r, 26, TOWERS[t.type].accent, 0.08, 4.5, "spark");
   g.particles.push(ring(t.c, t.r, "#ffffff", 1.2, 0.55));
@@ -931,9 +943,45 @@ function burst(
       maxLife: life,
       size: size * (0.6 + Math.random() * 0.8),
       color,
-      gravity: kind === "blob" || kind === "shard" ? 6 : 0,
+      gravity: kind === "blob" || kind === "shard" ? 6 : kind === "star" ? 3 : 0,
     });
   }
+}
+
+/** Coins that jump out of a beaten enemy, a puff of dust and a few stars. */
+function loot(g: Game, x: number, y: number, gold: number, size: number) {
+  const coins = gold <= 0 ? 0 : Math.min(6, 1 + Math.floor(gold / 25));
+  for (let i = 0; i < coins; i++) {
+    const life = 0.55 + Math.random() * 0.25;
+    g.particles.push({
+      kind: "coin",
+      x,
+      y,
+      vx: (Math.random() - 0.5) * 3.2,
+      vy: -(2.6 + Math.random() * 2.2),
+      life,
+      maxLife: life,
+      size: 0.1,
+      color: "#facc15",
+      gravity: 11,
+    });
+  }
+  for (let i = 0; i < 3; i++) {
+    const a = Math.random() * Math.PI * 2;
+    g.particles.push({
+      kind: "puff",
+      x: x + Math.cos(a) * size * 0.5,
+      y: y + Math.sin(a) * size * 0.4,
+      vx: Math.cos(a) * 0.8,
+      vy: Math.sin(a) * 0.5 - 0.5,
+      life: 0.45,
+      maxLife: 0.45,
+      size: size * (0.7 + Math.random() * 0.4),
+      color: "#ffffff",
+      gravity: 0,
+    });
+  }
+  burst(g, x, y, 4, "#fff7ad", 0.11, 3.4, "star");
 }
 
 function floatText(g: Game, x: number, y: number, text: string, color: string) {
@@ -1292,6 +1340,7 @@ function spawnEnemy(g: Game, entry: SpawnEntry) {
     stunImmuneUntil: 0,
     abilityTimer: abilityDelay(entry.type),
     haste: 1,
+    born: g.time,
   });
 }
 
@@ -1330,6 +1379,7 @@ function offspring(g: Game, parent: Enemy, type: EnemyType, back: number, paysGo
     stunUntil: 0,
     stunImmuneUntil: 0,
     abilityTimer: abilityDelay(type),
+    born: g.time,
   };
 }
 
@@ -1455,6 +1505,7 @@ function updateEnemies(g: Game, dt: number) {
     }
     g.enemies = g.enemies.filter((e) => !escaped.has(e.id));
     g.shake = Math.max(g.shake, 0.2);
+    g.hurtAt = g.time;
     g.sfx.push("leak");
   }
   if (hatched.length) g.enemies.push(...hatched);
@@ -1589,8 +1640,9 @@ function collectKills(g: Game) {
     const def = ENEMIES[e.type];
     const gold = Math.round(e.reward * (1 + g.bounty));
     g.gold += gold;
-    burst(g, e.x, e.y, 10 + Math.round(def.radius * 20), def.body, 0.1, 3, "blob");
+    burst(g, e.x, e.y, 6 + Math.round(def.radius * 14), def.body, 0.1, 3, "blob");
     g.particles.push(ring(e.x, e.y, "#ffffff", def.radius * 1.6, 0.25));
+    loot(g, e.x, e.y, gold, def.radius);
     if (gold) floatText(g, e.x, e.y - 0.3, `+${gold}`, "#fde047");
     if (e.type === "boss" || e.type === "emperor") g.shake = Math.max(g.shake, e.type === "emperor" ? 0.6 : 0.3);
     alive.push(...spawnChildren(g, e));
@@ -1619,5 +1671,5 @@ function updateEffects(g: Game, dt: number) {
     }
   }
   g.particles = g.particles.filter((p) => p.life > 0);
-  if (g.particles.length > 400) g.particles.splice(0, g.particles.length - 400);
+  if (g.particles.length > 450) g.particles.splice(0, g.particles.length - 450);
 }
