@@ -633,6 +633,10 @@ export const CHEST_MS = 5 * 60 * 1000;
 export const PAT_COOLDOWN = 6;
 export const SUGAR_RUSH_TIME = 4;
 export const SUGAR_RUSH_BOOST = 1.35;
+/** A bumped lollipop needs this long to grow its sparkle back. */
+export const LOLLIPOP_COOLDOWN = 12;
+/** How close you have to walk before a lollipop shows its speed badge (and the one-time tip). */
+export const LOLLIPOP_NEAR = 170;
 export const SECRET_STAR_REWARD = 3;
 export const IDLE_SLEEP_AFTER = 25;
 

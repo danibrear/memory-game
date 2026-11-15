@@ -13,6 +13,8 @@ import {
   GATE_W,
   HOME_TOP,
   HUT,
+  LOLLIPOP_COOLDOWN,
+  LOLLIPOP_NEAR,
   PAD_Y,
   PEN,
   RARITIES,
@@ -1345,6 +1347,81 @@ function drawBillboard(ctx: Ctx, g: Game, t: number, wob = 0) {
       0,
       top + h - 19,
     );
+  }
+  ctx.restore();
+}
+
+/**
+ * A Candy Canyon lollipop that shows what it's for. Bumping one gives a Sugar Rush, so a
+ * ready one glows and twinkles, and grows a little speed badge as you walk up to it. A
+ * used one fades, and its colour sweeps back round like a clock while it recharges.
+ * `cool` is the seconds left before it works again; `near` is 0 far away and 1 beside it.
+ */
+function drawLollipop(ctx: Ctx, s: Solid, wob: number, cool: number, near: number, t: number) {
+  const r = s.r;
+  const headY = -r * 2.6;
+  const ready = cool <= 0;
+  const tilt = wob > 0 ? Math.sin(wob * 20) * wob * 0.13 : 0;
+  // A slow breath, each lollipop on its own beat.
+  const pulse = (Math.sin(t * 2.6 + s.seed * 40) + 1) / 2;
+
+  if (ready) {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(tilt);
+    const glowR = r * (1.85 + 0.25 * pulse);
+    const glow = ctx.createRadialGradient(0, headY, r * 0.9, 0, headY, glowR);
+    glow.addColorStop(0, `rgba(255, 255, 255, ${0.5 + 0.2 * pulse})`);
+    glow.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = glow;
+    ellipse(ctx, 0, headY, glowR, glowR);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  drawSolid(ctx, s, wob);
+
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.rotate(tilt);
+  if (ready) {
+    sparkles(ctx, 0, headY + r * 1.5, r * 3.3, t, s.seed * 40);
+    if (near > 0.02) {
+      // The speed badge: the same bolt as the Speed chip, bobbing just above the candy.
+      const pop = Math.min(1, near * 2.4);
+      const by = headY - r * (2.15 + 0.12 * Math.sin(t * 4 + s.seed * 40));
+      const br = r * 0.9 * (0.6 + 0.4 * pop);
+      ctx.globalAlpha = pop;
+      ctx.fillStyle = "rgba(20, 16, 50, 0.2)";
+      ellipse(ctx, 0, by + 3, br, br);
+      ctx.fill();
+      ctx.fillStyle = "#ffffff";
+      ellipse(ctx, 0, by, br, br);
+      ctx.fill();
+      ctx.strokeStyle = "#fbbf24";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.fillStyle = "#f59e0b";
+      ctx.beginPath();
+      ctx.moveTo(br * 0.16, by - br * 0.66);
+      ctx.lineTo(-br * 0.42, by + br * 0.1);
+      ctx.lineTo(-br * 0.04, by + br * 0.1);
+      ctx.lineTo(-br * 0.18, by + br * 0.66);
+      ctx.lineTo(br * 0.42, by - br * 0.14);
+      ctx.lineTo(br * 0.04, by - br * 0.14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  } else {
+    // Washed out where it hasn't recharged yet; the wedge shrinks clockwise as it comes back.
+    const left = Math.min(1, cool / LOLLIPOP_COOLDOWN);
+    ctx.fillStyle = "rgba(255, 244, 250, 0.74)";
+    ctx.beginPath();
+    ctx.moveTo(0, headY);
+    ctx.arc(0, headY, r * 1.07, -Math.PI / 2 + (1 - left) * TAU, -Math.PI / 2 + TAU);
+    ctx.closePath();
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -3493,7 +3570,10 @@ export function render(
     if (s.seed === -1) items.push({ y: s.y, draw: () => drawHouse(ctx, g, g.wob[i], t, now) });
     else if (s.seed === -2) items.push({ y: s.y, draw: () => drawChest(ctx, g, t) });
     else if (s.seed === -3) items.push({ y: s.y, draw: () => drawBillboard(ctx, g, t, g.wob[i]) });
-    else items.push({ y: s.y, draw: () => drawSolid(ctx, s, g.wob[i]) });
+    else if (s.kind === "lollipop") {
+      const near = 1 - Math.min(1, Math.hypot(s.x - g.player.x, s.y - g.player.y) / LOLLIPOP_NEAR);
+      items.push({ y: s.y, draw: () => drawLollipop(ctx, s, g.wob[i], g.cool[i], near, t) });
+    } else items.push({ y: s.y, draw: () => drawSolid(ctx, s, g.wob[i]) });
   });
 
   for (const d of MINIS) {

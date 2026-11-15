@@ -97,6 +97,8 @@ import {
   RIPEN_TIME,
   SECRET_STAR_REWARD,
   SELL_SECONDS,
+  LOLLIPOP_COOLDOWN,
+  LOLLIPOP_NEAR,
   SUGAR_RUSH_BOOST,
   SUGAR_RUSH_TIME,
   TAP_BOOST,
@@ -560,6 +562,7 @@ export type GameEvent =
   | { type: "gotPower"; kind: PowerupId }
   | { type: "power"; kind: PowerupId }
   | { type: "powerHint" }
+  | { type: "lollipopHint" }
   | { type: "powerEgg"; id: PowerEggId; isNew: boolean }
   | { type: "freeze" }
   | { type: "ancientReady"; biome: number }
@@ -2094,7 +2097,7 @@ function bump(g: Game, idx: number) {
   switch (s.kind) {
     case "lollipop":
       if (g.cool[idx] <= 0) {
-        g.cool[idx] = 12;
+        g.cool[idx] = LOLLIPOP_COOLDOWN;
         p.rushT = SUGAR_RUSH_TIME;
         g.stats.sugar++;
         popup(g, p.x, p.y - 74, "Sugar rush!", "#ec4899", true);
@@ -2218,6 +2221,11 @@ function movePlayer(g: Game, dt: number, input: Input) {
   for (let i = 0; i < g.solids.length; i++) {
     const s = g.solids[i];
     if (Math.abs(s.y - next.y) > 110) continue;
+    // The first lollipop you walk up to explains itself, once.
+    if (s.kind === "lollipop" && !g.flags.tipLolly && Math.hypot(s.x - next.x, s.y - next.y) < LOLLIPOP_NEAR) {
+      g.flags.tipLolly = 1;
+      emit(g, { type: "lollipopHint" });
+    }
     if (pushOut(next, s.x, s.y, s.r + PLAYER_R) && p.moving) bump(g, i);
   }
   for (const gd of g.guards) {
