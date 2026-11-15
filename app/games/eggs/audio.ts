@@ -111,6 +111,11 @@ export const sfx = {
     tone(880, 0.09, { type: "square", vol: 0.1, delay: 0.13 });
     tone(150, 0.5, { type: "sawtooth", to: 90, vol: 0.14, delay: 0.3 });
   },
+  /** A Grumble works out where you're running: a quick rising "a-ha". */
+  aha() {
+    tone(NOTE(4), 0.07, { type: "square", vol: 0.09 });
+    tone(NOTE(11), 0.16, { type: "square", vol: 0.09, delay: 0.08 });
+  },
   caught() {
     tone(300, 0.12, { type: "square", vol: 0.14, to: 160 });
     tone(520, 0.4, { type: "triangle", vol: 0.18, to: 180, delay: 0.1 });

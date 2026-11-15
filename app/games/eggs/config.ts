@@ -140,6 +140,11 @@ export interface Biome {
   guardRatio: number;
   /** Seconds between grabbing an egg and the Grumble getting up. */
   wake: number;
+  /**
+   * How well this Grumble guesses where you're running: 0 only ever chases you,
+   * 1 runs to exactly the right spot to block your way to the gate.
+   */
+  cunning: number;
   guard: Look;
   egg: { base: string; spot: string };
   decor: DecorKind[];
@@ -159,6 +164,7 @@ export const BIOMES: Biome[] = [
     speedReq: 0,
     guardRatio: 0.7,
     wake: 1.0,
+    cunning: 0.25,
     guard: { body: "#5f9a52", belly: "#cdeab0", accent: "#31572c", shape: "wide", ears: "horns", back: "fluff", face: "fang", cheeks: "#f9a8d4" },
     egg: { base: "#fff8e6", spot: "#7fc75c" },
     decor: ["flower", "tuft"],
@@ -176,6 +182,7 @@ export const BIOMES: Biome[] = [
     speedReq: 3,
     guardRatio: 0.78,
     wake: 0.85,
+    cunning: 0.3,
     guard: { body: "#f2765d", belly: "#ffd6c9", accent: "#a8321d", shape: "wide", ears: "horns", back: "shell", face: "fang", cheeks: "#fecaca" },
     egg: { base: "#e3fafc", spot: "#ff8a65" },
     decor: ["shell", "starfish"],
@@ -193,6 +200,7 @@ export const BIOMES: Biome[] = [
     speedReq: 6,
     guardRatio: 0.84,
     wake: 0.7,
+    cunning: 0.35,
     guard: { body: "#7fb2e5", belly: "#e0f2fe", accent: "#27598c", shape: "wide", ears: "horns", back: "fluff", face: "fang", cheeks: "#bfdbfe" },
     egg: { base: "#f0f9ff", spot: "#60a5fa" },
     decor: ["snowdot", "icepatch"],
@@ -210,6 +218,7 @@ export const BIOMES: Biome[] = [
     speedReq: 10,
     guardRatio: 0.9,
     wake: 0.55,
+    cunning: 0.4,
     guard: { body: "#c47be0", belly: "#f3d9ff", accent: "#6b21a8", shape: "wide", ears: "horns", back: "fluff", face: "fang", pattern: "sprinkles", cheeks: "#f9a8d4" },
     egg: { base: "#fff0f6", spot: "#ff7eb6" },
     decor: ["sprinkle", "swirl"],
@@ -227,6 +236,7 @@ export const BIOMES: Biome[] = [
     speedReq: 14,
     guardRatio: 0.94,
     wake: 0.45,
+    cunning: 0.45,
     guard: { body: "#5b50c9", belly: "#c7d2fe", accent: "#1e1b4b", shape: "wide", ears: "horns", back: "fluff", face: "fang", pattern: "stars", cheeks: "#a5b4fc" },
     egg: { base: "#3730a3", spot: "#a5b4fc" },
     decor: ["star", "crater"],
@@ -723,6 +733,22 @@ export const MINI_CHASE = 0.88;
 export const ALERT_TIME = 20;
 /** A Grumble never chases slower than this share of your own top speed. */
 export const ALARM_SPEED = 0.6;
+
+/* ---------- Cutting you off at the gate ---------- */
+// A Grumble that sees you carrying an egg straight for the gate stops running
+// at you and runs to block your way instead. Each land's `cunning` says how
+// good its guess is. Cozy style never does this.
+
+/** Seconds of running straight at the gate before a Grumble works out where you're going. */
+export const CUT_READ = 0.45;
+/** Seconds of heading somewhere else before it stops believing it. Half of this is how long a fake-out fools it. */
+export const CUT_FORGET = 0.7;
+/** How squarely you must be aimed at the gate to give yourself away (1 = dead on, 0.75 is about 40 degrees either side). */
+export const CUT_AIM = 0.75;
+/** It never blocks closer to the gate than this, so it can't just stand in the gateway. */
+export const CUT_KEEP = 130;
+/** Once it is this close to you it forgets the plan and just grabs for you. */
+export const CUT_NEAR = 60;
 
 /* ---------- Power-ups you find lying around ---------- */
 

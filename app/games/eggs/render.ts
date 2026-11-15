@@ -3670,6 +3670,11 @@ export function render(
         if (g.freezeT > 0 && gd.state !== "sleep") drawIce(ctx, gd.x, gd.y - 40, 62);
         else if (g.confuseT > 0 && gd.state === "chase") drawSwirl(ctx, gd.x, gd.y - 112, 12, t);
         else if (gd.state === "alert") label(ctx, "?", gd.x, gd.y - 116, 26, "#ffffff", "#f59e0b");
+        else if (gd.state === "chase" && gd.cut) {
+          // It has guessed where you're going. Pops in, then stays while it runs to block you.
+          const pop = gd.aha > 1.15 ? 1 + (gd.aha - 1.15) * 2.4 : 1;
+          label(ctx, "Aha!", gd.x, gd.y - 116, 20 * pop, "#ffffff", "#d97706");
+        }
         if (gd.state === "sleep") {
           const ph = (t * 0.6) % 1;
           for (let k = 0; k < 3; k++) {

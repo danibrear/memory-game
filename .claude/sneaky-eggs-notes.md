@@ -461,6 +461,64 @@ Anything added later that resets progress should leave `g.town` alone too.
 - A second look for each building at level 5, and seasonal paint.
 - Pets wandering out of the pen to visit the buildings.
 
+## Cut-off pass: Grumbles that guess where you're going (November 15, 2026)
+Dani's brief: escaping should be a little harder. The Grumble only ever ran at
+where the player is; in certain cases it should work out that the player is
+heading for the gate and cut them off.
+
+### What it does
+- A chasing Grumble watches the player's heading. Carry an egg within about 40
+  degrees of straight at the land's gate for `CUT_READ` (0.45s) and it stops
+  running at the player and runs to block the way instead ("Aha!" over its
+  head, a sparkle, a two-note sound, and a one-time tip).
+- The block point is the nearest spot on the player's straight line to the gate
+  that the Grumble can reach first (`cutOffPoint` in `engine.ts`). If there is
+  no such spot (the player is already past it), it just chases as before.
+- Each land has a `cunning` (0 to 1): the Grumble aims that share of the way
+  from the player to the block point. Meadow 0.25, Beach 0.3, Peak 0.35,
+  Canyon 0.4, Space 0.45. 0 switches the behaviour off for that land.
+- Ways out, on purpose: turn away and it keeps heading for the wrong spot for
+  about a third of a second before chasing again (`CUT_FORGET`); come at the
+  gate from the side instead of straight on; ZOOM (it judges speed without the
+  dash); and it never blocks within `CUT_KEEP` (130px) of the gate or plans
+  when it is within `CUT_NEAR` (60px) of the player.
+- Cozy style never does this. Mini-Grumbles, Dizzy Candy and FREEZE are
+  unchanged.
+
+### What it changes (bots, at exactly the required speed)
+Three bots: one that runs straight for the gate, one that sidesteps well but
+assumes the Grumble runs straight at it, and one that looks ahead knowing
+exactly how the Grumble thinks.
+- Path nests and the golden nest: identical to before for all three bots, any
+  rarity, including the run home through the lower lands. In those cases the
+  Grumble starts behind the player's line and can't get in front.
+- Grove nests and ancient nests (the Grumble starts between the player and the
+  gate): Common eggs are unchanged. Rare and better get tighter. With no
+  upgrades the sidestepping bot's ancient-nest run goes from 12/12, 12/12,
+  12/12, 8/12, 2/12 (Meadow to Space) to 12/12, 12/12, 0/12, 1/12, 0/12, and
+  grove Legendary in Frosty Peak from 11/12 to 7/12.
+- With ZOOM 2, Quick Hands 2 and Strong Arms 2 the same bot gets every grove
+  egg home exactly as before. Ancient nests stay 12/12 through Candy Canyon
+  (though the closest approach there drops from 70px to 1px) and go from 12/12
+  to 7/12 in Starry Space.
+- The look-ahead bot, no upgrades (4 runs each): grove Epic 4/4 in every land,
+  as before; grove Legendary 4, 4, 4, 2, 2 (was 4 everywhere); ancient nest
+  4, 2, 0, 0, 0 (was 4, 4, 4, 4, 1). So the Power Egg run without ZOOM is the
+  one place this bites hard. Lower `cunning` if that is too much.
+
+### Knobs (config.ts)
+`cunning` per land, and `CUT_READ`, `CUT_FORGET`, `CUT_AIM`, `CUT_KEEP`,
+`CUT_NEAR`. Lowering `CUT_AIM` makes the Grumble block on any move toward the
+gate, not just a straight run; at 0.3 with cunning 0.5+ even the look-ahead bot
+lost most grove runs in the last three lands, so treat that one with care.
+
+### Notes
+- `Guard` gained `read`, `cut`, `cutX`, `cutY`, `aha`. None of it is saved.
+- New event `cutoff`; new sound `sfx.aha()`; new tip flag `toldCutoff`.
+- `player.dirX/dirY` is not a unit vector on keyboard diagonals (it comes out
+  0.7 long), so `chaseAim` normalises it. The same quirk makes a no-finger ZOOM
+  after a diagonal key run coast at 70% speed; not changed here.
+
 ## Files
 - `app/games/eggs/config.ts` — every tuning number: lands, the 25 pets and their
   looks and blurbs, rarity odds, upgrade prices, hats, trails, decorations,
@@ -484,6 +542,8 @@ Anything added later that resets progress should leave `g.town` alone too.
 - `guardRatio` / `wake` per land: how fast each Grumble is next to a player with
   exactly the required sneakers, and how long it takes to get up. Lower ratio or
   longer wake = easier.
+- `cunning` per land: how well that Grumble cuts you off at the gate. 0 = it
+  only ever chases, the way it used to.
 - `COSTS` (all upgrade prices), `HOME_DECOR`, hat and trail star prices.
 - `rarityWeights`, `SHINY_CHANCE`, `FUSE_COUNT`, `TAP_BOOST`, `CHEST_MS`,
   `MYSTERY_EVERY`, `DAY_LENGTH`.

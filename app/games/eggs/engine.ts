@@ -28,6 +28,11 @@ import {
   DELIVERY_SECONDS,
   ALARM_SPEED,
   ALERT_TIME,
+  CUT_AIM,
+  CUT_FORGET,
+  CUT_KEEP,
+  CUT_NEAR,
+  CUT_READ,
   FEATHER_BONUS,
   courierEvery,
   feathersFor,
@@ -276,6 +281,14 @@ export interface Guard {
   minGap: number;
   /** Counts down after a friendly pat (for the happy wiggle). */
   pat: number;
+  /** 0–1: how sure it is that you're running for the gate. */
+  read: number;
+  /** True while it is running to block your way instead of straight at you, and where to. */
+  cut: boolean;
+  cutX: number;
+  cutY: number;
+  /** Counts down while the "Aha!" shows, so it can't flicker. */
+  aha: number;
 }
 
 export interface Pad {
@@ -556,6 +569,7 @@ export type GameEvent =
   | { type: "caught"; eggs: number; home: boolean }
   | { type: "level"; level: number; stars: number }
   | { type: "alarm" }
+  | { type: "cutoff"; biome: number }
   | { type: "mini" }
   | { type: "shield" }
   | { type: "feather" }
@@ -1237,6 +1251,7 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
       x: GUARD_POST.x, y: top + GUARD_POST.dy,
       homeX: GUARD_POST.x, homeY: top + GUARD_POST.dy,
       state: "sleep", t: 0, flip: false, walkT: 0, minGap: Infinity, pat: 0,
+      read: 0, cut: false, cutX: 0, cutY: 0, aha: 0,
     });
     for (let k = 0; k < BUGS_PER_LAND; k++) {
       const at = openSpot(g, i, false);
@@ -2488,12 +2503,94 @@ function walkToward(
   return d - stepLen;
 }
 
+/**
+ * Where on the player's straight run to the gate this Grumble could get to
+ * first, or null if it can't beat them there. It's the nearest such spot to
+ * the player, so the two arrive together.
+ */
+function cutOffPoint(g: Game, gd: Guard, pace: number): Point | null {
+  const p = g.player;
+  const ex = CENTER_X - p.x;
+  const ey = biomeBottom(gd.biome) - p.y;
+  const len = Math.hypot(ex, ey);
+  if (len <= CUT_KEEP) return null;
+  const ux = ex / len;
+  const uy = ey / len;
+  // It judges your speed from how you run, eggs and all. A ZOOM catches it out.
+  const k = pace / (playerSpeed(g.up.speed) * (1 - carryWeight(g)));
+  const dx = p.x - gd.x;
+  const dy = p.y - gd.y;
+  // Solve |Grumble to spot| = k * |player to spot| for a spot s along the run.
+  const a = 1 - k * k;
+  const b = dx * ux + dy * uy;
+  const c = dx * dx + dy * dy;
+  let s: number;
+  if (Math.abs(a) < 1e-3) {
+    if (b >= 0) return null;
+    s = -c / (2 * b);
+  } else {
+    const disc = b * b - a * c;
+    if (disc < 0) return null;
+    s = (-b - Math.sqrt(disc)) / a;
+  }
+  if (!(s > 0) || s > len - CUT_KEEP) return null;
+  return { x: p.x + ux * s, y: p.y + uy * s };
+}
+
+/**
+ * Where a chasing Grumble runs to. Usually that's straight at the player. But
+ * once it has watched them carry an egg straight for the gate for a moment, it
+ * runs to cut them off instead. Turn away and it keeps going to the wrong spot
+ * for a beat before it catches on, which is the opening for a fake-out.
+ */
+function chaseAim(g: Game, gd: Guard, pace: number, dt: number): Point {
+  const p = g.player;
+  const cunning = g.cozy ? 0 : BIOMES[gd.biome].cunning;
+  let giveaway = false;
+  if (cunning > 0 && p.carry.length > 0 && p.moving && p.stun <= 0) {
+    const ex = CENTER_X - p.x;
+    const ey = biomeBottom(gd.biome) - p.y;
+    const len = Math.hypot(ex, ey);
+    // dirX/dirY isn't always a unit vector (keyboard diagonals come out short).
+    const facing = Math.hypot(p.dirX, p.dirY);
+    giveaway = len > 1 && facing > 0 && (p.dirX * ex + p.dirY * ey) / (len * facing) >= CUT_AIM;
+  }
+  gd.read = clamp(gd.read + (giveaway ? dt / CUT_READ : -dt / CUT_FORGET), 0, 1);
+
+  const near = dist(gd, p) - GUARD_R - PLAYER_R < CUT_NEAR;
+  const sure = gd.read >= (gd.cut ? 0.5 : 1);
+  let spot: Point | null = null;
+  if (sure && !near) {
+    if (giveaway) spot = cutOffPoint(g, gd, pace);
+    // Fooled: still heading for where it thought you'd be.
+    else if (gd.cut) spot = { x: gd.cutX, y: gd.cutY };
+  }
+  if (!spot) {
+    gd.cut = false;
+    return p;
+  }
+  if (!gd.cut && gd.aha <= 0) {
+    gd.aha = 1.4;
+    burst(g, gd.x, gd.y - 96, "#fde047", 6, "star", 120);
+    emit(g, { type: "cutoff", biome: gd.biome });
+  }
+  gd.cut = true;
+  gd.cutX = spot.x;
+  gd.cutY = spot.y;
+  return { x: p.x + (spot.x - p.x) * cunning, y: p.y + (spot.y - p.y) * cunning };
+}
+
 function updateGuard(g: Game, gd: Guard, dt: number) {
   const p = g.player;
   const here = g.biome === gd.biome;
   const hasEgg = p.carry.length > 0;
   const hot = here && (hasEgg || p.grabbing);
   gd.pat = Math.max(0, gd.pat - dt);
+  gd.aha = Math.max(0, gd.aha - dt);
+  if (gd.state !== "chase") {
+    gd.read = 0;
+    gd.cut = false;
+  }
   // Frozen solid: nothing happens until it thaws.
   if (g.freezeT > 0 && gd.state !== "sleep") return;
 
@@ -2542,8 +2639,11 @@ function updateGuard(g: Game, gd: Guard, dt: number) {
       if (g.confuseT > 0) {
         const w = wanderTarget(gd.biome, gd.x, gd.y, g.time);
         walkToward(gd, w.x, w.y, sp * 0.6, dt);
+        gd.read = 0;
+        gd.cut = false;
       } else {
-        walkToward(gd, p.x, p.y, sp, dt);
+        const aim = chaseAim(g, gd, sp, dt);
+        walkToward(gd, aim.x, aim.y, sp, dt);
       }
       const top = biomeTop(gd.biome);
       gd.x = clamp(gd.x, GUARD_R + 10, WORLD_W - GUARD_R - 10);

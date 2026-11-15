@@ -741,6 +741,12 @@ export default function SneakyEggs() {
         case "alarm":
           if (tellOnce(g, "toldAlarm")) say("Uh oh, that woke EVERY Grumble. Dodge them all the way home!", "bad");
           break;
+        case "cutoff":
+          sfx.aha();
+          if (tellOnce(g, "toldCutoff")) {
+            say("The Grumble is cutting you off at the gate! Turn away to fool it.", "bad");
+          }
+          break;
         case "mini":
           sfx.wake();
           if (tellOnce(g, "toldMini")) say("A mini-Grumble spotted you! They guard the groves.", "bad");
