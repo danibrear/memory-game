@@ -36,7 +36,7 @@ const foundOfRarity = (g: Game, r: Rarity) =>
 const foundInLand = (g: Game, biome: number) =>
   PETS.filter((p) => p.biome === biome && p.rarity < 4 && g.book[p.id]).length;
 const bookRegular = (g: Game) => PETS.filter((p) => p.rarity < 4 && g.book[p.id]).length;
-const shinyKinds = (g: Game) => PETS.filter((p) => g.book[p.id] === 2).length;
+const shinyKinds = (g: Game) => PETS.filter((p) => (g.book[p.id] ?? 0) >= 2).length;
 const flag = (g: Game, key: string) => (g.flags[key] ? 1 : 0);
 const maxedUpgrades = (g: Game) => UPGRADE_IDS.filter((id) => g.up[id] >= maxLevel(id)).length;
 
@@ -50,6 +50,21 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: "egg-200", name: "Egg Legend", desc: "Bring 200 eggs home.", kind: "egg", stars: 5, target: 200, progress: (g) => g.stats.eggs },
   { id: "egg-1000", name: "Egg-finity", desc: "Bring 1,000 eggs home.", kind: "egg", stars: 8, target: 1000, progress: (g) => g.stats.eggs },
   { id: "golden-10", name: "Golden Touch", desc: "Take 10 eggs from golden nests.", kind: "egg", stars: 3, target: 10, progress: (g) => g.stats.golden },
+  { id: "legend-egg-1", name: "Heavy Lifting", desc: "Carry a Legendary egg all the way home.", kind: "egg", stars: 3, target: 1, progress: (g) => g.stats.legendEggs },
+  { id: "legend-egg-25", name: "Nerves of Steel", desc: "Carry 25 Legendary eggs home.", kind: "egg", stars: 6, target: 25, progress: (g) => g.stats.legendEggs },
+  { id: "far-10", name: "Off the Beaten Path", desc: "Bring 10 eggs home from the grove nests.", kind: "egg", stars: 3, target: 10, progress: (g) => g.stats.farEggs },
+  { id: "far-100", name: "Grove Runner", desc: "Bring 100 eggs home from the grove nests.", kind: "egg", stars: 6, target: 100, progress: (g) => g.stats.farEggs },
+  { id: "power-egg-1", name: "Ancient Find", desc: "Carry a Power Egg home from an ancient nest.", kind: "egg", stars: 4, target: 1, progress: (g) => g.powerEggs.length },
+  { id: "power-egg-5", name: "Power Collector", desc: "Own all 5 Power Eggs.", kind: "egg", stars: 10, target: 5, progress: (g) => g.powerEggs.length },
+  { id: "level-5", name: "Moving Up", desc: "Reach level 5.", kind: "skill", stars: 2, target: 5, progress: (g) => g.level },
+  { id: "level-15", name: "Seasoned Sneak", desc: "Reach level 15.", kind: "skill", stars: 5, target: 15, progress: (g) => g.level },
+  { id: "level-30", name: "Legend Level", desc: "Reach level 30.", kind: "skill", stars: 10, target: 30, progress: (g) => g.level },
+  { id: "powerup-10", name: "Bag of Tricks", desc: "Use 10 power-ups.", kind: "skill", stars: 3, target: 10, progress: (g) => g.stats.powerups },
+  { id: "freeze-10", name: "Ice Cold", desc: "Freeze the Grumbles 10 times.", kind: "skill", stars: 3, target: 10, progress: (g) => g.stats.freezes },
+  { id: "sent-home-10", name: "Frequent Flyer", desc: "Get sent back to the start 10 times.", kind: "skill", stars: 2, target: 10, progress: (g) => g.stats.sentHome },
+  { id: "courier-50", name: "Special Delivery", desc: "Let the courier bring home 50 eggs.", kind: "coin", stars: 4, target: 50, progress: (g) => g.stats.couriered },
+  { id: "rebirth-1", name: "Born Again", desc: "Rebirth for the first time.", kind: "coin", stars: 8, target: 1, progress: (g) => g.stats.rebirths },
+  { id: "rebirth-5", name: "Phoenix", desc: "Rebirth 5 times.", kind: "coin", stars: 15, target: 5, progress: (g) => g.stats.rebirths },
   { id: "triple", name: "Triple Scoop", desc: "Bring 3 eggs home in one trip.", kind: "egg", stars: 3, target: 3, progress: (g) => g.stats.maxCarry },
   { id: "mystery-1", name: "Mystery Solved", desc: "Grab a Mystery Egg.", kind: "egg", stars: 2, target: 1, progress: (g) => g.stats.mystery },
   { id: "mystery-5", name: "Mystery Master", desc: "Grab 5 Mystery Eggs.", kind: "egg", stars: 4, target: 5, progress: (g) => g.stats.mystery },
@@ -63,6 +78,11 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: "mythic-1", name: "Myth Maker", desc: "Fuse 3 Legendary pets into a Mythic.", kind: "pet", stars: 5, target: 1, progress: (g) => foundOfRarity(g, 4) },
   { id: "shiny-1", name: "So Shiny", desc: "Hatch a shiny pet.", kind: "pet", stars: 2, target: 1, progress: (g) => g.stats.shinies },
   { id: "shiny-kinds-8", name: "Sparkle Collector", desc: "Find shiny versions of 8 different pets.", kind: "pet", stars: 5, target: 8, progress: shinyKinds },
+  { id: "golden-kinds-5", name: "Gold Rush", desc: "Find Golden versions of 5 different pets.", kind: "pet", stars: 8, target: 5, progress: (g) => PETS.filter((p) => (g.book[p.id] ?? 0) >= 3).length },
+  { id: "golden-pet", name: "Solid Gold", desc: "Hatch a Golden pet.", kind: "pet", stars: 4, target: 1, progress: (g) => flag(g, "golden") },
+  { id: "rainbow-pet", name: "Over the Rainbow", desc: "Hatch a Rainbow pet.", kind: "pet", stars: 8, target: 1, progress: (g) => flag(g, "rainbow") },
+  { id: "huge-pet", name: "That's Huge!", desc: "Hatch a Huge pet.", kind: "pet", stars: 3, target: 1, progress: (g) => flag(g, "huge") },
+  { id: "titanic-pet", name: "Absolute Unit", desc: "Hatch a Titanic pet.", kind: "pet", stars: 6, target: 1, progress: (g) => flag(g, "titanic") },
   { id: "book-10", name: "Halfway There", desc: "Find 10 different pets.", kind: "pet", stars: 2, target: 10, progress: bookRegular },
   { id: "book-20", name: "Pet Master", desc: "Find all 20 pets that hatch from eggs.", kind: "pet", stars: 6, target: 20, progress: bookRegular },
   { id: "book-25", name: "Mythic Master", desc: "Find all 5 Mythic pets.", kind: "pet", stars: 10, target: 5, progress: (g) => foundOfRarity(g, 4) },

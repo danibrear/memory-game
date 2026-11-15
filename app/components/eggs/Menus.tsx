@@ -7,11 +7,15 @@ import {
   faCheck,
   faClover,
   faCoins,
+  faDove,
   faDroplet,
+  faDumbbell,
+  faFeatherPointed,
   faEgg,
   faFire,
   faForwardFast,
   faGift,
+  faHandSparkles,
   faHatWizard,
   faHeart,
   faHouse,
@@ -21,12 +25,14 @@ import {
   faMedal,
   faPaw,
   faPersonRunning,
+  faPiggyBank,
   faQuestion,
   faRainbow,
   faSeedling,
   faSocks,
   faStairs,
   faStar,
+  faSun,
   faWandMagicSparkles,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -36,25 +42,36 @@ import { ACHIEVEMENTS, type AchKind } from "~/games/eggs/achievements";
 import {
   BIOMES,
   DECOR_BONUS,
+  FEATHER_BONUS,
   FUSE_COUNT,
   HATS,
   HOME_DECOR,
   MISSION_STREAK,
   MISSION_STREAK_STARS,
   PETS,
+  POWER_EGGS,
   RARITIES,
-  SELL_SECONDS,
+  SIZES,
+  SLOT_LEVELS,
   TRAILS,
   UPGRADE_IDS,
+  VARIANTS,
+  armsScale,
+  awayCap,
+  awayShare,
   basketSize,
+  courierEvery,
   dashCooldown,
   dressed,
+  equipSlots,
   fmtCoins,
   missionText,
+  handsScale,
   hatchScale,
   penSize,
   petFor,
   petRate,
+  ripenScale,
   shinyChance,
   sockBonus,
   treatsMult,
@@ -63,12 +80,29 @@ import {
   type HomeDecorId,
   type Look,
   type PetDef,
+  type PowerEggId,
+  type PowerupId,
   type Rarity,
   type TrailId,
   type UpgradeId,
 } from "~/games/eggs/config";
-import { canFuse, coinMult, countOf, missionProgress, type Game } from "~/games/eggs/engine";
-import { paintEggIcon, paintPetIcon, type Mood } from "~/games/eggs/render";
+import {
+  canFuse,
+  canRebirth,
+  coinMult,
+  countOf,
+  missionProgress,
+  rebirthGain,
+  sellPrice,
+  type Game,
+} from "~/games/eggs/engine";
+import {
+  paintEggIcon,
+  paintPetIcon,
+  paintPowerEggIcon,
+  paintPowerupIcon,
+  type Mood,
+} from "~/games/eggs/render";
 
 export function cx(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(" ");
@@ -84,16 +118,19 @@ export function PetIcon({
   size,
   hidden,
   mood,
+  variant = 0,
 }: {
   look: Look;
   size: number;
   hidden?: boolean;
   mood?: Mood;
+  /** Hatch variant: 2 paints it Golden, 3 Rainbow. */
+  variant?: number;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    if (ref.current) paintPetIcon(ref.current, look, size, mood);
-  }, [look, size, mood]);
+    if (ref.current) paintPetIcon(ref.current, look, size, mood, variant);
+  }, [look, size, mood, variant]);
   return (
     <canvas
       ref={ref}
@@ -111,6 +148,35 @@ export function EggIcon({ biome, rarity, size }: { biome: number; rarity: Rarity
   }, [biome, rarity, size]);
   return <canvas ref={ref} className="se-icon" style={{ width: size, height: size }} aria-hidden />;
 }
+
+export function PowerEggIcon({ color, size, hidden }: { color: string; size: number; hidden?: boolean }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (ref.current) paintPowerEggIcon(ref.current, color, size);
+  }, [color, size]);
+  return (
+    <canvas
+      ref={ref}
+      className={cx("se-icon", hidden && "is-hidden")}
+      style={{ width: size, height: size }}
+      aria-hidden
+    />
+  );
+}
+
+export function PowerupIcon({ kind, size }: { kind: PowerupId; size: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (ref.current) paintPowerupIcon(ref.current, kind, size);
+  }, [kind, size]);
+  return <canvas ref={ref} className="se-icon" style={{ width: size, height: size }} aria-hidden />;
+}
+
+const fmtTime = (sec: number) => {
+  const s = Math.max(0, Math.ceil(sec));
+  if (s >= 3600) return `${Math.round(s / 360) / 10}h`;
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s}s`;
+};
 
 export function RarityChip({ rarity }: { rarity: Rarity }) {
   const info = RARITIES[rarity];
@@ -157,7 +223,40 @@ const UPGRADES: Record<UpgradeId, UpgradeInfo> = {
     color: "#f97316",
     name: "Zoom Dash",
     now: (l) => (l ? `Ready every ${dashCooldown(l)}s` : "Not learned yet"),
-    hint: (l) => (l ? "Zoom again sooner" : "Adds a ZOOM button for a burst of speed"),
+    hint: (l) => (l ? "Zoom again sooner" : "Adds a ZOOM speed button"),
+  },
+  hands: {
+    icon: faHandSparkles,
+    color: "#ec4899",
+    name: "Quick Hands",
+    now: (l) => (l ? `Lift eggs ${Math.round((1 - handsScale(l)) * 100)}% faster` : "Rare eggs lift slowly"),
+    hint: () => "Lift rare eggs faster",
+  },
+  arms: {
+    icon: faDumbbell,
+    color: "#0ea5e9",
+    name: "Strong Arms",
+    now: (l) =>
+      armsScale(l) === 0
+        ? "Eggs don't slow you down"
+        : l
+          ? `Eggs feel ${Math.round((1 - armsScale(l)) * 100)}% lighter`
+          : "Rare eggs are heavy",
+    hint: () => "Heavy eggs slow you less",
+  },
+  courier: {
+    icon: faDove,
+    color: "#14b8a6",
+    name: "Egg Courier",
+    now: (l) => (l ? `Brings an egg every ${courierEvery(l)}s` : "No courier yet"),
+    hint: () => "A bird brings eggs home for you",
+  },
+  jar: {
+    icon: faPiggyBank,
+    color: "#f472b6",
+    name: "Coin Jar",
+    now: (l) => `Away: ${Math.round(awayShare(l) * 100)}% for ${fmtTime(awayCap(l))}`,
+    hint: () => "Pets earn more while you're away",
   },
   basket: {
     icon: faBasketShopping,
@@ -187,6 +286,13 @@ const UPGRADES: Record<UpgradeId, UpgradeInfo> = {
     now: (l) => (l ? `Eggs hatch ${Math.round((1 - hatchScale(l)) * 100)}% faster` : "Normal hatching"),
     hint: () => "Eggs hatch faster",
   },
+  ripen: {
+    icon: faSun,
+    color: "#eab308",
+    name: "Sun Lamp",
+    now: (l) => (l ? `Eggs ripen ${Math.round((1 - ripenScale(l)) * 100)}% faster` : "Rare eggs ripen slowly"),
+    hint: () => "Shorter egg countdowns",
+  },
   luck: {
     icon: faClover,
     color: "#10b981",
@@ -199,7 +305,7 @@ const UPGRADES: Record<UpgradeId, UpgradeInfo> = {
     color: "#a855f7",
     name: "Sparkle Charm",
     now: (l) => `${Math.round(shinyChance(l) * 100)}% shiny chance`,
-    hint: () => "More shiny pets (they earn 3x)",
+    hint: () => "More Shiny, Golden and Rainbow hatches",
   },
   socks: {
     icon: faSocks,
@@ -212,7 +318,7 @@ const UPGRADES: Record<UpgradeId, UpgradeInfo> = {
 
 export const upgradeName = (id: UpgradeId) => UPGRADES[id].name;
 
-type ShopTab = "upgrades" | "hats" | "trails" | "home";
+type ShopTab = "upgrades" | "powers" | "hats" | "trails" | "home";
 
 const DECOR_ICON: Record<HomeDecorId, { icon: IconDefinition; color: string }> = {
   garden: { icon: faSeedling, color: "#22c55e" },
@@ -230,9 +336,13 @@ export function ShopBody({
   onHat,
   onTrail,
   onDecor,
+  onEquip,
+  onRebirth,
 }: {
   g: Game;
   playerLook: Look;
+  onEquip: (id: PowerEggId) => void;
+  onRebirth: () => void;
   onBuy: (id: UpgradeId) => void;
   onHat: (id: HatId) => void;
   onTrail: (id: TrailId) => void;
@@ -255,6 +365,7 @@ export function ShopBody({
         onChange={setTab}
         options={[
           { value: "upgrades", label: "Upgrades" },
+          { value: "powers", label: "Powers" },
           { value: "hats", label: "Hats" },
           { value: "trails", label: "Trails" },
           { value: "home", label: "Home" },
@@ -293,7 +404,77 @@ export function ShopBody({
               </div>
             );
           })}
+          <div className="se-row se-rebirth">
+            <span className="se-row-icon" style={{ "--tile": "#f59e0b" } as CSSProperties}>
+              <FontAwesomeIcon icon={faFeatherPointed} />
+            </span>
+            <div className="se-row-text">
+              <strong>Rebirth</strong>
+              <span>
+                {g.feathers} Golden {g.feathers === 1 ? "Feather" : "Feathers"}: +
+                {Math.round(g.feathers * FEATHER_BONUS * 100)}% coins
+              </span>
+              <small>
+                {canRebirth(g)
+                  ? rebirthGain(g) > 0
+                    ? `Start over for +${rebirthGain(g)} more`
+                    : "Earn more coins first"
+                  : "Opens when you reach Starry Space"}
+              </small>
+            </div>
+            <KitButton
+              size="sm"
+              variant="neutral"
+              disabled={!canRebirth(g) || rebirthGain(g) < 1}
+              onClick={onRebirth}
+              aria-label="Rebirth">
+              +{rebirthGain(g)} <FontAwesomeIcon icon={faFeatherPointed} />
+            </KitButton>
+          </div>
         </div>
+      )}
+
+      {tab === "powers" && (
+        <>
+          <p className="se-tip">
+            <FontAwesomeIcon icon={faEgg} /> Power Eggs come from the ancient nest deep in each land's
+            grove. Wearing {g.equipped.length} of {equipSlots(g.level)}
+            {SLOT_LEVELS.some((l) => l > g.level)
+              ? ` (next slot at level ${SLOT_LEVELS.find((l) => l > g.level)})`
+              : ""}
+            .
+          </p>
+          <div className="se-list">
+            {POWER_EGGS.map((e) => {
+              const owned = g.powerEggs.includes(e.id);
+              const on = g.equipped.includes(e.id);
+              const full = !on && g.equipped.length >= equipSlots(g.level);
+              return (
+                <div className={cx("se-row", on && "is-on")} key={e.id}>
+                  <PowerEggIcon color={e.color} size={52} hidden={!owned} />
+                  <div className="se-row-text">
+                    <strong>{owned ? e.name : "???"}</strong>
+                    <small className="se-wrap">
+                      {owned ? e.desc : `Laid by the ancient nest in ${BIOMES[e.biome].name}.`}
+                    </small>
+                  </div>
+                  {owned ? (
+                    <KitButton
+                      size="sm"
+                      variant={on ? "neutral" : undefined}
+                      disabled={full}
+                      onClick={() => onEquip(e.id)}
+                      aria-label={on ? `Take off ${e.name}` : `Wear ${e.name}`}>
+                      {on ? "Take off" : "Wear"}
+                    </KitButton>
+                  ) : (
+                    <FontAwesomeIcon icon={faLock} className="se-lock" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {tab === "home" && (
@@ -456,9 +637,14 @@ export function PetsBody({
         {kinds.map((def) => {
           const n = countOf(g, def.id);
           const fusable = canFuse(g, def.id);
-          const hasShiny = g.pets.some((p) => p.id === def.id && p.shiny);
+          const group = g.pets.filter((p) => p.id === def.id);
+          const best = group.reduce((a, b) =>
+            VARIANTS[b.v].mult * SIZES[b.s].mult > VARIANTS[a.v].mult * SIZES[a.s].mult ? b : a,
+          );
+          const bestTag = [SIZES[best.s].name, VARIANTS[best.v].name].filter(Boolean).join(" ");
           const isBuddy = buddy?.id === def.id;
-          const rate = petRate(def) * treats;
+          const rate = group.reduce((sum, p) => sum + petRate(def, p.v, p.s), 0) * treats;
+          const price = sellPrice(g, def.id);
           return (
             <div className="se-row" key={def.id}>
               <button
@@ -467,7 +653,7 @@ export function PetsBody({
                 aria-pressed={isBuddy}
                 aria-label={isBuddy ? `${def.name} is your buddy. Tap to send it back to the pen.` : `Make ${def.name} your buddy`}
                 onClick={() => onBuddy(isBuddy ? null : def.id)}>
-                <PetIcon look={def.look} size={52} />
+                <PetIcon look={def.look} size={52} variant={best.v} />
                 <b>×{n}</b>
                 <i>
                   <FontAwesomeIcon icon={faHeart} />
@@ -476,9 +662,17 @@ export function PetsBody({
               <div className="se-row-text">
                 <strong>
                   {noBreak(def.name)}
-                  {hasShiny && <FontAwesomeIcon icon={faStar} className="se-shiny" title="Shiny" />}
                 </strong>
-                <RarityChip rarity={def.rarity} />
+                <span className="se-row-chips">
+                  <RarityChip rarity={def.rarity} />
+                  {bestTag && (
+                    <span
+                      className={cx("se-trait", best.v === 3 && "is-rainbow")}
+                      style={{ "--chip": VARIANTS[best.v].color } as CSSProperties}>
+                      {bestTag}
+                    </span>
+                  )}
+                </span>
                 <small>
                   <Coin /> {fmtCoins(rate)} a second
                 </small>
@@ -497,9 +691,9 @@ export function PetsBody({
                   size="sm"
                   variant="neutral"
                   onClick={() => onSell(def.id)}
-                  aria-label={`Sell one ${def.name} for ${fmtCoins(rate * SELL_SECONDS)} coins`}>
+                  aria-label={`Sell one ${def.name} for ${fmtCoins(price)} coins`}>
                   Sell <Coin />
-                  {fmtCoins(rate * SELL_SECONDS)}
+                  {fmtCoins(price)}
                 </KitButton>
               </div>
             </div>
@@ -531,13 +725,22 @@ export function BookBody({ g }: { g: Game }) {
           className="se-card"
           style={{ "--chip": RARITIES[def.rarity].color } as CSSProperties}
           role="status">
-          <PetIcon look={def.look} size={84} hidden={!found} mood="happy" />
+          <PetIcon look={def.look} size={84} hidden={!found} mood="happy" variant={found - 1} />
           <div>
-            <strong>
-              {found ? noBreak(def.name) : "???"}
-              {found > 1 && <FontAwesomeIcon icon={faStar} className="se-shiny" title="Shiny found" />}
-            </strong>
+            <strong>{found ? noBreak(def.name) : "???"}</strong>
             <RarityChip rarity={def.rarity} />
+            {found > 0 && (
+              <span className="se-variants" aria-label={`Best one found: ${VARIANTS[found - 1].name || "Normal"}`}>
+                {VARIANTS.slice(1).map((v, k) => (
+                  <span
+                    key={v.name}
+                    className={cx("se-trait", found - 1 > k ? "is-on" : "is-off", k === 2 && found === 4 && "is-rainbow")}
+                    style={{ "--chip": v.color } as CSSProperties}>
+                    {v.name}
+                  </span>
+                ))}
+              </span>
+            )}
             <p>{found ? def.blurb : "You haven't met this one yet."}</p>
             <small>
               {howToGet(def)}
@@ -546,6 +749,16 @@ export function BookBody({ g }: { g: Game }) {
           </div>
         </div>
       )}
+      <div className="se-wallet">
+        {VARIANTS.slice(1).map((v, k) => (
+          <span
+            key={v.name}
+            className={cx("se-trait", k === 2 && "is-rainbow")}
+            style={{ "--chip": v.color } as CSSProperties}>
+            {v.name} {PETS.filter((p) => (g.book[p.id] ?? 0) >= k + 2).length}/{PETS.length}
+          </span>
+        ))}
+      </div>
       <div className="se-book">
         {BIOMES.map((b, i) => {
           const open = g.up.speed >= b.speedReq;
@@ -571,8 +784,14 @@ export function BookBody({ g }: { g: Game }) {
                       style={{ "--chip": RARITIES[r].color } as CSSProperties}
                       aria-label={have ? `${pet.name}, ${RARITIES[r].name}` : `Not found yet, ${RARITIES[r].name}`}
                       onClick={() => setPicked(picked === pet.id ? null : pet.id)}>
-                      <PetIcon look={pet.look} size={50} hidden={!have} />
-                      {have > 1 && <FontAwesomeIcon icon={faStar} className="se-shiny" />}
+                      <PetIcon look={pet.look} size={50} hidden={!have} variant={have - 1} />
+                      {have > 1 && (
+                        <FontAwesomeIcon
+                          icon={faStar}
+                          className="se-shiny"
+                          style={{ color: VARIANTS[Math.min(have - 1, 3)].color }}
+                        />
+                      )}
                       <span>{have ? noBreak(pet.name) : "???"}</span>
                     </button>
                   );
@@ -679,6 +898,12 @@ export function TrophiesBody({ g }: { g: Game }) {
 
 /* ---------- Map ---------- */
 
+function nestSummary(g: Game, biome: number): string {
+  const eggs = g.nests.filter((n) => n.biome === biome && n.egg !== null);
+  const ready = eggs.filter((n) => n.ripen <= 0).length;
+  return `${ready} ${ready === 1 ? "egg" : "eggs"} ready, ${eggs.length - ready} still ripening`;
+}
+
 export function MapBody({
   g,
   onGo,
@@ -687,6 +912,12 @@ export function MapBody({
   onGo: (biome: number) => void;
 }) {
   const carrying = g.player.carry.length > 0;
+  // The countdowns keep running while the map is open.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), 500);
+    return () => clearInterval(id);
+  }, []);
   const stops = [
     ...BIOMES.map((b, i) => ({ i, name: b.name, color: b.ground, ink: b.ink, req: b.speedReq })).reverse(),
     { i: -1, name: "Home", color: "#a8e083", ink: "#27500f", req: 0 },
@@ -711,6 +942,30 @@ export function MapBody({
                 <small>
                   {here ? "You are here" : open ? (s.i < 0 ? "Your nests and pen" : `Pets earn ${BIOMES[s.i].mult}x here`) : `Needs Speed ${s.req}`}
                 </small>
+                {open && s.i >= 0 && g.ancients[s.i] && (
+                  <small>
+                    {POWER_EGGS[s.i].name}:{" "}
+                    {g.ancients[s.i].left > 0 ? `ready in ${fmtTime(g.ancients[s.i].left)}` : "ready now!"}
+                  </small>
+                )}
+                {open && s.i >= 0 && (
+                  <span className="se-nests" aria-label={nestSummary(g, s.i)}>
+                    {g.nests
+                      .filter((n) => n.biome === s.i)
+                      .map((n, k) =>
+                        n.egg === null ? (
+                          <span className="se-nest is-empty" key={k} aria-hidden>
+                            <i />
+                          </span>
+                        ) : (
+                          <span className={cx("se-nest", n.ripen > 0 ? "is-waiting" : "is-ready")} key={k} aria-hidden>
+                            <EggIcon biome={s.i} rarity={n.egg} size={26} />
+                            {n.ripen > 0 ? `${Math.ceil(n.ripen)}s` : <FontAwesomeIcon icon={faCheck} />}
+                          </span>
+                        ),
+                      )}
+                  </span>
+                )}
               </div>
               <KitButton size="sm" disabled={!open || carrying || here} onClick={() => onGo(s.i)}>
                 Go

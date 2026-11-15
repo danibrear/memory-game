@@ -24,13 +24,70 @@ import {
   nightAmount,
   padX,
   petById,
+  MINI_R,
+  POWERUPS,
+  SIZES,
+  WING_X,
+  powerEggById,
   type DecorKind,
+  type PowerupId,
   type Look,
   type Point,
   type Rarity,
   type SolidKind,
 } from "./config";
-import type { Bug, Decor, Game, Guard, Mystery, ShootingStar, Solid } from "./engine";
+import type { Ancient, Bug, Decor, Game, Guard, Mini, Mystery, Pickup, ShootingStar, Solid } from "./engine";
+
+/* ---------- Hatch variants ---------- */
+
+function hslHex(h: number, sat: number, lit: number): string {
+  const a = sat * Math.min(lit, 1 - lit);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const c = lit - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(c * 255).toString(16).padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+/**
+ * Recolour a critter for its hatch variant: Golden is solid gold, Rainbow slowly
+ * cycles through every colour. Plain and Shiny keep their own colours.
+ */
+export function variantLook(look: Look, variant: number, t = 0, seed = 0): Look {
+  if (variant === 2) {
+    return { ...look, body: "#fbbf24", belly: "#fef3c7", accent: "#d97706", cheeks: "#fb923c", aura: look.aura ?? "rgba(253, 224, 71, 0.5)" };
+  }
+  if (variant >= 3) {
+    // Step the hue so the colour cache stays small.
+    const hue = (Math.floor(t * 12) * 5 + seed * 47) % 360;
+    return {
+      ...look,
+      body: hslHex(hue, 0.85, 0.68),
+      belly: "#ffffff",
+      accent: hslHex((hue + 150) % 360, 0.9, 0.6),
+      cheeks: hslHex((hue + 300) % 360, 0.9, 0.75),
+      aura: `hsla(${(hue + 60) % 360}, 95%, 75%, 0.6)`,
+    };
+  }
+  return look;
+}
+
+/** A ring that fills clockwise from the top. */
+function progressRing(ctx: Ctx, x: number, y: number, r: number, k: number, color: string, width = 5) {
+  ctx.lineCap = "round";
+  ctx.lineWidth = width + 3;
+  ctx.strokeStyle = "rgba(15, 23, 42, 0.45)";
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.lineWidth = width;
+  ctx.strokeStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0.001, Math.min(1, k)));
+  ctx.stroke();
+  ctx.lineCap = "butt";
+}
 
 const TAU = Math.PI * 2;
 const FONT = '"Fredoka", "Inter", system-ui, sans-serif';
@@ -1652,7 +1709,8 @@ function drawMystery(ctx: Ctx, m: Mystery, t: number) {
   ctx.globalAlpha = fade;
   drawNest(ctx, m.x, m.y, true, t);
   const bob = Math.sin(t * 3) * 3;
-  drawEgg(ctx, m.biome, m.rarity, m.x, m.y + 2 + bob, 44, t, Math.sin(t * 2.4) * 0.1);
+  const wobble = m.grab > 0 ? Math.sin(t * 34) * 0.16 * (0.4 + m.grab) : Math.sin(t * 2.4) * 0.1;
+  drawEgg(ctx, m.biome, m.rarity, m.x, m.y + 2 + bob, 44, t, wobble);
   ctx.globalAlpha = 1;
   if (m.left < 12) {
     label(ctx, `${Math.ceil(m.left)}`, m.x, m.y - 66, 18, "#ffffff", "#9333ea");
@@ -1892,10 +1950,229 @@ interface Drawable {
   draw: () => void;
 }
 
-function guardMood(gd: Guard): Mood {
+function guardMood(gd: Guard, confused = false): Mood {
   if (gd.state === "sleep") return gd.pat > 0 ? "happy" : "sleep";
+  if (confused) return "dizzy";
   if (gd.state === "chase") return "angry";
   return "normal";
+}
+
+/** The side groves: a shadier floor with a row of stepping stones marking the edge. */
+function drawGroves(ctx: Ctx, x0: number, x1: number, y0: number, y1: number) {
+  for (let b = 0; b < BIOME_COUNT; b++) {
+    const top = Math.max(y0, biomeTop(b));
+    const bot = Math.min(y1, biomeBottom(b));
+    if (bot <= top) continue;
+    for (const side of [-1, 1]) {
+      const edge = CENTER_X + side * WING_X;
+      const from = side < 0 ? Math.max(x0, 0) : Math.max(x0, edge);
+      const to = side < 0 ? Math.min(x1, edge) : Math.min(x1, WORLD_W);
+      if (to <= from) continue;
+      ctx.fillStyle = "rgba(20, 30, 60, 0.09)";
+      ctx.fillRect(from, top, to - from, bot - top);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+      for (let y = biomeTop(b) + 40; y < biomeBottom(b) - 20; y += 46) {
+        if (y < y0 - 20 || y > y1 + 20) continue;
+        ellipse(ctx, edge, y, 9, 5);
+        ctx.fill();
+      }
+    }
+  }
+}
+
+/** A power-up's little picture, used in the world and on its button. */
+export function drawPowerup(ctx: Ctx, kind: PowerupId, x: number, y: number, r: number, t = 0) {
+  const color = POWERUPS[kind].color;
+  ctx.save();
+  ctx.translate(x, y);
+  if (kind === "dizzy") {
+    // A swirly lollipop.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(-r * 0.09, r * 0.2, r * 0.18, r * 0.95);
+    ctx.fillStyle = color;
+    ellipse(ctx, 0, -r * 0.15, r * 0.62, r * 0.62);
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = r * 0.14;
+    ctx.beginPath();
+    for (let a = 0; a < 9; a += 0.3) {
+      const rr = (a / 9) * r * 0.5;
+      const px = Math.cos(a + t * 3) * rr;
+      const py = -r * 0.15 + Math.sin(a + t * 3) * rr;
+      if (a === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  } else if (kind === "bubble") {
+    ctx.fillStyle = "rgba(125, 211, 252, 0.45)";
+    ellipse(ctx, 0, 0, r * 0.75, r * 0.75);
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = r * 0.12;
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+    ellipse(ctx, -r * 0.28, -r * 0.3, r * 0.18, r * 0.11, -0.6);
+    ctx.fill();
+  } else {
+    // An hourglass.
+    ctx.fillStyle = "#92400e";
+    ctx.fillRect(-r * 0.55, -r * 0.8, r * 1.1, r * 0.16);
+    ctx.fillRect(-r * 0.55, r * 0.64, r * 1.1, r * 0.16);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.45, -r * 0.64);
+    ctx.lineTo(r * 0.45, -r * 0.64);
+    ctx.lineTo(0, 0);
+    ctx.lineTo(r * 0.45, r * 0.64);
+    ctx.lineTo(-r * 0.45, r * 0.64);
+    ctx.lineTo(0, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.3, r * 0.64);
+    ctx.lineTo(r * 0.3, r * 0.64);
+    ctx.lineTo(0, r * 0.2);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawPickup(ctx: Ctx, pk: Pickup, t: number) {
+  const fade = Math.min(1, pk.age / 0.4) * Math.min(1, pk.left / 4);
+  const bob = Math.sin(t * 3 + pk.x) * 4;
+  ctx.globalAlpha = fade;
+  shadow(ctx, pk.x, pk.y + 4, 16, 0.16);
+  ctx.fillStyle = POWERUPS[pk.kind].color;
+  ctx.globalAlpha = fade * (0.22 + 0.1 * Math.sin(t * 4));
+  ellipse(ctx, pk.x, pk.y - 22 + bob, 30, 30);
+  ctx.fill();
+  ctx.globalAlpha = fade;
+  drawPowerup(ctx, pk.kind, pk.x, pk.y - 22 + bob, 22, t);
+  ctx.globalAlpha = 1;
+}
+
+/** A Power Egg: a pearly egg wearing its power's colour as a band and a glow. */
+export function drawPowerEgg(
+  ctx: Ctx,
+  color: string,
+  x: number,
+  y: number,
+  size: number,
+  t = 0,
+  tilt = 0,
+  glow = true,
+) {
+  const w = size * 0.38;
+  if (glow) {
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.28 + 0.12 * Math.sin(t * 4);
+    ellipse(ctx, x, y - size * 0.45, size * 0.75, size * 0.75);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(tilt);
+  ctx.fillStyle = "#fdf4ff";
+  ellipse(ctx, 0, -size * 0.46, w, size * 0.5);
+  ctx.fill();
+  ctx.lineWidth = Math.max(2, size * 0.07);
+  ctx.strokeStyle = shade(color, -0.35);
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.fillRect(-w * 0.94, -size * 0.52, w * 1.88, size * 0.16);
+  ctx.fillStyle = "#ffffff";
+  starPath(ctx, 0, -size * 0.44, size * 0.1, 5, 0.45);
+  ctx.fill();
+  ellipse(ctx, -w * 0.4, -size * 0.74, w * 0.22, size * 0.08, -0.5);
+  ctx.fill();
+  ctx.restore();
+}
+
+const fmtClock = (sec: number) => {
+  const s = Math.max(0, Math.ceil(sec));
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s}`;
+};
+
+function drawAncient(ctx: Ctx, a: Ancient, t: number) {
+  const def = powerEggById(a.power);
+  const color = def?.color ?? "#ffffff";
+  // Standing stones around a big nest.
+  for (let k = 0; k < 5; k++) {
+    const ang = Math.PI + (k / 4) * Math.PI;
+    const sx = a.x + Math.cos(ang) * 58;
+    const sy = a.y + Math.sin(ang) * 26 - 4;
+    ctx.fillStyle = "#94a3b8";
+    roundRect(ctx, sx - 9, sy - 30, 18, 34, 7);
+    ctx.fill();
+    ctx.fillStyle = color;
+    ellipse(ctx, sx, sy - 18, 3.5, 3.5);
+    ctx.fill();
+  }
+  drawNest(ctx, a.x, a.y, true, t);
+  if (a.left > 0) {
+    const grown = a.total > 0 ? 1 - a.left / a.total : 1;
+    ctx.globalAlpha = 0.4 + 0.4 * grown;
+    drawPowerEgg(ctx, color, a.x, a.y + 2, 26 + 16 * grown, t);
+    ctx.globalAlpha = 1;
+    const cy = a.y - 74;
+    ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
+    roundRect(ctx, a.x - 30, cy - 15, 60, 30, 15);
+    ctx.fill();
+    ctx.fillStyle = color;
+    roundRect(ctx, a.x - 26, cy + 9, Math.max(4, 52 * grown), 3, 2);
+    ctx.fill();
+    label(ctx, fmtClock(a.left), a.x, cy - 1, 15, "#ffffff");
+  } else {
+    const wobble = a.grab > 0 ? Math.sin(t * 34) * 0.16 * (0.4 + a.grab) : Math.sin(t * 2.2) * 0.08;
+    drawPowerEgg(ctx, color, a.x, a.y + 2 + Math.sin(t * 3) * 2 - a.grab * 6, 46, t, wobble);
+    if (def) label(ctx, def.name, a.x, a.y - 78, 14, "#ffffff", shade(color, -0.45));
+  }
+}
+
+function drawMini(ctx: Ctx, g: Game, m: Mini, t: number) {
+  const look = BIOMES[m.biome].guard;
+  const frozen = g.freezeT > 0;
+  const confused = g.confuseT > 0;
+  const stomp = frozen ? 0 : Math.abs(Math.sin(m.walkT * 9)) * (m.state === "chase" ? 5 : 2.5);
+  shadow(ctx, m.x, m.y + 3, MINI_R * 0.9, 0.2);
+  drawPet(ctx, look, m.x, m.y + 3 - stomp, MINI_R * 2.1, {
+    t: frozen ? 0 : t,
+    flip: m.flip,
+    mood: confused ? "dizzy" : m.state === "chase" ? "angry" : "normal",
+    seed: m.biome * 7 + m.side,
+  });
+  if (frozen) drawIce(ctx, m.x, m.y - MINI_R, MINI_R * 1.25);
+  else if (confused && m.state === "chase") drawSwirl(ctx, m.x, m.y - MINI_R * 2.6, 9, t);
+  else if (m.state === "chase") label(ctx, "!", m.x, m.y - MINI_R * 2.7, 20, "#ffffff", "#ef4444");
+}
+
+function drawIce(ctx: Ctx, x: number, y: number, r: number) {
+  ctx.fillStyle = "rgba(186, 230, 253, 0.55)";
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * TAU + 0.5;
+    const px = x + Math.cos(a) * r * (k % 2 ? 1 : 0.86);
+    const py = y + Math.sin(a) * r * (k % 2 ? 0.92 : 1.05);
+    if (k === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawSwirl(ctx: Ctx, x: number, y: number, r: number, t: number) {
+  for (let k = 0; k < 3; k++) {
+    const a = t * 6 + (k / 3) * TAU;
+    ctx.fillStyle = k % 2 ? "#e879f9" : "#fde047";
+    starPath(ctx, x + Math.cos(a) * r * 2, y + Math.sin(a) * r * 0.6, r * 0.6, 5, 0.5);
+    ctx.fill();
+  }
 }
 
 export function render(
@@ -1926,11 +2203,16 @@ export function render(
   ctx.translate(-v.camX, -v.camY);
 
   drawGround(ctx, x0, x1, y0, y1);
+  drawGroves(ctx, x0, x1, y0, y1);
   for (const d of g.decor) if (seen(d.y, 30)) drawDecor(ctx, d, t);
   if (seen(HOME_TOP + 280, 420)) drawHome(ctx, g, t);
   for (const n of g.nests) if (seen(n.y, 60)) drawNest(ctx, n.x, n.y, n.golden, t);
 
   const items: Drawable[] = [];
+
+  for (const a of g.ancients) if (seen(a.y, 140)) items.push({ y: a.y + 1, draw: () => drawAncient(ctx, a, t) });
+  for (const m of g.minis) if (seen(m.y, 90)) items.push({ y: m.y, draw: () => drawMini(ctx, g, m, t) });
+  for (const pk of g.pickups) if (seen(pk.y, 80)) items.push({ y: pk.y, draw: () => drawPickup(ctx, pk, t) });
 
   g.solids.forEach((s, i) => {
     if (!seen(s.y, 160)) return;
@@ -1959,10 +2241,10 @@ export function render(
   // Home decorations.
   if (seen(PEN.y0 + 80, 320)) {
     if (g.home.includes("balloons")) items.push({ y: PEN.y0 - 2, draw: () => drawBalloons(ctx, t) });
-    if (g.home.includes("fountain")) items.push({ y: HOME_TOP + 430, draw: () => drawFountain(ctx, 68, HOME_TOP + 430, t) });
-    if (g.home.includes("slide")) items.push({ y: HOME_TOP + 540, draw: () => drawSlide(ctx, 70, HOME_TOP + 540) });
-    if (g.home.includes("rainbow")) items.push({ y: HOME_TOP + 430, draw: () => drawRainbow(ctx, WORLD_W - 70, HOME_TOP + 430, t) });
-    if (g.home.includes("statue")) items.push({ y: HOME_TOP + 540, draw: () => drawStatue(ctx, WORLD_W - 70, HOME_TOP + 540, t) });
+    if (g.home.includes("fountain")) items.push({ y: HOME_TOP + 430, draw: () => drawFountain(ctx, CENTER_X - 412, HOME_TOP + 430, t) });
+    if (g.home.includes("slide")) items.push({ y: HOME_TOP + 540, draw: () => drawSlide(ctx, CENTER_X - 410, HOME_TOP + 540) });
+    if (g.home.includes("rainbow")) items.push({ y: HOME_TOP + 430, draw: () => drawRainbow(ctx, CENTER_X + 410, HOME_TOP + 430, t) });
+    if (g.home.includes("statue")) items.push({ y: HOME_TOP + 540, draw: () => drawStatue(ctx, CENTER_X + 410, HOME_TOP + 540, t) });
   }
 
   for (let i = 0; i < BIOME_COUNT; i++) {
@@ -1978,8 +2260,26 @@ export function render(
       draw: () => {
         const pop = Math.min(1, n.age / 0.3);
         const s = 1 + Math.sin(pop * Math.PI) * 0.25;
-        const bob = Math.sin(t * 3 + n.x) * 1.5;
-        drawEgg(ctx, n.biome, rarity, n.x, n.y + 2 + bob, 38 * pop * s, t, Math.sin(t * 2 + n.y) * 0.06);
+        const color = RARITIES[rarity].color;
+        if (n.ripen > 0) {
+          // Still growing: a small, pale egg and a clock that runs down.
+          const grown = n.ripenTotal > 0 ? 1 - n.ripen / n.ripenTotal : 1;
+          ctx.globalAlpha = 0.55 + 0.3 * grown;
+          drawEgg(ctx, n.biome, rarity, n.x, n.y + 2, 38 * pop * s * (0.5 + 0.45 * grown), t, 0);
+          ctx.globalAlpha = 1;
+          const cy = n.y - 58;
+          ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
+          ctx.beginPath();
+          ctx.arc(n.x, cy, 17, 0, Math.PI * 2);
+          ctx.fill();
+          progressRing(ctx, n.x, cy, 17, grown, color, 4);
+          label(ctx, `${Math.ceil(n.ripen)}`, n.x, cy + 1, 15, "#ffffff");
+          return;
+        }
+        const bob = n.grab > 0 ? 0 : Math.sin(t * 3 + n.x) * 1.5;
+        // While it's being lifted the egg wobbles harder and harder.
+        const wobble = n.grab > 0 ? Math.sin(t * 34) * 0.16 * (0.4 + n.grab) : Math.sin(t * 2 + n.y) * 0.06;
+        drawEgg(ctx, n.biome, rarity, n.x, n.y + 2 + bob - n.grab * 6, 38 * pop * s, t, wobble);
       },
     });
   }
@@ -1997,9 +2297,12 @@ export function render(
         drawPet(ctx, look, gd.x + shakeX, gd.y + 6 - stomp, 96 * breathing, {
           t,
           flip: gd.flip,
-          mood: guardMood(gd),
+          mood: guardMood(gd, g.confuseT > 0 && gd.state === "chase"),
           seed: gd.biome,
         });
+        if (g.freezeT > 0 && gd.state !== "sleep") drawIce(ctx, gd.x, gd.y - 40, 62);
+        else if (g.confuseT > 0 && gd.state === "chase") drawSwirl(ctx, gd.x, gd.y - 112, 12, t);
+        else if (gd.state === "alert") label(ctx, "?", gd.x, gd.y - 116, 26, "#ffffff", "#f59e0b");
         if (gd.state === "sleep") {
           const ph = (t * 0.6) % 1;
           for (let k = 0; k < 3; k++) {
@@ -2059,15 +2362,15 @@ export function render(
         const pop = born < 1 ? 0.3 + born * 0.7 + Math.sin(born * Math.PI) * 0.3 : 1;
         const hopping = pet.wait <= 0 || pet.joy > 0;
         const hopY = hopping ? Math.abs(Math.sin(pet.hop)) * (pet.joy > 0 ? 10 : 6) : 0;
-        const size = (34 + def.rarity * 4) * pop;
+        const size = (34 + def.rarity * 4) * pop * SIZES[pet.s].scale;
         shadow(ctx, pet.x, pet.y + 1, size * 0.4, 0.16);
-        drawPet(ctx, def.look, pet.x, pet.y - hopY, size, {
+        drawPet(ctx, variantLook(def.look, pet.v, t, pet.uid), pet.x, pet.y - hopY, size, {
           t,
           flip: pet.flip,
           seed: pet.uid,
           mood: born < 1 || pet.joy > 0 ? "happy" : "normal",
         });
-        if (pet.shiny) sparkles(ctx, pet.x, pet.y - hopY, size, t, pet.uid);
+        if (pet.v > 0) sparkles(ctx, pet.x, pet.y - hopY, size, t, pet.uid);
       },
     });
   }
@@ -2114,13 +2417,37 @@ export function render(
       }
       p.carry.forEach((egg, k) => {
         const sway = Math.sin(p.walkT * 11 + k) * (p.moving ? 0.12 : 0.03);
-        drawEgg(ctx, egg.biome, egg.rarity, p.x + sway * 20, p.y - bob - 44 * big - k * 22, 30, t, sway);
+        const ex = p.x + sway * 20;
+        const ey = p.y - bob - 44 * big - k * 22;
+        const power = egg.power ? powerEggById(egg.power) : undefined;
+        if (power) drawPowerEgg(ctx, power.color, ex, ey, 32, t, sway);
+        else drawEgg(ctx, egg.biome, egg.rarity, ex, ey, 30, t, sway);
       });
+      if (g.held === "bubble") {
+        ctx.strokeStyle = "rgba(125, 211, 252, 0.9)";
+        ctx.fillStyle = "rgba(186, 230, 253, 0.2)";
+        ctx.lineWidth = 3;
+        ellipse(ctx, p.x, p.y - 22 * big, 34 * big, 36 * big);
+        ctx.fill();
+        ctx.stroke();
+      }
     },
   });
 
   items.sort((a, b) => a.y - b.y);
   for (const it of items) it.draw();
+
+  // Lifting an egg: a ring that fills up around the nest, drawn over everything
+  // so the player standing on the nest never hides it.
+  for (const n of g.nests) {
+    if (n.egg !== null && n.grab > 0) progressRing(ctx, n.x, n.y - 18, 42, n.grab, RARITIES[n.egg].color, 7);
+  }
+  for (const a of g.ancients) {
+    if (a.grab > 0) progressRing(ctx, a.x, a.y - 20, 46, a.grab, powerEggById(a.power)?.color ?? "#ffffff", 7);
+  }
+  if (mystery && mystery.grab > 0) {
+    progressRing(ctx, mystery.x, mystery.y - 18, 44, mystery.grab, RARITIES[mystery.rarity].color, 7);
+  }
 
   // Eggs flying to their pads.
   for (const f of g.flights) {
@@ -2259,7 +2586,13 @@ function arrow(ctx: Ctx, x: number, y: number, angle: number, text: string, size
 /* ---------- Pictures for the menus ---------- */
 
 /** Paint one pet centred on a small square canvas (for the book, shop, etc.). */
-export function paintPetIcon(canvas: HTMLCanvasElement, look: Look, cssSize: number, mood: Mood = "normal") {
+export function paintPetIcon(
+  canvas: HTMLCanvasElement,
+  look: Look,
+  cssSize: number,
+  mood: Mood = "normal",
+  variant = 0,
+) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   canvas.width = Math.round(cssSize * dpr);
   canvas.height = Math.round(cssSize * dpr);
@@ -2267,7 +2600,7 @@ export function paintPetIcon(canvas: HTMLCanvasElement, look: Look, cssSize: num
   if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssSize, cssSize);
-  drawPet(ctx, look, cssSize / 2, cssSize * 0.88, cssSize * 0.72, { mood });
+  drawPet(ctx, variantLook(look, variant, 0, 4), cssSize / 2, cssSize * 0.88, cssSize * 0.72, { mood });
 }
 
 export function paintEggIcon(canvas: HTMLCanvasElement, biome: number, rarity: Rarity, cssSize: number) {
@@ -2279,4 +2612,26 @@ export function paintEggIcon(canvas: HTMLCanvasElement, biome: number, rarity: R
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssSize, cssSize);
   drawEgg(ctx, biome, rarity, cssSize / 2, cssSize * 0.86, cssSize * 0.7);
+}
+
+export function paintPowerEggIcon(canvas: HTMLCanvasElement, color: string, cssSize: number) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.round(cssSize * dpr);
+  canvas.height = Math.round(cssSize * dpr);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssSize, cssSize);
+  drawPowerEgg(ctx, color, cssSize / 2, cssSize * 0.92, cssSize * 0.8, 0, 0, false);
+}
+
+export function paintPowerupIcon(canvas: HTMLCanvasElement, kind: PowerupId, cssSize: number) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.round(cssSize * dpr);
+  canvas.height = Math.round(cssSize * dpr);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssSize, cssSize);
+  drawPowerup(ctx, kind, cssSize / 2, cssSize / 2, cssSize * 0.46);
 }
