@@ -543,9 +543,11 @@ Seven asks from Noah, relayed by Dani. All tuning numbers are in `config.ts`.
   One new Uncommon pet per land. Coin multipliers are 1, 2, 4, 12, 40, 200
   (Rare and up went up a little). Uncommon eggs are green with a dotted band,
   ripen in 2s, and take a tenth of a wake time to lift.
-  **Save migration:** saves from before this numbered Rare as 1. `SavedGame.rv`
-  is 2 from now on; a save without it has its pad eggs shifted up one on load.
-  Pets are saved by id, so they were never affected.
+  **Save migration:** saves from before this numbered Rare as 1. That is save
+  version 2 (`SAVE_VERSION` and `MIGRATIONS[1]` in `saves.ts`): the eggs waiting
+  on the pads move up one. Pets are saved by id, so they were never affected.
+  `fixtures/pass7-save-vault-fanscout.json` is the fixture from just before the
+  change, and `saves.test.ts` checks the renumbering happens exactly once.
 - **Fuse 4.** `FUSE_COUNT = 4`. Menus, the Pet Book and trophies read the
   number from config. Fusing is now a small income trade for three free pen
   spots until the Legendary-to-Mythic step, where it gains.
@@ -585,7 +587,7 @@ Seven asks from Noah, relayed by Dani. All tuning numbers are in `config.ts`.
   Kingdom (it lives at the top of the world); the star picture stays in space.
   The world is three lands taller, so `HOME_TOP` grew; nothing saved depends
   on it.
-- **Counts:** 48 pets (40 from ordinary eggs, 8 Mythic), 8 Power Eggs, 113
+- **Counts:** 48 pets (40 from ordinary eggs, 8 Mythic), 8 Power Eggs, 125
   trophies.
 - **Checked** in Chrome at iPad and phone sizes: old save loads and its pad
   eggs migrate; a caught Uncommon egg came back as the same egg; three bonks
