@@ -3,6 +3,7 @@ import {
   faBolt,
   faBook,
   faBullseye,
+  faClover,
   faCoins,
   faDice,
   faEgg,
@@ -10,7 +11,6 @@ import {
   faFeatherPointed,
   faShareNodes,
   faSnowflake,
-  faRectangleAd,
   faForwardFast,
   faGift,
   faHeart,
@@ -41,6 +41,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { FanScoutAd, FanScoutTile, type AdOffer } from "~/components/eggs/FanScoutAd";
 import {
   BookBody,
   Coin,
@@ -78,8 +79,10 @@ import {
   HATS,
   HOME_DECOR,
   PETS,
-  HOUSE_AD,
-  AD_COOLDOWN,
+  AD_AWAY_MULT,
+  AD_REWARDS,
+  AD_VISIT_STARS,
+  adRewardById,
   FREEZE_CD,
   MEDAL_COLORS,
   MEDAL_NAMES,
@@ -111,6 +114,7 @@ import {
   skinById,
   traitName,
   upgradeCost,
+  type AdRewardId,
   type HatId,
   type HomeDecorId,
   type Look,
@@ -122,6 +126,8 @@ import {
   type UpgradeId,
 } from "~/games/eggs/config";
 import {
+  adVisit,
+  adWait,
   anyFusable,
   bookCount,
   buy,
@@ -129,6 +135,7 @@ import {
   buyHat,
   buyTrail,
   carryWeight,
+  claimAd,
   coinMult,
   createGame,
   dash,
@@ -136,7 +143,6 @@ import {
   finishMini,
   freeze,
   fuse,
-  hatchNow,
   hatchWait,
   rebirth,
   rebirthGain,
@@ -173,6 +179,7 @@ import {
   type Joystick,
   type View,
 } from "~/games/eggs/render";
+import { FANSCOUT, AD_SLIDES, fanscoutUrl } from "~/games/eggs/fanscout";
 import { clearStoredData, getStoredData, setStoredData } from "~/storage";
 import eggsStyles from "~/styles/eggs.css?url";
 import type { Route } from "./+types/eggs";
@@ -210,6 +217,17 @@ function tellOnce(g: Game, key: string): boolean {
 }
 
 type Phase = "START" | "PLAYING" | "WON";
+/** Where in the game the FanScout ad was opened from. */
+type AdPlacement = "hud" | "sign" | "shop" | "title";
+
+const AD_ICONS: Record<AdRewardId, typeof faEgg> = {
+  hatch: faEgg,
+  coins: faCoins,
+  luck: faClover,
+  prize: faGift,
+};
+const AD_OFFERS: AdOffer[] = AD_REWARDS.map((r) => ({ ...r, icon: AD_ICONS[r.id] }));
+
 type PanelId = "shop" | "pets" | "book" | "trophies" | "map";
 
 interface Save {
@@ -283,6 +301,12 @@ interface Hud {
   zoom: number;
   happy: number;
   dice: number;
+  /** Seconds until the FanScout ad is ready again; 0 = ready, -1 = never offered (Cozy). */
+  adWait: number;
+  /** Whole seconds left on each ad boost. */
+  boostCoins: number;
+  boostHatch: number;
+  boostLuck: number;
   feathers: number;
   pets: number;
   cap: number;
@@ -312,6 +336,10 @@ const EMPTY_HUD: Hud = {
   zoom: 0,
   happy: 0,
   dice: 0,
+  adWait: -1,
+  boostCoins: 0,
+  boostHatch: 0,
+  boostLuck: 0,
   feathers: 0,
   pets: 0,
   cap: penSize(0),
@@ -366,6 +394,10 @@ function hudOf(g: Game): Hud {
     zoom: Math.ceil(g.zoomT),
     happy: Math.ceil(g.happyT),
     dice: g.dice,
+    adWait: g.cozy ? -1 : adWait(g),
+    boostCoins: Math.ceil(g.frenzy),
+    boostHatch: Math.ceil(g.hatchT),
+    boostLuck: Math.ceil(g.luckT),
     feathers: g.feathers,
     pets: g.pets.length,
     cap: penSize(g.up.pen),
@@ -408,14 +440,17 @@ export default function SneakyEggs() {
   const [place, setPlace] = useState<{ id: number; text: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmRebirth, setConfirmRebirth] = useState(false);
-  const [adOpen, setAdOpen] = useState(false);
-  const [adLeft, setAdLeft] = useState(HOUSE_AD.seconds);
+  const [ad, setAd] = useState<AdPlacement | null>(null);
+  const [awayBoosted, setAwayBoosted] = useState(false);
   const [freezeKey, setFreezeKey] = useState(0);
   const [mini, setMini] = useState<MiniUi | null>(null);
   const miniRef = useRef<MiniState | null>(null);
   const miniPlayRef = useRef(false);
   const miniTickRef = useRef<(m: MiniState) => void>(() => {});
-  const lastAdRef = useRef(-Infinity);
+  /** Game time before which walking into the sign won't offer the ad again. */
+  const signQuietRef = useRef(-Infinity);
+  /** Ad counts from the title screen, added to the save's stats on the next Play. */
+  const titleAdRef = useRef({ opened: 0, done: 0, clicked: 0, seconds: 0 });
   const [seenTrophies, setSeenTrophies] = useState(0);
   const [dashKey, setDashKey] = useState(0);
   const [tickles, setTickles] = useState(0);
@@ -447,7 +482,7 @@ export default function SneakyEggs() {
   const reveal = reveals[0] ?? null;
   const cheer = cheers[0] ?? null;
   // The main game stands still while a mini game is on screen.
-  pausedRef.current = panel !== null || reveal !== null || adOpen || confirmRebirth || mini !== null;
+  pausedRef.current = panel !== null || reveal !== null || ad !== null || confirmRebirth || mini !== null;
   miniPlayRef.current = mini?.stage === "play";
 
   /* ── Saving ── */
@@ -499,12 +534,6 @@ export default function SneakyEggs() {
   const say = useCallback((text: string, tone: Toast["tone"] = "info") => {
     setToast({ id: Date.now() + Math.random(), text, tone });
   }, []);
-
-  useEffect(() => {
-    if (!adOpen || adLeft <= 0) return;
-    const id = window.setTimeout(() => setAdLeft((n) => n - 1), 1000);
-    return () => clearTimeout(id);
-  }, [adOpen, adLeft]);
 
   useEffect(() => {
     if (!toast) return;
@@ -778,6 +807,14 @@ export default function SneakyEggs() {
           break;
         case "frenzy":
           break;
+        case "billboard":
+          if (g.cozy) {
+            say(`${FANSCOUT.name}: ${AD_SLIDES[0].title.join(" ")}`);
+          } else if (e.tap || g.time >= signQuietRef.current) {
+            // A walk-in only offers the ad when there is one to watch; a tap always answers.
+            if (e.tap || adWait(g) <= 0) openAd("sign");
+          }
+          break;
         case "mission":
           sfx.mission();
           say(
@@ -848,6 +885,14 @@ export default function SneakyEggs() {
       g.stats.earned += away;
       setAway(0);
     }
+    setAwayBoosted(false);
+    const seen = titleAdRef.current;
+    g.stats.adsOpened += seen.opened;
+    g.stats.adsDone += seen.done;
+    g.stats.adsClicked += seen.clicked;
+    g.stats.adSeconds += seen.seconds;
+    titleAdRef.current = { opened: 0, done: 0, clicked: 0, seconds: 0 };
+    signQuietRef.current = -Infinity;
     gameRef.current = g;
     // Handy while developing: poke at the live game from the browser console.
     if (import.meta.env.DEV) (window as unknown as { __eggs?: Game }).__eggs = g;
@@ -895,6 +940,7 @@ export default function SneakyEggs() {
     gameRef.current = null;
     setSave(fresh);
     setAway(0);
+    setAwayBoosted(false);
     setConfirmReset(false);
   };
 
@@ -1162,25 +1208,66 @@ export default function SneakyEggs() {
     afterAction(g);
   };
 
-  /* The house ad: watch it through and every egg on a pad hatches at once. */
-  const openAd = () => {
+  /* The FanScout ad: the longer you watch, the more boosts you collect. */
+  const openAd = (from: AdPlacement) => {
+    if (from === "title") {
+      titleAdRef.current.opened++;
+      setAd(from);
+      return;
+    }
     const g = gameRef.current;
-    if (!g) return;
-    if (g.time - lastAdRef.current < AD_COOLDOWN) {
-      say("Give it a minute before the next one.");
+    if (!g || g.cozy) return;
+    const wait = adWait(g);
+    if (wait > 0) {
+      say(`More FanScout boosts in ${fmtWait(wait)}.`);
       return;
     }
     g.stats.adsOpened++;
-    setAdLeft(HOUSE_AD.seconds);
-    setAdOpen(true);
+    setPanel(null);
+    setAd(from);
   };
-  const closeAd = (finished: boolean) => {
+  const closeAd = (seconds: number) => {
+    const from = ad;
+    setAd(null);
+    if (from === "title") {
+      titleAdRef.current.seconds += Math.floor(seconds);
+      if (seconds >= AD_OFFERS[0].at && !awayBoosted) {
+        titleAdRef.current.done++;
+        setAway((n) => n * AD_AWAY_MULT);
+        setAwayBoosted(true);
+        sfx.chest();
+      }
+      return;
+    }
     const g = gameRef.current;
-    setAdOpen(false);
-    if (!g || !finished) return;
-    lastAdRef.current = g.time;
-    g.stats.adsDone++;
-    if (hatchNow(g) > 0) say("Thanks for watching! Your eggs are hatching.", "good");
+    if (!g) return;
+    const won = claimAd(g, seconds);
+    if (!won.rewards.length) {
+      // Turned down: don't offer it again the moment they brush the sign.
+      signQuietRef.current = g.time + 20;
+      afterAction(g);
+      return;
+    }
+    sfx.chest();
+    const n = won.rewards.length;
+    say(
+      n === 1
+        ? `${adRewardById(won.rewards[0]).name} is on!`
+        : won.prize
+          ? `${n} boosts collected! Mystery Prize: ${won.prize}.`
+          : `${n} boosts collected!`,
+      "good",
+    );
+    afterAction(g);
+  };
+  const visitAd = () => {
+    const g = gameRef.current;
+    if (!g) {
+      titleAdRef.current.clicked++;
+      return;
+    }
+    const stars = adVisit(g);
+    if (stars > 0) say(`Thanks for checking out FanScout! +${stars} stars`, "good");
     afterAction(g);
   };
 
@@ -1603,8 +1690,17 @@ export default function SneakyEggs() {
           )}
           {away > 0 && (
             <Banner tone="gold" icon={faCoins}>
-              Your pets earned {fmtCoins(away)} coins!
+              Your pets earned {fmtCoins(away)} coins{awayBoosted ? ", doubled by FanScout!" : "!"}
             </Banner>
+          )}
+          {away > 0 && !awayBoosted && !save.cozy && (
+            <button type="button" className="se-fsbtn is-ready is-inline" onClick={() => openAd("title")}>
+              <FanScoutTile size={34} />
+              <span className="se-fsbtn-text">
+                <b>Double it to {fmtCoins(away * AD_AWAY_MULT)}</b>
+                <small>watch a FanScout ad</small>
+              </span>
+            </button>
           )}
 
           <div className="dg-row">
@@ -1630,7 +1726,39 @@ export default function SneakyEggs() {
               </KitButton>
             )}
           </div>
+
+          <a
+            className="se-fs-strip"
+            href={fanscoutUrl("title-strip")}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => titleAdRef.current.clicked++}>
+            <FanScoutTile size={40} />
+            <span className="se-fs-strip-text">
+              <small>From the maker of this game</small>
+              <b>{FANSCOUT.name}</b>
+              <em>{AD_SLIDES[0].title.join(" ")}</em>
+            </span>
+            <i>{FANSCOUT.site}</i>
+          </a>
         </StartScreen>
+
+        <FanScoutAd
+          game={game}
+          open={ad === "title"}
+          placement="title"
+          offers={[
+            {
+              id: "away",
+              at: AD_OFFERS[0].at,
+              name: "Double your coins",
+              desc: `${fmtCoins(away)} becomes ${fmtCoins(away * AD_AWAY_MULT)}`,
+              icon: faCoins,
+            },
+          ]}
+          onVisit={visitAd}
+          onClose={closeAd}
+        />
 
         <KitDialog
           game={game}
@@ -1834,10 +1962,43 @@ export default function SneakyEggs() {
           )}
         </div>
 
-        {hud.hatching && (
-          <button type="button" className="se-adbtn" data-ui onClick={openAd}>
-            <FontAwesomeIcon icon={faRectangleAd} /> Hatch now
-          </button>
+        {hud.adWait >= 0 && (
+          <div className="se-fs-hud" data-ui>
+            {(hud.boostCoins > 0 || hud.boostHatch > 0 || hud.boostLuck > 0) && (
+              <div className="se-boosts" aria-label="Boosts running">
+                {hud.boostCoins > 0 && (
+                  <span>
+                    <FontAwesomeIcon icon={faCoins} /> x2 <b>{fmtClock(hud.boostCoins)}</b>
+                  </span>
+                )}
+                {hud.boostHatch > 0 && (
+                  <span>
+                    <FontAwesomeIcon icon={faEgg} /> x4 <b>{fmtClock(hud.boostHatch)}</b>
+                  </span>
+                )}
+                {hud.boostLuck > 0 && (
+                  <span>
+                    <FontAwesomeIcon icon={faClover} /> Lucky <b>{fmtClock(hud.boostLuck)}</b>
+                  </span>
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              className={cx("se-fsbtn", hud.adWait > 0 ? "is-waiting" : "is-ready")}
+              onClick={() => openAd("hud")}
+              aria-label={
+                hud.adWait > 0
+                  ? `More FanScout boosts in ${fmtWait(hud.adWait)}`
+                  : "Watch a FanScout ad for free boosts"
+              }>
+              <FanScoutTile size={34} />
+              <span className="se-fsbtn-text">
+                <b>{hud.adWait > 0 ? fmtClock(hud.adWait) : hud.hatching ? "Hatch now" : "Free boosts"}</b>
+                <small>{hud.adWait > 0 ? "next boosts" : "from FanScout"}</small>
+              </span>
+            </button>
+          </div>
         )}
 
         {hud.dash > 0 && (
@@ -1906,6 +2067,18 @@ export default function SneakyEggs() {
         icon={faStore}
         title="Shop"
         className="se-menu">
+        {hud.adWait >= 0 && (
+          <button
+            type="button"
+            className={cx("se-fsbtn is-row", hud.adWait > 0 ? "is-waiting" : "is-ready")}
+            onClick={() => openAd("shop")}>
+            <FanScoutTile size={34} />
+            <span className="se-fsbtn-text">
+              <b>{hud.adWait > 0 ? `More boosts in ${fmtClock(hud.adWait)}` : "Free boosts"}</b>
+              <small>Double coins, lucky nests and more, from FanScout</small>
+            </span>
+          </button>
+        )}
         <ShopBody
           g={g}
           playerLook={skin.look}
@@ -2104,32 +2277,19 @@ export default function SneakyEggs() {
         )}
       </KitDialog>
 
-      <KitDialog game={game} open={adOpen} onClose={() => closeAd(false)} icon={faRectangleAd} title="A quick ad">
-        <div className="se-ad">
-          <small>Ad · from the maker of this game</small>
-          <strong>{HOUSE_AD.name}</strong>
-          <p>{HOUSE_AD.tagline}</p>
-          <p className="se-ad-body">{HOUSE_AD.body}</p>
-          <a
-            className="dg-btn dg-btn--neutral dg-btn--sm"
-            href={HOUSE_AD.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => {
-              if (gameRef.current) gameRef.current.stats.adsClicked++;
-            }}>
-            {HOUSE_AD.cta}
-          </a>
-        </div>
-        <div className="dg-row">
-          <KitButton variant="neutral" onClick={() => closeAd(false)}>
-            No thanks
-          </KitButton>
-          <KitButton disabled={adLeft > 0} onClick={() => closeAd(true)}>
-            {adLeft > 0 ? `Hatch in ${adLeft}...` : "Hatch my eggs!"}
-          </KitButton>
-        </div>
-      </KitDialog>
+      <FanScoutAd
+        game={game}
+        open={ad !== null}
+        placement={ad ?? "hud"}
+        offers={AD_OFFERS}
+        visitStars={
+          gameRef.current && gameRef.current.flags.fsVisit !== Math.floor(Date.now() / 86_400_000)
+            ? AD_VISIT_STARS
+            : 0
+        }
+        onVisit={visitAd}
+        onClose={closeAd}
+      />
 
       <KitDialog
         game={game}

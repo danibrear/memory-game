@@ -2,6 +2,17 @@
 
 import { ACHIEVEMENTS } from "./achievements";
 import {
+  AD_COINS_TIME,
+  AD_COOLDOWN,
+  AD_HATCH_SPEED,
+  AD_HATCH_TIME,
+  AD_LUCK,
+  AD_LUCK_SPARKLE,
+  AD_LUCK_TIME,
+  AD_VISIT_STARS,
+  BILLBOARD,
+  adRewardsAt,
+  type AdRewardId,
   BIOME_COUNT,
   BIOME_H,
   BIOMES,
@@ -42,6 +53,7 @@ import {
   MINI_SEE,
   POWERUP_EVERY,
   POWERUP_IDS,
+  POWERUPS,
   POWERUP_LIFE,
   POWER_EGGS,
   SNAIL_SLOW,
@@ -415,6 +427,9 @@ export interface Stats {
   adsOpened: number;
   adsDone: number;
   adsClicked: number;
+  /** Whole seconds spent watching the ad, and rewards collected from it. */
+  adSeconds: number;
+  adRewards: number;
   shares: number;
   rebirths: number;
   /** Eggs the courier has brought home. */
@@ -435,6 +450,7 @@ const ZERO_STATS: Stats = {
   powerups: 0, freezes: 0, sentHome: 0, farEggs: 0,
   adsOpened: 0, adsDone: 0, adsClicked: 0, shares: 0, rebirths: 0, couriered: 0,
   minis: 0, prizes: 0, diceUsed: 0,
+  adSeconds: 0, adRewards: 0,
 };
 
 const ZERO_UPGRADES: Upgrades = {
@@ -498,6 +514,7 @@ export type GameEvent =
   | { type: "travel"; biome: number }
   | { type: "bug"; coins: number; golden: boolean }
   | { type: "frenzy" }
+  | { type: "billboard"; tap: boolean }
   | { type: "mission"; kind: MissionKind; target: number; coins: number; stars: number };
 
 export interface Game {
@@ -539,8 +556,13 @@ export interface Game {
   trail: TrailId;
   /** Decorations placed around the home. */
   home: HomeDecorId[];
-  /** Seconds of double coins left (from catching a shooting star). */
+  /** Seconds of double coins left (from a shooting star or the FanScout ad). */
   frenzy: number;
+  /** FanScout ad boosts: seconds left of fast hatching and of lucky nests. */
+  hatchT: number;
+  luckT: number;
+  /** Seconds until the ad can be watched again. */
+  adCd: number;
   missions: Mission[];
   /** Lands whose hidden star has been found. */
   secrets: number[];
@@ -629,6 +651,8 @@ export interface SavedGame {
   dice?: number;
   zoomT?: number;
   happyT?: number;
+  /** Seconds left on the timed boosts, so a reload doesn't throw them away. */
+  boosts?: { coins?: number; hatch?: number; luck?: number };
 }
 
 /* ---------- Helpers ---------- */
@@ -824,7 +848,7 @@ function buildWorld(): World {
     secrets.push(spot);
   }
 
-  // Home: flowers around the edges; the hut and the gift chest are solid.
+  // Home: flowers around the edges; the hut, the gift chest and the FanScout sign are solid.
   const rng = mulberry32(90210);
   for (let k = 0; k < 30; k++) {
     const x = 20 + rng() * (WORLD_W - 40);
@@ -832,11 +856,13 @@ function buildWorld(): World {
     const inPen = x > PEN.x0 - 20 && x < PEN.x1 + 20 && y > PEN.y0 - 20 && y < PEN.y1 + 20;
     const onPads = Math.abs(y - PAD_Y) < 60 && Math.abs(x - CENTER_X) < 280;
     const onChest = Math.hypot(x - CHEST.x, y - CHEST.y) < 60;
-    if (inPen || onPads || onChest) continue;
+    const onSign = Math.abs(x - BILLBOARD.x) < BILLBOARD.w / 2 + 16 && Math.abs(y - BILLBOARD.y) < 40;
+    if (inPen || onPads || onChest || onSign) continue;
     decor.push({ x, y, kind: rng() < 0.6 ? "flower" : "tuft", s: 0.75 + rng() * 0.6, seed: rng() });
   }
   solids.push({ x: HUT.x, y: HUT.y, r: HUT.r, kind: "bush", seed: -1 });
   solids.push({ x: CHEST.x, y: CHEST.y, r: CHEST.r, kind: "rock", seed: -2 });
+  solids.push({ x: BILLBOARD.x, y: BILLBOARD.y, r: BILLBOARD.r, kind: "rock", seed: -3 });
 
   solids.sort((a, b) => a.y - b.y);
   return { solids, decor, secrets };
@@ -955,6 +981,9 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
     trail: "none",
     home: [],
     frenzy: 0,
+    hatchT: 0,
+    luckT: 0,
+    adCd: 0,
     missions: [],
     secrets: [],
     secretSpots: WORLD.secrets,
@@ -1045,6 +1074,9 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
     g.dice = clamp(Math.floor(Number(saved.dice) || 0), 0, DICE_MAX);
     g.zoomT = Math.max(0, Number(saved.zoomT) || 0);
     g.happyT = Math.max(0, Number(saved.happyT) || 0);
+    g.frenzy = clamp(Number(saved.boosts?.coins) || 0, 0, AD_COINS_TIME);
+    g.hatchT = clamp(Number(saved.boosts?.hatch) || 0, 0, AD_HATCH_TIME);
+    g.luckT = clamp(Number(saved.boosts?.luck) || 0, 0, AD_LUCK_TIME);
     const buddy = saved.buddy ?? -1;
     if (buddy >= 0 && buddy < g.pets.length) g.buddy = g.pets[buddy].uid;
     g.completeSent = PETS.every((p) => p.rarity === 4 || g.book[p.id]);
@@ -1165,6 +1197,7 @@ export function toSave(g: Game): SavedGame {
     dice: g.dice,
     zoomT: Math.ceil(g.zoomT),
     happyT: Math.ceil(g.happyT),
+    boosts: { coins: Math.ceil(g.frenzy), hatch: Math.ceil(g.hatchT), luck: Math.ceil(g.luckT) },
   };
 }
 
@@ -1232,7 +1265,7 @@ const freePads = (g: Game) => g.pads.filter((p) => !p.egg && !p.reserved).length
 export const buddyPet = (g: Game): Pet | undefined =>
   g.buddy ? g.pets.find((p) => p.uid === g.buddy) : undefined;
 
-/** Luck for a nest right now: clover + golden nest + moonlight + a buddy at your side. */
+/** Luck for a nest right now: clover + golden nest + moonlight + Lucky Nests + a buddy at your side. */
 export function luckFor(g: Game, golden: boolean, far = false): number {
   return (
     g.up.luck +
@@ -1240,6 +1273,7 @@ export function luckFor(g: Game, golden: boolean, far = false): number {
     (hasPower(g, "clover") ? CLOVER_LUCK : 0) +
     (golden ? GOLDEN_NEST_LUCK : 0) +
     (g.night ? NIGHT_LUCK : 0) +
+    (g.luckT > 0 ? AD_LUCK : 0) +
     (g.buddy ? 1 : 0)
   );
 }
@@ -1453,6 +1487,17 @@ export function tapWorld(g: Game, x: number, y: number): boolean {
     return true;
   }
 
+  if (
+    Math.abs(x - BILLBOARD.x) < BILLBOARD.w / 2 + 10 &&
+    y < BILLBOARD.y + 14 &&
+    y > BILLBOARD.y - BILLBOARD.h - 44
+  ) {
+    const idx = g.solids.findIndex((s) => s.seed === -3);
+    if (idx >= 0) g.wob[idx] = 1;
+    emit(g, { type: "billboard", tap: true });
+    return true;
+  }
+
   for (const gd of g.guards) {
     if (gd.state !== "sleep") continue;
     if (Math.hypot(gd.x - x, gd.y - 40 - y) > 56) continue;
@@ -1513,7 +1558,7 @@ export function wish(g: Game): boolean {
   const coins = Math.max(25, Math.round(totalRate(g) * 20));
   earn(g, coins);
   g.stats.wishes++;
-  g.frenzy = FRENZY_TIME;
+  g.frenzy = Math.max(g.frenzy, FRENZY_TIME);
   const p = g.player;
   popup(g, p.x, p.y - 80, "Double coins!", "#a855f7", true);
   puff(g, p.x, p.y - 40, "#fde047", 8, "star");
@@ -1575,6 +1620,11 @@ function bump(g: Game, idx: number) {
     }
     puff(g, s.x + 26, s.y - 100, "#fb7185", 3, "heart");
     emit(g, { type: "knock", coins });
+    return;
+  }
+  if (s.seed === -3) {
+    // The FanScout sign: the screen decides what to offer.
+    emit(g, { type: "billboard", tap: false });
     return;
   }
   if (s.seed === -2) {
@@ -2246,7 +2296,7 @@ function hatch(g: Game, i: number) {
   const pad = g.pads[i];
   if (!pad.egg) return;
   const def = petFor(pad.egg.biome, pad.egg.rarity);
-  const v = rollVariant(g.up.sparkle);
+  const v = rollVariant(g.up.sparkle + (g.luckT > 0 ? AD_LUCK_SPARKLE : 0));
   const size = rollSize();
   const at = { x: padX(i), y: PAD_Y };
   g.pets.push(makePet(g, def.id, v, size, at));
@@ -2264,7 +2314,7 @@ function updatePads(g: Game, dt: number) {
     const pad = g.pads[i];
     pad.wobble = Math.max(0, pad.wobble - dt * 3);
     if (!pad.egg) continue;
-    if (pad.left > 0) pad.left -= dt;
+    if (pad.left > 0) pad.left -= dt * (g.hatchT > 0 ? AD_HATCH_SPEED : 1);
     if (pad.left > 0) continue;
     if (penIsFull(g)) {
       if (!pad.blocked) {
@@ -2523,6 +2573,9 @@ function updateWorldEvents(g: Game, dt: number) {
 
   g.chestAnim = Math.max(0, g.chestAnim - dt);
   g.frenzy = Math.max(0, g.frenzy - dt);
+  g.hatchT = Math.max(0, g.hatchT - dt);
+  g.luckT = Math.max(0, g.luckT - dt);
+  g.adCd = Math.max(0, g.adCd - dt);
   for (let i = 0; i < g.wob.length; i++) {
     if (g.wob[i] > 0) g.wob[i] = Math.max(0, g.wob[i] - dt * 1.6);
     if (g.cool[i] > 0) g.cool[i] = Math.max(0, g.cool[i] - dt);
@@ -2635,7 +2688,69 @@ export function usePower(g: Game): boolean {
   return true;
 }
 
-/** The reward for sitting through the house ad: every egg on a pad hatches now. */
+/** Seconds until the FanScout ad can be watched again (0 = ready). Never offered in Cozy style. */
+export const adWait = (g: Game) => (g.cozy ? Infinity : Math.ceil(g.adCd));
+
+export interface AdResult {
+  rewards: AdRewardId[];
+  /** What the Mystery Prize turned out to be, in words. */
+  prize: string;
+}
+
+/**
+ * Pay out the FanScout ad. Every reward whose time has passed is handed over
+ * at once; boosts top up to their full length and never stack past it.
+ */
+export function claimAd(g: Game, seconds: number): AdResult {
+  const rewards = adRewardsAt(seconds).map((r) => r.id);
+  g.stats.adSeconds += Math.max(0, Math.floor(seconds));
+  if (!rewards.length) return { rewards, prize: "" };
+  let prize = "";
+  for (const id of rewards) {
+    if (id === "hatch") {
+      hatchNow(g);
+      g.hatchT = AD_HATCH_TIME;
+    } else if (id === "coins") {
+      g.frenzy = Math.max(g.frenzy, AD_COINS_TIME);
+      emit(g, { type: "frenzy" });
+    } else if (id === "luck") {
+      g.luckT = AD_LUCK_TIME;
+    } else {
+      const r = Math.random();
+      if (r < 0.25 && !g.held) {
+        g.held = pick(POWERUP_IDS);
+        prize = POWERUPS[g.held].name;
+      } else if (r < 0.6) {
+        const stars = r < 0.32 ? 5 : 2;
+        g.stars += stars;
+        prize = `${stars} stars`;
+      } else {
+        const coins = Math.max(60, Math.round(totalRate(g) * 180));
+        earn(g, coins);
+        prize = `${fmtCoins(coins)} coins`;
+      }
+    }
+  }
+  g.stats.adsDone++;
+  g.stats.adRewards += rewards.length;
+  g.adCd = AD_COOLDOWN;
+  const p = g.player;
+  burst(g, p.x, p.y - 30, "#81c04d", 22, "star", 240);
+  checkAchievements(g);
+  return { rewards, prize };
+}
+
+/** Tapping through to FanScout pays a few stars, once a day. Returns the stars given. */
+export function adVisit(g: Game, now = Date.now()): number {
+  g.stats.adsClicked++;
+  const day = Math.floor(now / 86_400_000);
+  if (g.flags.fsVisit === day) return 0;
+  g.flags.fsVisit = day;
+  g.stars += AD_VISIT_STARS;
+  return AD_VISIT_STARS;
+}
+
+/** Quick Hatch: every egg on a pad hatches now. */
 export function hatchNow(g: Game): number {
   let n = 0;
   for (const pad of g.pads) {

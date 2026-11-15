@@ -4,6 +4,7 @@
 // (`drawPet`), so every creature shares the same chunky, friendly look.
 
 import {
+  BILLBOARD,
   BIOME_COUNT,
   BIOMES,
   CENTER_X,
@@ -42,6 +43,7 @@ import {
   type SolidKind,
 } from "./config";
 import type { Ancient, Bug, Decor, Game, Guard, Mini, Mystery, Particle, Pickup, Popup, ShootingStar, Solid } from "./engine";
+import { FANSCOUT, FANSCOUT_MARK, FS } from "./fanscout";
 
 /* ---------- Hatch variants ---------- */
 
@@ -1263,6 +1265,100 @@ function drawHut(ctx: Ctx, wob = 0) {
   ctx.restore();
 }
 
+/* ---------- The FanScout sign ---------- */
+
+let markPath: Path2D | null = null;
+
+/** FanScout's winged-F mark, centred on (x, y). */
+function drawFanScoutMark(ctx: Ctx, x: number, y: number, size: number, color: string) {
+  markPath ??= new Path2D(FANSCOUT_MARK);
+  const k = size / 372;
+  ctx.save();
+  ctx.translate(x - size / 2, y - size / 2);
+  ctx.scale(k, k);
+  ctx.translate(-70, -70);
+  ctx.fillStyle = color;
+  ctx.fill(markPath);
+  ctx.restore();
+}
+
+/** A little billboard by the home gate, in FanScout's colours. It lights up when boosts are ready. */
+function drawBillboard(ctx: Ctx, g: Game, t: number, wob = 0) {
+  const { x, y, w, h } = BILLBOARD;
+  const ready = !g.cozy && g.adCd <= 0;
+  const top = -34 - h;
+  shadow(ctx, x, y + 6, w * 0.5, 0.18);
+  ctx.save();
+  ctx.translate(x, y);
+  if (wob > 0) ctx.rotate(Math.sin(wob * 20) * wob * 0.035);
+
+  // Posts.
+  ctx.fillStyle = "#9a6a3a";
+  roundRect(ctx, -w / 2 + 18, -44, 10, 50, 4);
+  ctx.fill();
+  roundRect(ctx, w / 2 - 28, -44, 10, 50, 4);
+  ctx.fill();
+
+  // A glow behind the board when there is something to collect, and at night.
+  if (ready || g.night) {
+    const pulse = ready ? 0.5 + 0.5 * Math.sin(t * 3) : 0.35;
+    const glow = ctx.createRadialGradient(0, top + h / 2, 10, 0, top + h / 2, w * 0.78);
+    glow.addColorStop(0, `rgba(129, 192, 77, ${0.3 + 0.3 * pulse})`);
+    glow.addColorStop(1, "rgba(129, 192, 77, 0)");
+    ctx.fillStyle = glow;
+    ellipse(ctx, 0, top + h / 2, w * 0.78, h * 1.05);
+    ctx.fill();
+  }
+
+  // The board: FanScout's near-black slab with a green edge.
+  ctx.fillStyle = FS.green;
+  roundRect(ctx, -w / 2 - 3, top - 3, w + 6, h + 6, 15);
+  ctx.fill();
+  ctx.fillStyle = FS.slab;
+  roundRect(ctx, -w / 2, top, w, h, 12);
+  ctx.fill();
+
+  // App icon and wordmark.
+  ctx.fillStyle = "#6eae5c";
+  roundRect(ctx, -w / 2 + 11, top + 10, 30, 30, 8);
+  ctx.fill();
+  drawFanScoutMark(ctx, -w / 2 + 26, top + 25, 23, "#ffffff");
+  ctx.font = '800 18px "Inter", "Roboto", system-ui, sans-serif';
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(FANSCOUT.name, -w / 2 + 47, top + 26);
+
+  // Bottom line: the offer, the wait, or just the tagline.
+  if (ready) {
+    const s = 1 + Math.sin(t * 5) * 0.04;
+    ctx.save();
+    ctx.translate(0, top + h - 20);
+    ctx.scale(s, s);
+    ctx.fillStyle = FS.green;
+    roundRect(ctx, -w / 2 + 12, -12, w - 24, 24, 12);
+    ctx.fill();
+    ctx.font = `700 14px ${FONT}`;
+    ctx.textAlign = "center";
+    ctx.fillStyle = FS.slab;
+    ctx.fillText("FREE BOOSTS!", 0, 1);
+    ctx.restore();
+  } else {
+    ctx.font = `600 13px ${FONT}`;
+    ctx.textAlign = "center";
+    ctx.fillStyle = FS.greenLight;
+    const wait = Math.ceil(g.adCd);
+    ctx.fillText(
+      g.cozy || wait <= 0
+        ? "Find your fans."
+        : `Boosts in ${Math.floor(wait / 60)}:${String(wait % 60).padStart(2, "0")}`,
+      0,
+      top + h - 19,
+    );
+  }
+  ctx.restore();
+}
+
 function drawFenceRun(ctx: Ctx, x0: number, x1: number, y: number, color: string) {
   if (x1 <= x0) return;
   const dark = shade(color, -0.28);
@@ -2367,6 +2463,7 @@ export function render(
     if (!seen(s.y, 160)) return;
     if (s.seed === -1) items.push({ y: s.y, draw: () => drawHut(ctx, g.wob[i]) });
     else if (s.seed === -2) items.push({ y: s.y, draw: () => drawChest(ctx, g, t) });
+    else if (s.seed === -3) items.push({ y: s.y, draw: () => drawBillboard(ctx, g, t, g.wob[i]) });
     else items.push({ y: s.y, draw: () => drawSolid(ctx, s, g.wob[i]) });
   });
 

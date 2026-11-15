@@ -891,18 +891,44 @@ export const SEEK_TUNING = {
   cozyMedals: [80, 50],
 };
 
-/* ---------- A house ad, and sharing ---------- */
+/* ---------- The FanScout house ad, and sharing ---------- */
 
-/** Shown when a player chooses "Hatch now". It only ever advertises our own app. */
-export const HOUSE_AD = {
-  name: "FanScout",
-  tagline: "Find where your team's fans are watching the game.",
-  body: "Check in, earn points and become the captain of your favorite spot.",
-  cta: "Get FanScout",
-  url: "https://apps.apple.com/us/app/fanscout/id1510257001",
-  seconds: 5,
-};
-export const AD_COOLDOWN = 45;
+// The ad only ever advertises our own app. How it looks and what it says is in
+// `fanscout.ts`; what it pays out is here.
+
+export type AdRewardId = "hatch" | "coins" | "luck" | "prize";
+
+/**
+ * The ad is a row of slides, and each finished slide unlocks one reward: the
+ * longer you watch, the more you take home. `at` is seconds of watching.
+ */
+export const AD_REWARDS: { id: AdRewardId; at: number; name: string; desc: string }[] = [
+  { id: "hatch", at: 5, name: "Quick Hatch", desc: "Hatch now, then 4x faster for 2 min" },
+  { id: "coins", at: 10, name: "Double Coins", desc: "Every coin counts twice for 3 min" },
+  { id: "luck", at: 15, name: "Lucky Nests", desc: "Rarer eggs, shinier pets for 3 min" },
+  { id: "prize", at: 20, name: "Mystery Prize", desc: "Stars, a power-up or a pile of coins" },
+];
+export const adRewardById = (id: AdRewardId) => AD_REWARDS.find((r) => r.id === id)!;
+/** Rewards unlocked after this many seconds of watching. */
+export const adRewardsAt = (seconds: number) => AD_REWARDS.filter((r) => seconds >= r.at);
+export const AD_LENGTH = AD_REWARDS[AD_REWARDS.length - 1].at;
+/** Seconds each slide of the ad stays up. One reward per slide. */
+export const AD_SLIDE_TIME = 5;
+/** Seconds between ads, counted from collecting the rewards. */
+export const AD_COOLDOWN = 60;
+export const AD_HATCH_TIME = 120;
+export const AD_HATCH_SPEED = 4;
+export const AD_COINS_TIME = 180;
+export const AD_LUCK_TIME = 180;
+/** Lucky Nests: extra nest luck, and extra Sparkle Charm levels on hatch rolls. */
+export const AD_LUCK = 2;
+export const AD_LUCK_SPARKLE = 3;
+/** Stars for tapping through to FanScout, once a day. */
+export const AD_VISIT_STARS = 3;
+/** Watching the ad on the title screen multiplies the coins your pets earned while you were away. */
+export const AD_AWAY_MULT = 2;
+/** The FanScout sign at home. Walk into it or tap it. */
+export const BILLBOARD = { x: CENTER_X + 172, y: HOME_TOP + 118, r: 22, w: 140, h: 78 };
 export const SHARE_URL = "https://games.db.rocks/eggs";
 
 export const PLAYER_START: Point = { x: CENTER_X, y: HOME_TOP + 285 };

@@ -199,16 +199,53 @@ easy to pass on to friends; and (follow-up) make it more of an idle game.
   `floor((coins earned this run / 1M) ^ 0.4)`, each +10% coins forever. Pet
   Book, trophies, stars, hats, trails, decorations, level and Power Eggs stay.
 
-### The house ad
-- While an egg has more than 4s left to hatch, a "Hatch now" button shows
-  (Sneaky style only, never in Cozy). It opens a 5-second card for FanScout
-  (`HOUSE_AD` in config: copy, link, length); finishing it hatches every egg on
-  the pads. 45s between ads. The card is labelled as an ad from the maker of
-  the game and links to the App Store listing.
-- Counts live in `g.stats.adsOpened / adsDone / adsClicked` in this device's
-  save only. Nothing is sent anywhere, in keeping with the site's "nothing is
-  ever tracked" welcome note. To learn what other players do would need
-  analytics, which is a decision for Dani.
+### The house ad (rebuilt Nov 15: FanScout branding, watch-time rewards, more placements)
+Dani's brief: the ad named FanScout but looked nothing like it; make opening it
+worth more than a hatch; and show FanScout to players as much as we can.
+
+- **Looks like FanScout.** `games/eggs/fanscout.ts` holds the winged-F mark (one
+  SVG path, from FanScout's `public/fanscout-logo-simple.svg`), the brand colours
+  (`brand` in FanScout's `src/theme/palette.ts`: green `#81c04d` on the
+  near-black slab `#0f1923`, app-icon green `#6eae5c`) and four slides of copy
+  taken from its share card and landing page. The card is set in Inter, heavy
+  and tight, like the FanScout wordmark. `components/eggs/FanScoutAd.tsx` draws
+  it (`FanScoutMark`, `FanScoutTile`, `FanScoutAd`).
+- **The longer you watch, the more you get.** One reward per 5-second slide
+  (`AD_REWARDS` in config), all collected with one button:
+  5s Quick Hatch (pads hatch now, then 4x faster for 2 min), 10s Double Coins
+  (3 min, shares the shooting-star `frenzy` timer), 15s Lucky Nests (+2 nest
+  luck and +3 Sparkle Charm levels on hatch rolls for 3 min), 20s Mystery Prize
+  (a power-up if the pocket is empty, 2 or 5 stars, or 3 minutes of coins).
+  Closing early keeps whatever is already unlocked. Only time with the tab
+  visible counts. 60s between ads (`AD_COOLDOWN`), counted from collecting.
+  `claimAd(g, seconds)` in the engine pays out; boosts top up, never stack.
+  The three timers are saved (`SavedGame.boosts`).
+- **Tapping through** (`fanscoutapp.com` pill on the card) pays 3 stars once a
+  day (`AD_VISIT_STARS`, `adVisit`). The link is `fanscoutUrl(placement)`:
+  `fanscoutapp.com/?utm_source=sneaky-eggs&utm_medium=house-ad&utm_campaign=<placement>`,
+  so FanScout's own analytics can count arrivals per placement. It used to go
+  to the App Store listing; swap it back in `fanscout.ts` if that is preferred.
+- **Where FanScout shows up** (placements: `hud`, `sign`, `shop`, `title`,
+  `title-strip`):
+  1. HUD button, bottom left, always there in Sneaky style: "Free boosts" /
+     "Hatch now" when ready, a countdown while cooling down. Running boosts show
+     as green timers above it.
+  2. A FanScout sign by the home gate (`BILLBOARD`, solid seed -3,
+     `drawBillboard`). It glows and says "FREE BOOSTS!" when the ad is ready and
+     counts down otherwise. Walk into it or tap it. Declining quiets walk-ins
+     for 20s.
+  3. A "Free boosts" row at the top of the Shop.
+  4. Title screen: "Double it" next to the away-coins banner (5s, doubles the
+     coins your pets earned while away, `AD_AWAY_MULT`), and a "From the maker
+     of this game" strip that links to FanScout.
+- **Cozy style stays ad-free**: no button, no offers; the sign is there but only
+  shows the tagline.
+- Counts live in `g.stats.adsOpened / adsDone / adsClicked / adSeconds /
+  adRewards` in this device's save only. The game still sends nothing anywhere;
+  the only signal that leaves is the `utm_` tag on the link when someone taps
+  through. Two trophies: Fan Favorite (5 boosts), Superfan (50).
+- Worth knowing: the site's welcome note says the games are "not affiliated
+  with any company". With FanScout this visible, that line may want a tweak.
 
 ### Sharing
 - "Tell a friend" on the title screen and "Brag" on jackpot hatches use the
@@ -216,7 +253,7 @@ easy to pass on to friends; and (follow-up) make it more of an idle game.
   (`SHARE_URL`) to the clipboard.
 
 ### Trophies
-- 91 now. New: grove eggs, Power Eggs, levels, power-ups, freezes, being sent
+- 93 now (two for FanScout boosts, Nov 15). New: grove eggs, Power Eggs, levels, power-ups, freezes, being sent
   home, courier deliveries, rebirths.
 
 ### Checked with bots
