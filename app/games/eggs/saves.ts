@@ -23,12 +23,27 @@ export const SAVE_KEY = "sneaky-eggs";
 /**
  * Version 0: every save written before November 15, 2026 (no `v` field).
  * Version 1: the same shape, stamped with `v` and the build that wrote it.
+ * Version 2: the Uncommon rarity went in between Common and Rare, so egg
+ *   rarities are numbered Common 0, Uncommon 1, Rare 2, Epic 3, Legendary 4,
+ *   Mythic 5. Before, Rare was 1, Epic 2 and Legendary 3. Pets are saved by id
+ *   and were never affected; the eggs waiting on the pads were.
  */
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 export const MIGRATIONS: Record<number, (save: Record<string, unknown>) => Record<string, unknown>> = {
   // 0 → 1 changed nothing but the stamp, which the vault adds when it writes.
   0: (save) => save,
+  // 1 → 2: every egg on a pad from Rare up moves along one to make room for Uncommon.
+  1: (save) => {
+    const game = save.game as { pads?: unknown } | null | undefined;
+    if (!game || !Array.isArray(game.pads)) return save;
+    const pads = game.pads.map((pad: unknown) => {
+      if (!pad || typeof pad !== "object") return pad;
+      const rarity = Number((pad as { rarity?: unknown }).rarity);
+      return rarity >= 1 ? { ...pad, rarity: rarity + 1 } : pad;
+    });
+    return { ...save, game: { ...game, pads } };
+  },
 };
 
 export interface Save {

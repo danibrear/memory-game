@@ -38,7 +38,10 @@ import { ACHIEVEMENTS, type AchKind } from "~/games/eggs/achievements";
 import {
   BIOMES,
   FEATHER_BONUS,
+  ALL_RARITIES,
   FUSE_COUNT,
+  LEGENDARY,
+  MYTHIC,
   HATS,
   MEDAL_COLORS,
   MEDAL_NAMES,
@@ -182,7 +185,7 @@ export function RarityChip({ rarity }: { rarity: Rarity }) {
   const info = RARITIES[rarity];
   return (
     <span
-      className={cx("se-chip", rarity === 4 && "is-mythic")}
+      className={cx("se-chip", rarity === MYTHIC && "is-mythic")}
       style={{ "--chip": info.color, "--chip-dk": info.dark } as CSSProperties}>
       {info.name}
     </span>
@@ -666,7 +669,7 @@ export function PetsBody({
                     Roll
                   </KitButton>
                 )}
-                {def.rarity < 4 && (
+                {def.rarity < MYTHIC && (
                   <KitButton
                     size="sm"
                     disabled={!fusable}
@@ -694,11 +697,10 @@ export function PetsBody({
 
 /* ---------- Pet Book ---------- */
 
-const ALL_RARITIES: Rarity[] = [0, 1, 2, 3, 4];
-
 function howToGet(def: PetDef): string {
   const land = BIOMES[def.biome].name;
-  if (def.rarity === 4) return `Fuse 3 ${petFor(def.biome, 3).name}s to make one.`;
+  if (def.rarity === MYTHIC)
+    return `Fuse ${FUSE_COUNT} ${petFor(def.biome, LEGENDARY).name}s, or find a Mythic egg in ${land}. They are extremely rare.`;
   return `Hatches from ${RARITIES[def.rarity].name} eggs in ${land}.`;
 }
 
@@ -722,7 +724,7 @@ export function BookBody({ g }: { g: Game }) {
                 {VARIANTS.slice(1).map((v, k) => (
                   <span
                     key={v.name}
-                    className={cx("se-trait", found - 1 > k ? "is-on" : "is-off", k === 2 && found === 4 && "is-rainbow")}
+                    className={cx("se-trait", found - 1 > k ? "is-on" : "is-off", k === 2 && found >= 4 && "is-rainbow")}
                     style={{ "--chip": v.color } as CSSProperties}>
                     {v.name}
                   </span>
@@ -777,7 +779,7 @@ export function BookBody({ g }: { g: Game }) {
                         <FontAwesomeIcon
                           icon={faStar}
                           className="se-shiny"
-                          style={{ color: VARIANTS[Math.min(have - 1, 3)].color }}
+                          style={{ color: VARIANTS[Math.min(have - 1, VARIANTS.length - 1)].color }}
                         />
                       )}
                       <span>{have ? noBreak(pet.name) : "???"}</span>

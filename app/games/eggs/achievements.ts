@@ -8,11 +8,14 @@ import {
   BIOMES,
   BUILDING_IDS,
   BUILDING_MAX,
+  FUSE_COUNT,
+  MYTHIC,
   HATS,
   HOUSE_MAX,
   HOME_DECOR,
   MINIS,
   PETS,
+  POWER_EGGS,
   UPGRADE_IDS,
   maxLevel,
   penSize,
@@ -38,13 +41,16 @@ export interface Achievement {
 const foundOfRarity = (g: Game, r: Rarity) =>
   PETS.filter((p) => p.rarity === r && g.book[p.id]).length;
 const foundInLand = (g: Game, biome: number) =>
-  PETS.filter((p) => p.biome === biome && p.rarity < 4 && g.book[p.id]).length;
-const bookRegular = (g: Game) => PETS.filter((p) => p.rarity < 4 && g.book[p.id]).length;
+  PETS.filter((p) => p.biome === biome && p.rarity < MYTHIC && g.book[p.id]).length;
+const bookRegular = (g: Game) => PETS.filter((p) => p.rarity < MYTHIC && g.book[p.id]).length;
+/** Pets that hatch from ordinary eggs, in all and per land. */
+const REGULAR_PETS = PETS.filter((p) => p.rarity < MYTHIC).length;
+const PETS_PER_LAND = REGULAR_PETS / BIOMES.length;
 const shinyKinds = (g: Game) => PETS.filter((p) => (g.book[p.id] ?? 0) >= 2).length;
 const flag = (g: Game, key: string) => (g.flags[key] ? 1 : 0);
 const maxedUpgrades = (g: Game) => UPGRADE_IDS.filter((id) => g.up[id] >= maxLevel(id)).length;
 
-const LAND_BADGES = ["Meadow Expert", "Beach Expert", "Peak Expert", "Canyon Expert", "Space Expert"];
+const landBadge = (name: string) => `${name.split(" ").pop()} Expert`;
 
 export const ACHIEVEMENTS: Achievement[] = [
   // Eggs
@@ -56,10 +62,11 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: "golden-10", name: "Golden Touch", desc: "Take 10 eggs from golden nests.", kind: "egg", stars: 3, target: 10, progress: (g) => g.stats.golden },
   { id: "legend-egg-1", name: "Heavy Lifting", desc: "Carry a Legendary egg all the way home.", kind: "egg", stars: 3, target: 1, progress: (g) => g.stats.legendEggs },
   { id: "legend-egg-25", name: "Nerves of Steel", desc: "Carry 25 Legendary eggs home.", kind: "egg", stars: 6, target: 25, progress: (g) => g.stats.legendEggs },
+  { id: "mythic-egg", name: "One in a Million", desc: "Carry a Mythic egg all the way home.", kind: "egg", stars: 10, target: 1, progress: (g) => flag(g, "mythicEgg") },
   { id: "far-10", name: "Off the Beaten Path", desc: "Bring 10 eggs home from the grove nests.", kind: "egg", stars: 3, target: 10, progress: (g) => g.stats.farEggs },
   { id: "far-100", name: "Grove Runner", desc: "Bring 100 eggs home from the grove nests.", kind: "egg", stars: 6, target: 100, progress: (g) => g.stats.farEggs },
   { id: "power-egg-1", name: "Ancient Find", desc: "Carry a Power Egg home from an ancient nest.", kind: "egg", stars: 4, target: 1, progress: (g) => g.powerEggs.length },
-  { id: "power-egg-5", name: "Power Collector", desc: "Own all 5 Power Eggs.", kind: "egg", stars: 10, target: 5, progress: (g) => g.powerEggs.length },
+  { id: "power-egg-5", name: "Power Collector", desc: `Own all ${POWER_EGGS.length} Power Eggs.`, kind: "egg", stars: 10, target: POWER_EGGS.length, progress: (g) => g.powerEggs.length },
   { id: "level-5", name: "Moving Up", desc: "Reach level 5.", kind: "skill", stars: 2, target: 5, progress: (g) => g.level },
   { id: "level-15", name: "Seasoned Sneak", desc: "Reach level 15.", kind: "skill", stars: 5, target: 15, progress: (g) => g.level },
   { id: "level-30", name: "Legend Level", desc: "Reach level 30.", kind: "skill", stars: 10, target: 30, progress: (g) => g.level },
@@ -81,24 +88,25 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: "rare-1", name: "Ooh, Rare!", desc: "Find a Rare pet.", kind: "pet", stars: 1, target: 1, progress: (g) => foundOfRarity(g, 1) },
   { id: "epic-1", name: "Epic Find", desc: "Find an Epic pet.", kind: "pet", stars: 2, target: 1, progress: (g) => foundOfRarity(g, 2) },
   { id: "legend-1", name: "Legendary!", desc: "Find a Legendary pet.", kind: "pet", stars: 3, target: 1, progress: (g) => foundOfRarity(g, 3) },
-  { id: "mythic-1", name: "Myth Maker", desc: "Fuse 3 Legendary pets into a Mythic.", kind: "pet", stars: 5, target: 1, progress: (g) => foundOfRarity(g, 4) },
+  { id: "mythic-1", name: "Myth Maker", desc: `Fuse ${FUSE_COUNT} Legendary pets into a Mythic, or hatch one from a Mythic egg.`, kind: "pet", stars: 5, target: 1, progress: (g) => foundOfRarity(g, MYTHIC) },
   { id: "shiny-1", name: "So Shiny", desc: "Hatch a shiny pet.", kind: "pet", stars: 2, target: 1, progress: (g) => g.stats.shinies },
   { id: "shiny-kinds-8", name: "Sparkle Collector", desc: "Find shiny versions of 8 different pets.", kind: "pet", stars: 5, target: 8, progress: shinyKinds },
   { id: "golden-kinds-5", name: "Gold Rush", desc: "Find Golden versions of 5 different pets.", kind: "pet", stars: 8, target: 5, progress: (g) => PETS.filter((p) => (g.book[p.id] ?? 0) >= 3).length },
   { id: "golden-pet", name: "Solid Gold", desc: "Hatch a Golden pet.", kind: "pet", stars: 4, target: 1, progress: (g) => flag(g, "golden") },
   { id: "rainbow-pet", name: "Over the Rainbow", desc: "Hatch a Rainbow pet.", kind: "pet", stars: 8, target: 1, progress: (g) => flag(g, "rainbow") },
+  { id: "glow-pet", name: "Night Light", desc: "Hatch a Glow pet.", kind: "pet", stars: 12, target: 1, progress: (g) => flag(g, "glow") },
   { id: "huge-pet", name: "That's Huge!", desc: "Hatch a Huge pet.", kind: "pet", stars: 3, target: 1, progress: (g) => flag(g, "huge") },
   { id: "titanic-pet", name: "Absolute Unit", desc: "Hatch a Titanic pet.", kind: "pet", stars: 6, target: 1, progress: (g) => flag(g, "titanic") },
   { id: "book-10", name: "Halfway There", desc: "Find 10 different pets.", kind: "pet", stars: 2, target: 10, progress: bookRegular },
-  { id: "book-20", name: "Pet Master", desc: "Find all 20 pets that hatch from eggs.", kind: "pet", stars: 6, target: 20, progress: bookRegular },
-  { id: "book-25", name: "Mythic Master", desc: "Find all 5 Mythic pets.", kind: "pet", stars: 10, target: 5, progress: (g) => foundOfRarity(g, 4) },
+  { id: "book-20", name: "Pet Master", desc: `Find all ${REGULAR_PETS} pets that hatch from ordinary eggs.`, kind: "pet", stars: 6, target: REGULAR_PETS, progress: bookRegular },
+  { id: "book-25", name: "Mythic Master", desc: `Find all ${BIOMES.length} Mythic pets.`, kind: "pet", stars: 10, target: BIOMES.length, progress: (g) => foundOfRarity(g, MYTHIC) },
   ...BIOMES.map((b, i): Achievement => ({
     id: `land-${b.id}`,
-    name: LAND_BADGES[i],
-    desc: `Find all 4 egg pets from ${b.name}.`,
+    name: landBadge(b.name),
+    desc: `Find all ${PETS_PER_LAND} egg pets from ${b.name}.`,
     kind: "pet",
     stars: 3,
-    target: 4,
+    target: PETS_PER_LAND,
     progress: (g) => foundInLand(g, i),
   })),
   { id: "pen-full", name: "Full House", desc: "Fill the biggest pen with 20 pets.", kind: "pet", stars: 4, target: 20, progress: (g) => (penSize(g.up.pen) >= 20 ? g.pets.length : Math.min(19, g.pets.length)) },
@@ -115,8 +123,14 @@ export const ACHIEVEMENTS: Achievement[] = [
   })),
   { id: "travel-5", name: "Frequent Flyer", desc: "Use the map 5 times.", kind: "land", stars: 1, target: 5, progress: (g) => g.stats.travels },
 
+  // Bonks
+  { id: "bonk-1", name: "Mind Your Head", desc: "Make a chasing Grumble run into something.", kind: "skill", stars: 1, target: 1, progress: (g) => g.stats.bonks },
+  { id: "bonk-50", name: "Tree Hugger", desc: "Make Grumbles bonk 50 times.", kind: "skill", stars: 4, target: 50, progress: (g) => g.stats.bonks },
+  { id: "ko-1", name: "Lights Out", desc: "Knock out a Grumble with three bonks in one chase.", kind: "skill", stars: 3, target: 1, progress: (g) => g.stats.knockouts },
+  { id: "ko-25", name: "Sandman", desc: "Knock out 25 Grumbles.", kind: "skill", stars: 6, target: 25, progress: (g) => g.stats.knockouts },
+
   // Fusing
-  { id: "fuse-1", name: "Abracadabra", desc: "Fuse 3 pets into a rarer one.", kind: "fuse", stars: 1, target: 1, progress: (g) => g.stats.fused },
+  { id: "fuse-1", name: "Abracadabra", desc: `Fuse ${FUSE_COUNT} pets into a rarer one.`, kind: "fuse", stars: 1, target: 1, progress: (g) => g.stats.fused },
   { id: "fuse-10", name: "Fusion Fan", desc: "Do 10 fusions.", kind: "fuse", stars: 3, target: 10, progress: (g) => g.stats.fused },
   { id: "fuse-50", name: "Fusion Wizard", desc: "Do 50 fusions.", kind: "fuse", stars: 5, target: 50, progress: (g) => g.stats.fused },
 
@@ -181,7 +195,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: "hammer-100", name: "Tap Tap Tap", desc: "Help the builders with 100 taps.", kind: "skill", stars: 2, target: 100, progress: (g) => g.stats.hammers },
 
   // Secrets
-  { id: "secret-stars", name: "Explorer", desc: "Find the hidden star in every land.", kind: "secret", stars: 5, target: 5, progress: (g) => g.secrets.length },
+  { id: "secret-stars", name: "Explorer", desc: "Find the hidden star in every land.", kind: "secret", stars: 5, target: BIOMES.length, progress: (g) => g.secrets.length },
   { id: "whisperer", name: "Grumble Whisperer", desc: "Gently pat a sleeping Grumble 5 times.", kind: "secret", stars: 2, target: 5, progress: (g) => g.stats.grumblePats, secret: true },
   { id: "knock", name: "Knock Knock", desc: "Knock on the little house 5 times.", kind: "secret", stars: 2, target: 5, progress: (g) => g.stats.knocks, secret: true },
   { id: "taxi", name: "Space Taxi", desc: "Find the flying saucer and ride it home.", kind: "secret", stars: 3, target: 1, progress: (g) => flag(g, "taxi"), secret: true },

@@ -97,6 +97,10 @@ import {
   MINI_DICE,
   POWERUPS,
   RARITIES,
+  EPIC,
+  FUSE_COUNT,
+  LEGENDARY,
+  MYTHIC,
   SHARE_URL,
   SIZES,
   SKINS,
@@ -705,7 +709,7 @@ export default function SneakyEggs() {
           if (tellOnce(g, "toldGrab")) say("Rare eggs take a moment to lift. Hold still... the Grumble is waking!");
           break;
         case "ripe":
-          if (e.rarity >= 2) {
+          if (e.rarity >= EPIC) {
             sfx.ripe();
             say(
               e.biome === g.biome
@@ -740,6 +744,19 @@ export default function SneakyEggs() {
           break;
         case "alarm":
           if (tellOnce(g, "toldAlarm")) say("Uh oh, that woke EVERY Grumble. Dodge them all the way home!", "bad");
+          break;
+        case "bonk":
+          sfx.bonk();
+          if (e.out) {
+            sfx.coins();
+            say(`You knocked out the ${BIOMES[e.biome].name} Grumble! +${fmtCoins(e.coins)} coins`, "good");
+          } else if (tellOnce(g, "toldBonk")) {
+            say("Bonk! Grumbles lose a heart when they run into things. Three bonks knocks one out.", "good");
+          }
+          break;
+        case "mythicEgg":
+          sfx.mystery();
+          say(`A MYTHIC egg appeared in ${BIOMES[e.biome].name}! They almost never do.`, "good");
           break;
         case "mini":
           sfx.wake();
@@ -1796,12 +1813,12 @@ export default function SneakyEggs() {
           title="Pet Master!"
           subtitle={
             <>
-              You found all <strong>20 egg pets</strong>! Now fuse three Legendary pets to
-              discover the secret Mythic ones.
+              You found all <strong>{PETS.filter((p) => p.rarity < MYTHIC).length} egg pets</strong>! Now fuse{" "}
+              {FUSE_COUNT} Legendary pets, or find an extremely rare Mythic egg, to discover the secret Mythic ones.
             </>
           }>
           <div className="se-parade">
-            {PETS.filter((p) => p.rarity === 3).map((p) => (
+            {PETS.filter((p) => p.rarity === LEGENDARY).map((p) => (
               <PetIcon key={p.id} look={p.look} size={62} mood="happy" />
             ))}
           </div>
@@ -1836,7 +1853,7 @@ export default function SneakyEggs() {
           game={game}
           subtitle="Sneak eggs past the sleepy Grumbles, run them home, and hatch rare pets!">
           <div className="se-mascots">
-            <EggIcon biome={0} rarity={2} size={64} />
+            <EggIcon biome={0} rarity={EPIC} size={64} />
             <button
               type="button"
               className={cx("se-tickle", save.giant && "is-giant")}
@@ -1868,6 +1885,7 @@ export default function SneakyEggs() {
               <li>Run home before the Grumble catches you!</li>
               <li>Tap your egg to hatch a pet. Pets earn coins.</li>
               <li>Buy faster sneakers to open new lands.</li>
+              <li>Lead a chasing Grumble into a tree. Three bonks knocks it out!</li>
               <li>Explore the side groves for better eggs, power-ups and Power Eggs.</li>
               <li>Pop into a striped tent for a mini game and a prize.</li>
             </ol>
@@ -2645,7 +2663,7 @@ export default function SneakyEggs() {
               ? "Jackpot!"
               : reveal?.dice
                 ? "Lucky roll!"
-                : reveal?.def.rarity === 4
+                : reveal?.def.rarity === MYTHIC
               ? "A Mythic pet!"
               : reveal?.fused
                 ? "Fusion!"
