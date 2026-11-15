@@ -36,13 +36,15 @@
   top: 10px;
   left: 10px;
   right: 10px;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  /* Two columns for the HUD, then a full-width row that the messages hang from. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 8px;
   pointer-events: none;
 }
 .se-top-left {
+  grid-column: 1;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -50,7 +52,8 @@
   min-width: 0;
 }
 .se-top-right {
-  flex: none;
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -68,9 +71,20 @@
     display: none;
   }
 }
+/* With a few boosts running there are more chips than a phone is wide, so they wrap. */
 .se-chips {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  width: max-content;
+  max-width: calc(100vw - 20px);
+}
+/* The land's name, trophies and tips hang from here, just below the HUD however tall it is. */
+.se-notes {
+  grid-column: 1 / -1;
+  position: relative;
+  height: 0;
+  pointer-events: none;
 }
 button.se-coins,
 button.se-speed {
@@ -216,7 +230,7 @@ button.se-speed {
 /* Trophy banner */
 .se-cheer {
   position: absolute;
-  top: 140px;
+  top: 0;
   left: 50%;
   display: flex;
   align-items: center;
@@ -326,7 +340,7 @@ button.se-speed {
 
 .se-place {
   position: absolute;
-  top: 140px;
+  top: 0;
   left: 50%;
   padding: 8px 22px;
   border-radius: 999px;
@@ -343,7 +357,8 @@ button.se-speed {
 .se-toast {
   position: absolute;
   left: 50%;
-  top: 198px;
+  top: 58px;
+  width: max-content;
   max-width: min(92%, 380px);
   padding: 10px 18px;
   border-radius: 18px;
@@ -358,6 +373,10 @@ button.se-speed {
   box-shadow: 0 4px 0 rgba(20, 16, 50, 0.18);
   pointer-events: none;
   animation: se-toast 2.6s ease both;
+}
+/* With no land name or trophy above it, a tip moves up into their spot and covers less of the field. */
+.se-notes > .se-toast:first-child {
+  top: 0;
 }
 .se-toast.is-good {
   color: #fff;
@@ -453,14 +472,16 @@ button.se-speed {
 }
 /* The four shop tabs always fit on one line, even on a small phone. */
 .se-menu .dg-seg {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 4px;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
   width: 100%;
 }
+/* Each tab is as wide as its word plus an equal share of what's left, so "Upgrades" isn't squeezed. */
 .se-menu .dg-seg-btn {
+  flex: 1 1 auto;
   justify-content: center;
-  padding: 9px 1px;
+  padding: 9px 6px;
   font-size: 0.8rem;
 }
 .se-menu .dg-dialog-icon {
@@ -485,6 +506,30 @@ button.se-speed {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 2px 2px 6px;
+}
+/* Long lists melt away at the bottom instead of being sliced off mid-row. The extra
+   padding lets the last row scroll clear of the fade. */
+.se-list,
+.se-grid,
+.se-book {
+  padding-bottom: 24px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+/* The Shop keeps one size as you flip through its tabs, so the tabs never jump under a finger. */
+.se-shop.dg-dialog {
+  height: min(calc(100% - 24px), 700px);
+}
+/* Only the list gives way when the screen is short; the icon, title and tabs keep their shape. */
+.se-shop.dg-dialog > * {
+  flex: none;
+}
+.se-shop.dg-dialog > .se-list,
+.se-shop.dg-dialog > .se-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  align-content: start;
 }
 .se-row {
   display: flex;
@@ -752,7 +797,8 @@ button.se-speed {
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--g-from), var(--g-to));
+  /* Stops short of the game's darkest green so the count on top stays readable. */
+  background: linear-gradient(90deg, var(--g-from), color-mix(in srgb, var(--g-from) 55%, var(--g-to)));
 }
 .se-bar em {
   position: absolute;
@@ -1102,11 +1148,13 @@ button.se-speed {
     width: 24px;
     height: 24px;
   }
+  .se-chips {
+    max-width: calc(100vw - 28px);
+  }
   .se-place {
-    top: 184px;
+    top: 2px;
   }
   .se-cheer {
-    top: 182px;
     padding: 12px 24px 12px 18px;
     font-size: 1.35rem;
   }
@@ -1121,7 +1169,7 @@ button.se-speed {
     font-size: 2.2rem;
   }
   .se-toast {
-    top: 262px;
+    top: 80px;
     max-width: 460px;
     padding: 14px 24px;
     font-size: 1.3rem;
@@ -1205,6 +1253,16 @@ button.se-speed {
 }
 .se-speed.is-heavy svg {
   color: #ea580c;
+}
+/* A lollipop's Sugar Rush takes over the speed chip for the few seconds it lasts. */
+.se-speed.is-rush {
+  color: #9d174d;
+  background: #fce7f3;
+  border-color: #f9a8d4;
+  animation: dgPopIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.se-speed.is-rush svg {
+  color: #ec4899;
 }
 
 /* ---- Map: which eggs are ready in each land ---- */
@@ -1832,8 +1890,9 @@ button.se-speed {
 .se-stage.is-mini .se-place {
   display: none;
 }
-.se-stage.is-mini .se-top {
-  justify-content: flex-end;
+/* With the HUD gone the messages would ride up under the buttons; keep them where they were. */
+.se-stage.is-mini .se-notes {
+  margin-top: 70px;
 }
 
 /* Prize chips next to the speed chip: Zoomies, happy pets and Lucky Dice. */

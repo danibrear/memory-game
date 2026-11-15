@@ -3,6 +3,7 @@ import {
   faBolt,
   faBook,
   faBullseye,
+  faCandyCane,
   faClockRotateLeft,
   faClover,
   faCoins,
@@ -360,6 +361,8 @@ interface Hud {
   trophies: number;
   dash: number;
   frenzy: boolean;
+  /** A lollipop's Sugar Rush is on. */
+  rush: boolean;
   /** The mission nearest to done, as "text|have|need" (a string so it compares cheaply). */
   mission: string;
   canBuy: boolean;
@@ -397,6 +400,7 @@ const EMPTY_HUD: Hud = {
   trophies: 0,
   dash: 0,
   frenzy: false,
+  rush: false,
   mission: "",
   canBuy: false,
   canStyle: false,
@@ -457,6 +461,7 @@ function hudOf(g: Game): Hud {
     trophies: Object.keys(g.ach).length,
     dash: g.up.dash,
     frenzy: g.frenzy > 0,
+    rush: g.player.rushT > 0,
     mission: open ? `${missionText(open.kind, open.target)}|${missionProgress(g, open)}|${open.target}` : "",
     canBuy:
       UPGRADE_IDS.some((id) => {
@@ -554,7 +559,9 @@ export default function SneakyEggs() {
   const eventsRef = useRef<(g: Game) => void>(() => {});
 
   const reveal = reveals[0] ?? null;
-  const cheer = cheers[0] ?? null;
+  // The land's name and a trophy share one spot under the HUD, so they take turns: a
+  // trophy waits for the name to fade, and a name is skipped while a trophy is showing.
+  const cheer = place ? null : (cheers[0] ?? null);
   // The main game stands still while a mini game is on screen.
   pausedRef.current = panel !== null || reveal !== null || ad !== null || confirmRebirth || mini !== null;
   miniPlayRef.current = mini?.stage === "play";
@@ -769,6 +776,9 @@ export default function SneakyEggs() {
         case "powerHint":
           say(POWERUPS.bubble.desc);
           break;
+        case "lollipopHint":
+          say("Bump a sparkly lollipop for a burst of speed!");
+          break;
         case "freeze":
           sfx.freeze();
           setFreezeKey((k) => k + 1);
@@ -841,7 +851,7 @@ export default function SneakyEggs() {
           break;
         }
         case "biome":
-          setPlace({ id: Date.now(), text: e.biome < 0 ? "Home" : BIOMES[e.biome].name });
+          if (!cheer) setPlace({ id: Date.now(), text: e.biome < 0 ? "Home" : BIOMES[e.biome].name });
           setMusicMood(e.biome, g.night);
           break;
         case "blocked":
@@ -1836,6 +1846,13 @@ export default function SneakyEggs() {
     const found = save.game ? bookCount(save.game.book) : 0;
     const trophies = save.game?.ach?.length ?? 0;
     const hat = save.game?.hat;
+    const playRow = (
+      <div className="dg-row">
+        <KitButton size="lg" icon={faPlay} onClick={play} disabled={!loaded}>
+          {save.game ? "Keep Playing" : "Play"}
+        </KitButton>
+      </div>
+    );
     return (
       <GameShell game={game}>
         <StartScreen
@@ -1867,6 +1884,34 @@ export default function SneakyEggs() {
               </Banner>
             </div>
           )}
+
+          {/* Coming back, Play is first: nobody should have to scroll past the rules to get back in. */}
+          {found > 0 && (
+            <div className="dg-row">
+              <StatPill icon={faBook} label="Pets found">
+                {found} of {PETS.length} pets
+              </StatPill>
+              <StatPill icon={faTrophy} color="#f59e0b" label="Trophies earned">
+                {trophies} of {ACHIEVEMENTS.length} trophies
+              </StatPill>
+            </div>
+          )}
+          {away > 0 && (
+            <Banner tone="gold" icon={faCoins}>
+              Your pets earned {fmtCoins(away)} coins{awayBoosted ? ", doubled by FanScout!" : "!"}
+            </Banner>
+          )}
+          {away > 0 && !awayBoosted && !save.cozy && (
+            <button type="button" className="se-fsbtn is-ready is-inline" onClick={() => openAd("title")}>
+              <FanScoutTile size={34} />
+              <span className="se-fsbtn-text">
+                <b>Double it to {fmtCoins(away * AD_AWAY_MULT)}</b>
+                <small>watch a FanScout ad</small>
+              </span>
+            </button>
+          )}
+
+          {save.game && playRow}
 
           <Panel label="How to play">
             <ol className="se-how">
@@ -1909,36 +1954,8 @@ export default function SneakyEggs() {
             </div>
           </Panel>
 
-          {found > 0 && (
-            <div className="dg-row">
-              <StatPill icon={faBook} label="Pets found">
-                {found} of {PETS.length} pets
-              </StatPill>
-              <StatPill icon={faTrophy} color="#f59e0b" label="Trophies earned">
-                {trophies} of {ACHIEVEMENTS.length} trophies
-              </StatPill>
-            </div>
-          )}
-          {away > 0 && (
-            <Banner tone="gold" icon={faCoins}>
-              Your pets earned {fmtCoins(away)} coins{awayBoosted ? ", doubled by FanScout!" : "!"}
-            </Banner>
-          )}
-          {away > 0 && !awayBoosted && !save.cozy && (
-            <button type="button" className="se-fsbtn is-ready is-inline" onClick={() => openAd("title")}>
-              <FanScoutTile size={34} />
-              <span className="se-fsbtn-text">
-                <b>Double it to {fmtCoins(away * AD_AWAY_MULT)}</b>
-                <small>watch a FanScout ad</small>
-              </span>
-            </button>
-          )}
-
-          <div className="dg-row">
-            <KitButton size="lg" icon={faPlay} onClick={play} disabled={!loaded}>
-              {save.game ? "Keep Playing" : "Play"}
-            </KitButton>
-          </div>
+          {/* A first-time player reads the rules and picks a style before starting. */}
+          {!save.game && playRow}
           <div className="dg-row">
             <KitButton
               variant="neutral"
@@ -2152,10 +2169,16 @@ export default function SneakyEggs() {
                   <FontAwesomeIcon icon={faFeatherPointed} /> {hud.feathers}
                 </span>
               )}
-              <span className={cx("se-speed", hud.heavy > 0 && "is-heavy")} data-ui>
-                <FontAwesomeIcon icon={hud.heavy > 0 ? faWeightHanging : faBolt} />{" "}
-                {hud.heavy > 0 ? `Heavy −${hud.heavy}%` : `Speed ${hud.speed}`}
-              </span>
+              {hud.rush ? (
+                <span className="se-speed is-rush" data-ui aria-label="Sugar rush: running faster for a few seconds">
+                  <FontAwesomeIcon icon={faCandyCane} /> Sugar rush!
+                </span>
+              ) : (
+                <span className={cx("se-speed", hud.heavy > 0 && "is-heavy")} data-ui>
+                  <FontAwesomeIcon icon={hud.heavy > 0 ? faWeightHanging : faBolt} />{" "}
+                  {hud.heavy > 0 ? `Heavy −${hud.heavy}%` : `Speed ${hud.speed}`}
+                </span>
+              )}
               {hud.zoom > 0 && (
                 <span className="se-speed se-buff is-zoom" data-ui aria-label={`Zoomies: running faster for ${fmtWait(hud.zoom)}`}>
                   <FontAwesomeIcon icon={faPersonRunning} /> {fmtClock(hud.zoom)}
@@ -2247,30 +2270,32 @@ export default function SneakyEggs() {
               )
             )}
           </div>
+          {/* Messages hang just under the HUD, however tall it gets, so they never cover it. */}
+          <div className="se-notes">
+            {place && (
+              <div className="se-place" key={place.id} aria-hidden>
+                {place.text}
+              </div>
+            )}
+            {cheer && (
+              <div className="se-cheer" key={cheer.id} role="status">
+                <FontAwesomeIcon icon={faTrophy} />
+                <span>
+                  <small>Trophy!</small>
+                  {cheer.name}
+                </span>
+                <b>
+                  +{cheer.stars} <StarIcon />
+                </b>
+              </div>
+            )}
+            {toast && (
+              <div className={cx("se-toast", `is-${toast.tone}`)} key={toast.id} role="status">
+                {toast.text}
+              </div>
+            )}
+          </div>
         </div>
-
-        {place && (
-          <div className="se-place" key={place.id} aria-hidden>
-            {place.text}
-          </div>
-        )}
-        {cheer && (
-          <div className="se-cheer" key={cheer.id} role="status">
-            <FontAwesomeIcon icon={faTrophy} />
-            <span>
-              <small>Trophy!</small>
-              {cheer.name}
-            </span>
-            <b>
-              +{cheer.stars} <StarIcon />
-            </b>
-          </div>
-        )}
-        {toast && (
-          <div className={cx("se-toast", `is-${toast.tone}`)} key={toast.id} role="status">
-            {toast.text}
-          </div>
-        )}
 
         <div className="se-actions" data-ui>
           {hud.held && (
@@ -2401,7 +2426,7 @@ export default function SneakyEggs() {
         onClose={() => setPanel(null)}
         icon={faStore}
         title="Shop"
-        className="se-menu">
+        className="se-menu se-shop">
         {hud.adWait >= 0 && (
           <button
             type="button"

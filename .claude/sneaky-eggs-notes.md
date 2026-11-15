@@ -575,6 +575,39 @@ lost most grove runs in the last three lands, so treat that one with care.
   minute and Starry Space around minute 10. Expect a child to take roughly three
   times that; Mythics, trophies and decorations stretch well beyond.
 
+## Polish pass (Nov 15): lollipops explain themselves, UI cleanups
+**Lollipops.** They always gave a Sugar Rush (+35% speed for 4s, `SUGAR_RUSH_*`),
+but nothing said so. Now:
+- A ready lollipop has a soft glow and twinkles; walk within `LOLLIPOP_NEAR` (170px)
+  and a speed-bolt badge pops up above it (`drawLollipop` in `render.ts`).
+- A used one fades, and its colour sweeps back round like a clock over
+  `LOLLIPOP_COOLDOWN` (12s).
+- The first time you walk up to one, a tip says "Bump a sparkly lollipop for a
+  burst of speed!" (flag `tipLolly`; existing saves see it once too).
+- While the rush lasts, the Speed chip turns into a pink "Sugar rush!" chip.
+- The "Sugar Rush" trophy is still a secret one.
+
+**UI.**
+- The land's name and a trophy banner used to land on the same spot (the name was
+  hidden under "Hello, Coral Beach"). They now take turns: the name first, then
+  the trophy. A name is skipped if a trophy is already showing.
+- Messages (`.se-notes`) hang from the bottom of the HUD instead of a fixed
+  `top`, so they stay clear of it however tall it gets. A tip with nothing above
+  it moves up into the top spot and covers less of the field.
+- HUD chips wrap. With Golden Feathers plus a couple of boosts they ran off the
+  right edge of a phone.
+- Title screen: for a returning player "Keep Playing" is right under the mascots
+  (it was below the fold on an iPad). First-time players still read the rules and
+  pick a style first.
+- The Shop keeps one size across its tabs (`.se-shop`), so the tabs don't jump
+  under a finger. Tab widths follow their words, so "Upgrades" isn't squeezed.
+- Scrolling lists fade out at the bottom edge instead of being cut mid-row.
+- Progress-bar counts ("14 / 18") are readable: the fill no longer runs to the
+  game's darkest green.
+
+Checked in headless Chrome at 390x844 and 1024x768 with touch, including a real
+bump with the keyboard. Not tried in real Safari on an iPad.
+
 ## State
 - Storage key `sneaky-eggs`, read and written through the save vault
   (`app/games/eggs/saves.ts`; see `.claude/save-safety-notes.md` for versions,
