@@ -1,0 +1,213 @@
+{
+  "game": {
+    "coins": 54321,
+    "up": {
+      "speed": 1,
+      "pen": 1,
+      "luck": 1,
+      "basket": 1,
+      "dash": 1,
+      "warm": 1,
+      "socks": 1,
+      "treats": 1,
+      "sparkle": 1,
+      "hands": 1,
+      "arms": 1,
+      "ripen": 1,
+      "courier": 1,
+      "jar": 1
+    },
+    "pets": [
+      {
+        "id": "clover-bun",
+        "v": 2,
+        "s": 1
+      },
+      {
+        "id": "honey-cub"
+      },
+      {
+        "id": "petal-fox"
+      },
+      {
+        "id": "puddle-pup"
+      },
+      {
+        "id": "shelly"
+      },
+      {
+        "id": "mer-kitty"
+      },
+      {
+        "id": "snow-puff"
+      }
+    ],
+    "book": {
+      "clover-bun": 1,
+      "honey-cub": 2,
+      "petal-fox": 3,
+      "puddle-pup": 4,
+      "shelly": 5,
+      "mer-kitty": 6,
+      "snow-puff": 7
+    },
+    "pads": [
+      {
+        "biome": 0,
+        "rarity": 1,
+        "left": 5
+      },
+      null,
+      null,
+      null
+    ],
+    "stats": {
+      "eggs": 12,
+      "caught": 0,
+      "fused": 0,
+      "taps": 0,
+      "pats": 0,
+      "shinies": 0,
+      "golden": 0,
+      "night": 0,
+      "mystery": 0,
+      "bugs": 0,
+      "chests": 0,
+      "dashes": 0,
+      "escapes": 0,
+      "close": 0,
+      "maxCarry": 0,
+      "wishes": 0,
+      "grumblePats": 0,
+      "knocks": 0,
+      "sugar": 0,
+      "coconuts": 0,
+      "snowmen": 0,
+      "chimes": 0,
+      "travels": 0,
+      "missions": 0,
+      "legendEggs": 0,
+      "earned": 99999,
+      "powerups": 0,
+      "freezes": 0,
+      "sentHome": 0,
+      "farEggs": 0,
+      "adsOpened": 0,
+      "adsDone": 0,
+      "adsClicked": 0,
+      "shares": 0,
+      "rebirths": 0,
+      "couriered": 0,
+      "minis": 0,
+      "prizes": 0,
+      "diceUsed": 0,
+      "built": 0,
+      "hammers": 0,
+      "millRuns": 0,
+      "cakes": 0,
+      "wellStars": 0,
+      "paints": 0
+    },
+    "stars": 9,
+    "ach": [],
+    "hats": [
+      "none",
+      "bow"
+    ],
+    "trails": [
+      "none"
+    ],
+    "hat": "bow",
+    "trail": "none",
+    "home": [
+      "garden"
+    ],
+    "missions": [
+      {
+        "kind": "eggs",
+        "target": 3,
+        "progress": 0
+      },
+      {
+        "kind": "golden",
+        "target": 1,
+        "progress": 0
+      },
+      {
+        "kind": "escapes",
+        "target": 2,
+        "progress": 0
+      }
+    ],
+    "secrets": [
+      0
+    ],
+    "buddy": 1,
+    "flags": {},
+    "feathers": 1,
+    "runEarned": 0,
+    "level": 6,
+    "xp": 40,
+    "powerEggs": [],
+    "equipped": [],
+    "held": null,
+    "ancients": [
+      60,
+      90,
+      120,
+      150,
+      180
+    ],
+    "lastChest": 0,
+    "medals": {
+      "tag": 0,
+      "steps": 0,
+      "seek": 0
+    },
+    "prizeAt": {
+      "tag": 0,
+      "steps": 0,
+      "seek": 0
+    },
+    "dice": 0,
+    "zoomT": 0,
+    "happyT": 0,
+    "town": {
+      "house": 2,
+      "lv": {
+        "mill": 1,
+        "bakery": 0,
+        "well": 0,
+        "workshop": 0,
+        "barn": 0,
+        "hatchery": 0,
+        "sparkle": 0
+      },
+      "jobs": [],
+      "paint": {
+        "wall": "cream",
+        "roof": "berry",
+        "top": "none"
+      },
+      "owned": [],
+      "mill": {
+        "at": 1794750606399,
+        "stock": 0
+      },
+      "bakery": {
+        "at": 1794750606399,
+        "stock": 0
+      },
+      "well": {
+        "at": 1794750606399,
+        "stock": 0
+      }
+    }
+  },
+  "skin": "peach",
+  "muted": false,
+  "lastSeen": 1763000000000,
+  "music": false,
+  "giant": false,
+  "cozy": true
+}

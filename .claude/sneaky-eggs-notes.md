@@ -516,8 +516,10 @@ Anything added later that resets progress should leave `g.town` alone too.
   times that; Mythics, trophies and decorations stretch well beyond.
 
 ## State
-- Storage key `sneaky-eggs` (via `~/storage`):
-  `{ game, skin, muted, music, giant, cozy, lastSeen }` where `game` is `SavedGame`
+- Storage key `sneaky-eggs`, read and written through the save vault
+  (`app/games/eggs/saves.ts`; see `.claude/save-safety-notes.md` for versions,
+  restore points and how to change the shape of a save):
+  `{ game, skin, muted, music, giant, cozy, lastSeen, v, build }` where `game` is `SavedGame`
   (now also `level`, `xp`, `powerEggs`, `equipped`, `held`, `ancients`, `feathers`, `runEarned`).
   Every field added in the second pass is optional, so first-pass saves load.
 - Saved every ~5s while playing, after every menu action, and when the tab is

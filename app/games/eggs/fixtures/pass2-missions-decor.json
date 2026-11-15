@@ -1,0 +1,128 @@
+{
+  "game": {
+    "coins": 54321,
+    "up": {
+      "speed": 1,
+      "pen": 1,
+      "luck": 1,
+      "basket": 1,
+      "dash": 1,
+      "warm": 1,
+      "socks": 1,
+      "treats": 1,
+      "sparkle": 1
+    },
+    "pets": [
+      {
+        "id": "clover-bun",
+        "shiny": true
+      },
+      {
+        "id": "honey-cub"
+      },
+      {
+        "id": "petal-fox"
+      },
+      {
+        "id": "puddle-pup"
+      },
+      {
+        "id": "shelly"
+      },
+      {
+        "id": "mer-kitty"
+      },
+      {
+        "id": "snow-puff"
+      }
+    ],
+    "book": {
+      "clover-bun": 1,
+      "honey-cub": 2,
+      "petal-fox": 3,
+      "puddle-pup": 4,
+      "shelly": 5,
+      "mer-kitty": 6,
+      "snow-puff": 7
+    },
+    "pads": [
+      {
+        "biome": 0,
+        "rarity": 1,
+        "left": 5
+      },
+      null,
+      null,
+      null
+    ],
+    "stats": {
+      "eggs": 12,
+      "caught": 0,
+      "fused": 0,
+      "taps": 0,
+      "pats": 0,
+      "shinies": 0,
+      "golden": 0,
+      "night": 0,
+      "mystery": 0,
+      "bugs": 0,
+      "chests": 0,
+      "dashes": 0,
+      "escapes": 0,
+      "close": 0,
+      "maxCarry": 0,
+      "wishes": 0,
+      "grumblePats": 0,
+      "knocks": 0,
+      "sugar": 0,
+      "coconuts": 0,
+      "snowmen": 0,
+      "chimes": 0,
+      "travels": 0,
+      "missions": 0,
+      "earned": 99999
+    },
+    "stars": 9,
+    "ach": [],
+    "hats": [
+      "none",
+      "bow"
+    ],
+    "trails": [
+      "none"
+    ],
+    "hat": "bow",
+    "trail": "none",
+    "home": [
+      "garden"
+    ],
+    "missions": [
+      {
+        "kind": "eggs",
+        "target": 3,
+        "progress": 0
+      },
+      {
+        "kind": "golden",
+        "target": 1,
+        "progress": 0
+      },
+      {
+        "kind": "escapes",
+        "target": 2,
+        "progress": 0
+      }
+    ],
+    "secrets": [
+      0
+    ],
+    "buddy": 1,
+    "flags": {},
+    "lastChest": 0
+  },
+  "skin": "peach",
+  "muted": false,
+  "lastSeen": 1763000000000,
+  "music": false,
+  "giant": false
+}

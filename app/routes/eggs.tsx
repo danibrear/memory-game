@@ -3,6 +3,7 @@ import {
   faBolt,
   faBook,
   faBullseye,
+  faClockRotateLeft,
   faClover,
   faCoins,
   faDice,
@@ -25,7 +26,9 @@ import {
   faRotateLeft,
   faStar,
   faStopwatch,
+  faSun,
   faStore,
+  faTriangleExclamation,
   faTrophy,
   faVolumeHigh,
   faVolumeXmark,
@@ -33,6 +36,7 @@ import {
   faWeightHanging,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
+import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   useCallback,
@@ -199,7 +203,14 @@ import {
   type View,
 } from "~/games/eggs/render";
 import { FANSCOUT, AD_SLIDES, fanscoutUrl } from "~/games/eggs/fanscout";
-import { clearStoredData, getStoredData, setStoredData } from "~/storage";
+import {
+  createEggsVault,
+  DEFAULT_SAVE,
+  POINT_LABEL,
+  type Save,
+  type SavePoint,
+} from "~/games/eggs/saves";
+import { storage } from "~/utils/storage";
 import eggsStyles from "~/styles/eggs.css?url";
 import type { Route } from "./+types/eggs";
 
@@ -216,7 +227,8 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-const STORAGE_KEY = "sneaky-eggs";
+/** The save file and its restore points. Nothing in it leaves this device. */
+const vault = createEggsVault(storage);
 const STEP = 1 / 60;
 /** Pets keep earning (at half speed) for up to this long while you're away. */
 
@@ -249,26 +261,41 @@ const AD_OFFERS: AdOffer[] = AD_REWARDS.map((r) => ({ ...r, icon: AD_ICONS[r.id]
 
 type PanelId = "shop" | "pets" | "book" | "trophies" | "map";
 
-interface Save {
-  game: SavedGame | null;
-  skin: string;
-  muted: boolean;
-  music: boolean;
-  /** The title-screen secret. */
-  giant: boolean;
-  /** Cozy mode: no ripening timers, no lifting time, weightless eggs. */
-  cozy: boolean;
-  lastSeen: number;
-}
+/** What the title screen says about the save it found, if anything needs saying. */
+type SaveNote =
+  | { kind: "recovered"; when: number }
+  | { kind: "broken" }
+  | { kind: "restored"; when: number }
+  | { kind: "reset" };
 
-const DEFAULT_SAVE: Save = {
-  game: null,
-  skin: SKINS[0].id,
-  muted: false,
-  music: true,
-  giant: false,
-  cozy: false,
-  lastSeen: 0,
+const WHEN = new Intl.DateTimeFormat(undefined, {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+const fmtWhen = (t: number) => WHEN.format(new Date(t));
+function saveNoteText(note: SaveNote): string {
+  switch (note.kind) {
+    case "recovered":
+      return `We couldn't open your last save, so we brought back your game from ${fmtWhen(note.when)}.`;
+    case "broken":
+      return "We couldn't open your saved game, so this is a fresh start. A copy of the old one is kept on this device.";
+    case "restored":
+      return `Your game from ${fmtWhen(note.when)} is back!`;
+    case "reset":
+      return "Changed your mind? Your old game is under Saved games.";
+  }
+}
+const DAY = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
+const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
+const POINT_LOOK: Record<SavePoint["kind"], { icon: IconDefinition; color: string }> = {
+  daily: { icon: faSun, color: "#f59e0b" },
+  update: { icon: faArrowsRotate, color: "#8b5cf6" },
+  reset: { icon: faRotateLeft, color: "#f97316" },
+  restore: { icon: faClockRotateLeft, color: "#22c55e" },
 };
 
 /** Where the player is with a mini game: reading about it, playing it, or looking at the medal. */
@@ -482,6 +509,10 @@ export default function SneakyEggs() {
   const [cheers, setCheers] = useState<Cheer[]>([]);
   const [place, setPlace] = useState<{ id: number; text: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [points, setPoints] = useState<SavePoint[]>([]);
+  const [savesOpen, setSavesOpen] = useState(false);
+  const [pickedPoint, setPickedPoint] = useState<string | null>(null);
+  const [saveNote, setSaveNote] = useState<SaveNote | null>(null);
   const [confirmRebirth, setConfirmRebirth] = useState(false);
   const [ad, setAd] = useState<AdPlacement | null>(null);
   const [awayBoosted, setAwayBoosted] = useState(false);
@@ -539,25 +570,36 @@ export default function SneakyEggs() {
       lastSeen: Date.now(),
     };
     saveRef.current = next;
-    setStoredData(STORAGE_KEY, next);
+    vault.write(next);
     if (!quiet) setSave(next);
   }, []);
 
-  useEffect(() => {
-    const stored = getStoredData(STORAGE_KEY) as Partial<Save> | null;
-    if (stored && typeof stored === "object") {
-      const merged: Save = { ...DEFAULT_SAVE, ...stored };
-      saveRef.current = merged;
-      setSave(merged);
-      setMuted(merged.muted);
-      if (merged.game && merged.lastSeen) {
-        const jar = merged.game.up?.jar ?? 0;
-        const secs = Math.min(awayCap(jar), (Date.now() - merged.lastSeen) / 1000);
-        if (secs > 60) setAway(Math.floor(secs * savedRate(merged.game) * awayShare(jar)));
-      }
+  /** Puts a save on the title screen: the one found at start-up, or one just restored. */
+  const adopt = useCallback((next: Save, payAway: boolean) => {
+    saveRef.current = next;
+    setSave(next);
+    setMuted(next.muted);
+    let earned = 0;
+    if (payAway && next.game && next.lastSeen) {
+      const jar = next.game.up?.jar ?? 0;
+      const secs = Math.min(awayCap(jar), (Date.now() - next.lastSeen) / 1000);
+      if (secs > 60) earned = Math.floor(secs * savedRate(next.game) * awayShare(jar));
     }
-    setLoaded(true);
+    setAway(earned);
   }, []);
+
+  useEffect(() => {
+    // The vault takes today's restore point here, before anything can write over the save.
+    const found = vault.load();
+    if (found.save) adopt(found.save, found.status === "ok");
+    if (found.status === "recovered" && found.from) {
+      setSaveNote({ kind: "recovered", when: found.from.t });
+    } else if (found.status === "broken") {
+      setSaveNote({ kind: "broken" });
+    }
+    setPoints(vault.points());
+    setLoaded(true);
+  }, [adopt]);
 
   useEffect(() => {
     const onHide = () => {
@@ -960,6 +1002,7 @@ export default function SneakyEggs() {
 
   const play = () => {
     unlockAudio();
+    setSaveNote(null);
     const g = createGame(saveRef.current.game, {
       giant: saveRef.current.giant,
       cozy: saveRef.current.cozy,
@@ -1015,7 +1058,8 @@ export default function SneakyEggs() {
   const startOver = () => {
     // The town is never wiped: a fresh game keeps the house and buildings.
     const kept = startOverSave(saveRef.current.game);
-    clearStoredData(STORAGE_KEY);
+    // The vault keeps what's being cleared as a restore point.
+    vault.reset();
     const fresh: Save = {
       ...DEFAULT_SAVE,
       skin: saveRef.current.skin,
@@ -1024,13 +1068,33 @@ export default function SneakyEggs() {
       game: kept,
       lastSeen: kept ? Date.now() : 0,
     };
-    if (kept) setStoredData(STORAGE_KEY, fresh);
+    if (kept) vault.write(fresh);
     saveRef.current = fresh;
     gameRef.current = null;
     setSave(fresh);
     setAway(0);
     setAwayBoosted(false);
+    const restorable = vault.points();
+    setPoints(restorable);
+    setSaveNote(restorable.length ? { kind: "reset" } : null);
     setConfirmReset(false);
+  };
+
+  const closeSaves = () => {
+    setSavesOpen(false);
+    setPickedPoint(null);
+  };
+
+  const restorePoint = (id: string) => {
+    const point = points.find((p) => p.id === id);
+    const restored = vault.restore(id);
+    setPickedPoint(null);
+    setPoints(vault.points());
+    if (!restored || !point) return;
+    gameRef.current = null;
+    adopt(restored, false);
+    setSaveNote({ kind: "restored", when: point.t });
+    setSavesOpen(false);
   };
 
   const toggleSound = () => {
@@ -1788,6 +1852,15 @@ export default function SneakyEggs() {
               Secret found: Big Sneak mode!
             </Banner>
           )}
+          {saveNote && (
+            <div className="se-save-note">
+              <Banner
+                tone={saveNote.kind === "restored" ? "good" : "soft"}
+                icon={saveNote.kind === "broken" ? faTriangleExclamation : faClockRotateLeft}>
+                {saveNoteText(saveNote)}
+              </Banner>
+            </div>
+          )}
 
           <Panel label="How to play">
             <ol className="se-how">
@@ -1872,6 +1945,15 @@ export default function SneakyEggs() {
             <KitButton variant="neutral" size="sm" icon={faShareNodes} onClick={share}>
               Tell a friend
             </KitButton>
+            {points.length > 0 && (
+              <KitButton
+                variant="neutral"
+                size="sm"
+                icon={faClockRotateLeft}
+                onClick={() => setSavesOpen(true)}>
+                Saved games
+              </KitButton>
+            )}
             {save.game && (
               <KitButton variant="neutral" size="sm" icon={faRotateLeft} onClick={() => setConfirmReset(true)}>
                 Start over
@@ -1919,8 +2001,9 @@ export default function SneakyEggs() {
           icon={faArrowsRotate}
           title="Start over?">
           <p className="dg-subtitle" style={{ margin: "0 auto 8px" }}>
-            Your pets, coins, trophies and Pet Book will be gone for good.
-            {startOverSave(save.game) ? " Your house and buildings stay." : ""}
+            Your pets, coins, trophies and Pet Book will be cleared.
+            {startOverSave(save.game) ? " Your house and buildings stay." : ""} If you change your
+            mind, you can bring them back from Saved games on this device.
           </p>
           <div className="dg-row">
             <KitButton variant="neutral" onClick={() => setConfirmReset(false)}>
@@ -1928,6 +2011,70 @@ export default function SneakyEggs() {
             </KitButton>
             <KitButton variant="danger" onClick={startOver}>
               Start over
+            </KitButton>
+          </div>
+        </KitDialog>
+
+        <KitDialog
+          game={game}
+          open={savesOpen}
+          onClose={closeSaves}
+          icon={faClockRotateLeft}
+          title="Saved games"
+          className="se-menu">
+          <p className="dg-subtitle" style={{ margin: "0 auto" }}>
+            The game keeps a few older copies of your save on this device. Pick one to go back
+            to it.
+          </p>
+          <div className="se-list">
+            {points.map((p) => {
+              const look = POINT_LOOK[p.kind];
+              const picked = pickedPoint === p.id;
+              return (
+                <div className={cx("se-row", "se-save", picked && "is-picked")} key={p.id}>
+                  <span className="se-row-icon" style={{ "--tile": look.color } as CSSProperties}>
+                    <FontAwesomeIcon icon={look.icon} />
+                  </span>
+                  <div className="se-row-text">
+                    <strong>{DAY.format(new Date(p.t))}</strong>
+                    <span>
+                      Level {p.summary.level} · {p.summary.pets}{" "}
+                      {p.summary.pets === 1 ? "pet" : "pets"} · {fmtCoins(p.summary.coins)} coins
+                    </span>
+                    <small>
+                      {TIME.format(new Date(p.t))} · {POINT_LABEL[p.kind]}
+                    </small>
+                  </div>
+                  {picked ? (
+                    <div className="se-row-actions">
+                      <KitButton size="sm" onClick={() => restorePoint(p.id)}>
+                        Yes, go back
+                      </KitButton>
+                      <KitButton size="sm" variant="neutral" onClick={() => setPickedPoint(null)}>
+                        Cancel
+                      </KitButton>
+                    </div>
+                  ) : (
+                    <KitButton
+                      size="sm"
+                      variant="neutral"
+                      aria-label={`Go back to the game from ${fmtWhen(p.t)}`}
+                      onClick={() => setPickedPoint(p.id)}>
+                      Go back
+                    </KitButton>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <span className="dg-caption" aria-live="polite">
+            {pickedPoint && save.game
+              ? "Your game as it is now is kept here too, so you can undo this."
+              : "Saved games stay on this device only."}
+          </span>
+          <div className="dg-row">
+            <KitButton variant="neutral" onClick={closeSaves}>
+              Close
             </KitButton>
           </div>
         </KitDialog>
