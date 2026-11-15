@@ -5,3 +5,6 @@
 # React Router
 /.react-router/
 /build/
+
+# Vite cache (appears when a tool loads a Vite config outside node_modules)
+/.vite/
