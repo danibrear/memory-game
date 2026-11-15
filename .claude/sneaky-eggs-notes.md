@@ -228,6 +228,93 @@ easy to pass on to friends; and (follow-up) make it more of an idle game.
 - Cozy style still completes the book (bot: about 8 minutes; the level bonus
   and courier make it a little quicker than before).
 
+## Mini games (Nov 15): three striped tents
+
+Dani's brief: mini games for special rewards (she suggested mazes and tag with
+an NPC). This is the first batch of three, to see whether Elliot likes them
+before more are built. No new currency: each game has its own prize.
+
+### How it works
+- A **striped tent** stands at Home (Hide and Seek), in Sunny Meadow (Tag with
+  Zip) and on Coral Beach (Sleepy Steps), each just beside the path. Walk into
+  one and a card asks "Play?". Not while carrying eggs.
+- The main game **pauses** and the mini game takes over the canvas in its own
+  small arena (no camera; tall on upright screens, wide on sideways ones). Same
+  joystick and arrow keys. The X at the top right leaves without a result.
+- Every game ends with **no medal, bronze, silver or gold**, shown as 0 to 3
+  stars. The best medal hangs on the tent's roof and shows on the Map.
+- **Practice is free, prizes are on a timer.** Each tent's prize comes back on
+  a real-time timer like the gift chest (`prizeMs`: 15 minutes for Tag and Hide
+  and Seek, 10 for Sleepy Steps). The tent shows "Prize!" or the countdown.
+  Playing while it refills pays a small coin tip. A game with no medal never
+  uses up the prize.
+- **Cozy style** can't lose: no clock in Sleepy Steps or Hide and Seek, a slower
+  Zip who never dashes, and always at least bronze.
+
+### The three games
+- **Tag with Zip** (Zip is a teal critter in a red scarf, `ZIP_LOOK`). 25
+  seconds of you chasing him: every tag is a star and he gets faster each time,
+  and after two tags he starts sidestepping. Then 20 seconds of him chasing
+  you: three hearts, and he winds up ("!") and dashes. Score = tags + hearts
+  left. Prize: **Zoomies**, 20% faster running for 3, 6 or 10 minutes. The first
+  gold also wins the **Zip's Zoom** trail, which can't be bought.
+- **Sleepy Steps.** Red light, green light: tiptoe to the giant egg while the
+  Grumble sleeps, stop when it wiggles ("Careful..."), and be still when the
+  eye opens ("FREEZE!"). Some wiggles are false alarms. Seen moving = back to
+  the start (Cozy: back a few steps). Medal by time. Prize: 1, 2 or 3 **Lucky
+  Dice**.
+- **Hide and Seek.** Your own pets hide behind bushes, trees, rocks, hay bales
+  and barrels and lean out now and then. Push into a spot for a moment to look
+  (a ring fills, so brushing past doesn't count); an empty one costs 3 seconds.
+  Two rounds: 4 pets, then 6. Bronze for round one, silver for both, gold with
+  12 seconds to spare. Prize: **happy pets**, double coins for 3, 6 or 10
+  minutes. Players with few pets get stand-ins.
+
+### Lucky Dice
+- Held up to 9 (`DICE_MAX`); a purple chip on the HUD and a "Roll" button on
+  every row of My Pets.
+- A roll re-rolls one pet's variant and size twice each and keeps the best. It
+  never gets worse. A pet smaller than Huge always grows at least one size;
+  otherwise a roll that changes nothing pays 90 seconds of that pet's income.
+- The dice goes to the best pet of that kind that is still below Huge, then to
+  the best one left to improve.
+
+### How hard they are (bots, Sneaky style, 200 runs each)
+- Tag: a slow, wobbly "small child" bot gets bronze about 9 times in 10; an
+  average bot bronze, sometimes silver; a good one silver or gold.
+- Sleepy Steps: a bot that stops at the wiggle finishes in about 13 seconds,
+  half silver and half gold. A bot that only stops once the eye is open is
+  always caught: the wiggle is the cue. `STEPS_TUNING.grace` is the knob.
+- Hide and Seek: trying every spot gets bronze; watching for peeks gets silver
+  or gold.
+- Cozy: every bot gets at least bronze, usually silver or gold.
+
+### Where it lives
+- `minigames.ts`: the three simulations (`createMini`, `stepMini`). No drawing.
+- `minigamesRender.ts`: the arenas and their HUD (`renderMini`).
+- `engine.ts`, "Mini games" section: the tents (`knock`), `prizeWait`,
+  `finishMini` (hands out the prize), `rollDice`.
+- `render.ts`: `drawTent`, and the first-time "New game!" pointer.
+- `config.ts`, "Mini games" section: `MINIS` (where each tent stands, its text
+  and prize timer), `MINI_BUFF_TIME`, `MINI_DICE`, and `TAG_TUNING`,
+  `STEPS_TUNING`, `SEEK_TUNING` for every difficulty number.
+- Saves: `medals`, `prizeAt`, `dice`, `zoomT`, `happyT` and three counters, all
+  optional, so older saves load with nothing won yet.
+- Trophies: 8 new (99 in all).
+- In dev builds the running mini game is on `window.__eggsMini`.
+
+### Checked
+- A script drove the game logic: tents clear of scenery, knocking, prizes and
+  timers, medals, dice, old saves and a save round trip.
+- Played in Chrome on the dev server with scripted key presses: all three
+  games start to finish, wide and tall arenas, every result card, the dice
+  roll, the Map and the Shop. Not tried with a real finger, and not in Safari
+  on an iPad.
+
+### Fast follows (not built)
+Burrow Maze, Egg Catch, Nest Shuffle, Crystal Chimes, Pet Race, Saucer Dodge;
+a pet that hatches only from mini games; a Glow variant above Rainbow.
+
 ## Files
 - `app/games/eggs/config.ts` — every tuning number: lands, the 25 pets and their
   looks and blurbs, rarity odds, upgrade prices, hats, trails, decorations,
@@ -241,6 +328,7 @@ easy to pass on to friends; and (follow-up) make it more of an idle game.
   the player, Grumbles, the statue) from a `Look`, so a new pet is one config
   entry, no art. `paintPetIcon` / `paintEggIcon` reuse it for the menus.
 - `app/games/eggs/audio.ts` — WebAudio blips and the music loop, no assets.
+- `app/games/eggs/minigames.ts`, `minigamesRender.ts` — the three mini games.
 - `app/routes/eggs.tsx` — screens, HUD, dock, input, game loop.
 - `app/components/eggs/Menus.tsx` — Shop, Pets, Pet Book, Trophies and Map.
 - `app/styles/eggs.css` — `se-*` styles, loaded through the route's `links`.

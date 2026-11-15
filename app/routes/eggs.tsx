@@ -81,6 +81,7 @@ import {
   HOUSE_AD,
   AD_COOLDOWN,
   FREEZE_CD,
+  MEDAL_COLORS,
   MEDAL_NAMES,
   MINI_BUFF_TIME,
   MINI_DICE,
@@ -331,8 +332,8 @@ interface Reveal {
   s: number;
   fused: boolean;
   isNew: boolean;
-  /** It came from a Lucky Dice roll, not a hatch. */
-  dice?: boolean;
+  /** It came from a Lucky Dice roll, not a hatch: the coins it paid when nothing got better. */
+  dice?: { coins: number };
 }
 
 interface Toast {
@@ -644,13 +645,11 @@ export default function SneakyEggs() {
           const def = petById(e.petId);
           if (!def) break;
           sfx.dice();
-          if (e.better) {
-            if (isJackpot(e.v, e.s)) sfx.jackpot();
-            else sfx.hatch(2);
-            setReveals((list) => [...list, { def, v: e.v, s: e.s, fused: false, isNew: false, dice: true }]);
-          } else {
-            say(`No luck this time, so the dice paid out ${fmtCoins(e.coins)} coins instead.`);
-          }
+          if (e.better && isJackpot(e.v, e.s)) sfx.jackpot();
+          else if (e.better) sfx.hatch(2);
+          else sfx.coins();
+          // Always a card: the Pets menu is open, and a toast would be hidden behind it.
+          setReveals((list) => [...list, { def, v: e.v, s: e.s, fused: false, isNew: false, dice: { coins: e.coins } }]);
           break;
         }
         case "buffEnd":
@@ -2029,10 +2028,10 @@ export default function SneakyEggs() {
               </span>
             </div>
             {g.medals[mini.id] > 0 && (
-              <div className="se-mini-best">
-                <small>Your best: {MEDAL_NAMES[g.medals[mini.id]]}</small>
-                <Stars count={g.medals[mini.id]} />
-              </div>
+              <span className="dg-pill se-mini-best">
+                <FontAwesomeIcon icon={faMedal} style={{ color: MEDAL_COLORS[g.medals[mini.id]] }} /> Your best:{" "}
+                {MEDAL_NAMES[g.medals[mini.id]]}
+              </span>
             )}
             <div className="dg-row">
               <KitButton variant="neutral" onClick={leaveMini}>
@@ -2138,11 +2137,13 @@ export default function SneakyEggs() {
         onClose={closeReveal}
         icon={reveal?.dice ? faDice : reveal?.fused ? faWandMagicSparkles : faStar}
         title={
-          reveal && isJackpot(reveal.v, reveal.s)
-            ? "Jackpot!"
-            : reveal?.dice
-              ? "Lucky roll!"
-              : reveal?.def.rarity === 4
+          reveal?.dice && reveal.dice.coins > 0
+            ? "No luck this time"
+            : reveal && isJackpot(reveal.v, reveal.s)
+              ? "Jackpot!"
+              : reveal?.dice
+                ? "Lucky roll!"
+                : reveal?.def.rarity === 4
               ? "A Mythic pet!"
               : reveal?.fused
                 ? "Fusion!"
@@ -2177,20 +2178,24 @@ export default function SneakyEggs() {
               )}
             </span>
             <p className="dg-subtitle" style={{ margin: 0 }}>
-              {reveal.def.blurb}
+              {reveal.dice
+                ? reveal.dice.coins > 0
+                  ? `It stayed the same, so the dice paid out ${fmtCoins(reveal.dice.coins)} coins instead.`
+                  : "The dice made it even better!"
+                : reveal.def.blurb}
             </p>
             <p className="dg-subtitle" style={{ margin: 0 }}>
               <Coin /> Earns {fmtCoins(petRate(reveal.def, reveal.v, reveal.s) * coinMult(g))}{" "}
               {petRate(reveal.def, reveal.v, reveal.s) * coinMult(g) === 1 ? "coin" : "coins"} every second
             </p>
             <div className="dg-row">
-              {isJackpot(reveal.v, reveal.s) && (
+              {isJackpot(reveal.v, reveal.s) && !(reveal.dice && reveal.dice.coins > 0) && (
                 <KitButton variant="neutral" icon={faShareNodes} onClick={share}>
                   Brag
                 </KitButton>
               )}
               <KitButton size="lg" onClick={closeReveal}>
-                Yay!
+                {reveal.dice && reveal.dice.coins > 0 ? "OK" : "Yay!"}
               </KitButton>
             </div>
           </>

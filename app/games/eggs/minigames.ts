@@ -110,7 +110,7 @@ const EDGE = 26;
 
 /** A tall arena for phones and upright tablets, a wide one for sideways screens. */
 export function arenaSize(viewW: number, viewH: number): { w: number; h: number } {
-  return viewW / Math.max(1, viewH) > 1.15 ? { w: 900, h: 560 } : { w: 560, h: 740 };
+  return viewW / Math.max(1, viewH) > 1.15 ? { w: 900, h: 560 } : { w: 560, h: 780 };
 }
 
 function base(id: MiniId, o: CreateMiniOptions, at: Point): Base {
@@ -540,16 +540,28 @@ export interface StepsState extends Base {
   spotted: number;
   /** 0 at the start line, 1 at the egg. */
   progress: number;
+  /** Palms and rocks off to the sides. Only for looks: nothing here is in the way. */
+  scenery: Prop[];
 }
 
 export const STEPS_GOAL_R = 40;
+
+/** Where the beach scenery stands, as a share of the arena, for tall and wide screens. */
+const STEPS_SCENERY_TALL: [number, number, PropKind][] = [
+  [0.14, 0.2, "palm"], [0.86, 0.3, "rock"], [0.16, 0.5, "rock"], [0.87, 0.56, "palm"],
+  [0.13, 0.8, "palm"], [0.85, 0.86, "rock"],
+];
+const STEPS_SCENERY_WIDE: [number, number, PropKind][] = [
+  [0.1, 0.24, "palm"], [0.34, 0.2, "rock"], [0.6, 0.26, "palm"], [0.9, 0.2, "rock"],
+  [0.2, 0.93, "rock"], [0.5, 0.95, "palm"], [0.88, 0.92, "palm"],
+];
 
 function createSteps(o: CreateMiniOptions): StepsState {
   const size = arenaSize(o.viewW, o.viewH);
   const wide = size.w > size.h;
   const L = STEPS_TUNING.track;
   // The Grumble sits just past the egg, so the track leaves room for it at the far end.
-  const start = wide ? { x: (size.w - L - 110) / 2, y: size.h * 0.6 } : { x: size.w / 2, y: size.h - 60 };
+  const start = wide ? { x: (size.w - L - 110) / 2, y: size.h * 0.6 } : { x: size.w / 2, y: size.h - 84 };
   const goal = wide ? { x: start.x + L, y: start.y } : { x: start.x, y: start.y - L };
   const b = base("steps", o, { x: start.x / size.w, y: start.y / size.h });
   return {
@@ -566,6 +578,14 @@ function createSteps(o: CreateMiniOptions): StepsState {
     left: o.cozy ? Infinity : STEPS_TUNING.time,
     spotted: 0,
     progress: 0,
+    scenery: (wide ? STEPS_SCENERY_WIDE : STEPS_SCENERY_TALL).map(([x, y, kind], i) => ({
+      x: x * size.w,
+      y: y * size.h,
+      r: 22,
+      kind,
+      seed: (i * 0.41) % 1,
+      wob: 0,
+    })),
   };
 }
 

@@ -1498,14 +1498,8 @@ button.se-speed {
   color: #f59e0b;
   animation: se-thump 1.1s ease-in-out infinite;
 }
-.se-mini-best {
-  display: grid;
-  justify-items: center;
-  gap: 2px;
-  color: var(--dg-muted);
-}
-.se-mini-best .dg-stars {
-  font-size: 0.7em;
+.se-mini-best svg {
+  filter: drop-shadow(0 1px 0 rgba(20, 16, 50, 0.3));
 }
 .se-mini-rewards {
   display: grid;

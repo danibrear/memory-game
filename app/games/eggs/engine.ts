@@ -2743,16 +2743,18 @@ export function canRoll(g: Game, petId: string): boolean {
 }
 
 /**
- * Roll a Lucky Dice on the best pet of a kind: its variant and size are each
- * rolled twice more and the pet keeps whatever is better. It never gets worse.
- * A roll that changes nothing grows a small pet one size, or pays coins.
+ * Roll a Lucky Dice on one pet of a kind: its variant and size are each rolled
+ * twice more and the pet keeps whatever is better. It never gets worse. A roll
+ * that changes nothing grows a small pet one size, or pays coins. The dice goes
+ * to the best pet that is still small enough to be sure of growing, and once
+ * they are all Huge, to the best one left to improve.
  */
 export function rollDice(g: Game, petId: string): boolean {
   const def = petById(petId);
   if (!def || !canRoll(g, petId)) return false;
   const pet = g.pets
     .filter((p) => p.id === petId && (p.v < VARIANTS.length - 1 || p.s < SIZES.length - 1))
-    .sort((a, b) => rollWorth(b) - rollWorth(a))[0];
+    .sort((a, b) => Number(b.s < 2) - Number(a.s < 2) || rollWorth(b) - rollWorth(a))[0];
   g.dice--;
   g.stats.diceUsed++;
   const v = Math.max(pet.v, rollVariant(g.up.sparkle), rollVariant(g.up.sparkle));

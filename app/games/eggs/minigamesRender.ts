@@ -225,6 +225,7 @@ function drawSteps(ctx: Ctx, s: StepsState, look: Look, t: number, theme: Theme)
   const gx = s.goal.x + ux * 92;
   const gy = s.goal.y + uy * 62 + (s.wide ? 34 : 0);
   const items: Drawable[] = [];
+  for (const prop of s.scenery) items.push({ y: prop.y, draw: () => drawProp(ctx, prop) });
   items.push({
     y: gy,
     draw: () => {
