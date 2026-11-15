@@ -31,6 +31,18 @@ Rule of thumb: entrances and one-off moves that share an element with CSS
 animations (shake, match pop) use the Web Animations API (`el.animate`), so
 removing a class later can't replay them. State-driven loops stay in CSS.
 
+## Welcome dialog (reworked 2026-11-15)
+`app/components/Welcome.tsx` is the first-visit dialog, shown from `root.tsx`
+until `welcome-shown` is `false` in localStorage. It uses the kit's dialog
+surface with the logo colors (`--g-from: #a78bfa`, `--g-to: #f472b6`) instead of
+a game's colors. Styles are the `dg-welcome-*` rules in `game-kit.css`.
+- Three picture tiles (`FACTS`) say the fine print at a glance; the full
+  sentence stays underneath in small muted text for grown-ups.
+- The play button has no words: a 92px green `KitButton` with `aria-label="Play"`.
+  Its entrance animation is on the wrapper so the pressed-down transform works.
+- Reduced motion is handled by its own media query (the dialog portals outside
+  `.dg-shell`, so the shell's rule doesn't reach it).
+
 ## How theming works
 `GameShell` reads the game's colors from `gameCatalog.ts` and sets
 `--g-from` / `--g-to` on the wrapper; every button, chip and highlight uses

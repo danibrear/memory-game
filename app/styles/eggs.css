@@ -1388,3 +1388,161 @@ button.se-speed {
 .se-menu .dg-seg-btn {
   font-size: 0.76rem;
 }
+
+/* ---------- Mini games ---------- */
+
+/* The arena has the screen to itself: only the sound and leave buttons stay. */
+.se-stage.is-mini .se-top-left,
+.se-stage.is-mini .se-dock,
+.se-stage.is-mini .se-dash,
+.se-stage.is-mini .se-actions,
+.se-stage.is-mini .se-adbtn,
+.se-stage.is-mini .se-place {
+  display: none;
+}
+.se-stage.is-mini .se-top {
+  justify-content: flex-end;
+}
+
+/* Prize chips next to the speed chip: Zoomies, happy pets and Lucky Dice. */
+.se-buff {
+  font-variant-numeric: tabular-nums;
+}
+.se-buff.is-zoom {
+  background: #ccfbf1;
+  border-color: #5eead4;
+  color: #115e59;
+}
+.se-buff.is-happy {
+  background: #ffe4e6;
+  border-color: #fda4af;
+  color: #9f1239;
+}
+.se-buff.is-dice {
+  background: #ede9fe;
+  border-color: #c4b5fd;
+  color: #5b21b6;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.se-buff.is-zoom svg {
+  color: #0d9488;
+}
+.se-buff.is-happy svg {
+  color: #f43f5e;
+  animation: se-thump 0.9s ease-in-out infinite;
+}
+.se-buff.is-dice svg {
+  color: #7c3aed;
+}
+@keyframes se-thump {
+  0%, 100% { transform: scale(1); }
+  30% { transform: scale(1.25); }
+}
+
+.se-mini-hero {
+  display: grid;
+  place-items: center;
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #fff, color-mix(in srgb, var(--g-to) 22%, #fff));
+  box-shadow: inset 0 -6px 0 rgba(20, 16, 50, 0.06);
+  animation: se-mini-bob 2.4s ease-in-out infinite;
+}
+@keyframes se-mini-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+.se-mini-how {
+  width: 100%;
+  max-width: 340px;
+}
+.se-mini-prize {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 360px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  border: 2px dashed var(--dg-border);
+  text-align: left;
+  color: var(--dg-muted);
+}
+.se-mini-prize > svg {
+  font-size: 1.6rem;
+  flex: none;
+}
+.se-mini-prize span {
+  display: grid;
+  gap: 2px;
+}
+.se-mini-prize strong {
+  font-family: var(--dg-display);
+  color: var(--dg-ink);
+}
+.se-mini-prize small {
+  line-height: 1.35;
+}
+.se-mini-prize.is-ready {
+  border-style: solid;
+  border-color: #fbbf24;
+  background: #fffbeb;
+  color: #92400e;
+}
+.se-mini-prize.is-ready strong {
+  color: #b45309;
+}
+.se-mini-prize.is-ready > svg {
+  color: #f59e0b;
+  animation: se-thump 1.1s ease-in-out infinite;
+}
+.se-mini-best {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  color: var(--dg-muted);
+}
+.se-mini-best .dg-stars {
+  font-size: 0.7em;
+}
+.se-mini-rewards {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  max-width: 360px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+.se-mini-rewards li {
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--g-to) 12%, transparent);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.se-mini-rewards li svg {
+  margin-right: 6px;
+  color: var(--g-to);
+}
+.se-map-mini svg {
+  filter: drop-shadow(0 1px 0 rgba(20, 16, 50, 0.25));
+}
+.se-dice-tip svg {
+  color: #7c3aed;
+}
+.dg-btn.se-roll {
+  --btn-from: #a78bfa;
+  --btn-to: #7c3aed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .se-mini-hero,
+  .se-buff.is-happy svg,
+  .se-mini-prize.is-ready > svg {
+    animation: none;
+  }
+}

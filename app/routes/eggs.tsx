@@ -4,6 +4,7 @@ import {
   faBook,
   faBullseye,
   faCoins,
+  faDice,
   faEgg,
   faFeather,
   faFeatherPointed,
@@ -11,10 +12,14 @@ import {
   faSnowflake,
   faRectangleAd,
   faForwardFast,
+  faGift,
+  faHeart,
   faHouse,
   faMapLocationDot,
+  faMedal,
   faMusic,
   faPaw,
+  faPersonRunning,
   faPlay,
   faRotateLeft,
   faStar,
@@ -25,6 +30,7 @@ import {
   faVolumeXmark,
   faWandMagicSparkles,
   faWeightHanging,
+  faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -59,6 +65,7 @@ import {
   KitButton,
   KitDialog,
   Panel,
+  Stars,
   StartScreen,
   StatPill,
   WinScreen,
@@ -74,6 +81,9 @@ import {
   HOUSE_AD,
   AD_COOLDOWN,
   FREEZE_CD,
+  MEDAL_NAMES,
+  MINI_BUFF_TIME,
+  MINI_DICE,
   POWERUPS,
   RARITIES,
   SHARE_URL,
@@ -82,6 +92,7 @@ import {
   TRAILS,
   UPGRADE_IDS,
   VARIANTS,
+  ZIP_LOOK,
   awayCap,
   awayShare,
   dashCooldown,
@@ -89,6 +100,7 @@ import {
   fmtCoins,
   isJackpot,
   levelTitle,
+  miniById,
   powerEggById,
   xpNeed,
   missionText,
@@ -100,6 +112,8 @@ import {
   upgradeCost,
   type HatId,
   type HomeDecorId,
+  type Look,
+  type MiniId,
   type PetDef,
   type PowerEggId,
   type PowerupId,
@@ -118,6 +132,7 @@ import {
   createGame,
   dash,
   equip,
+  finishMini,
   freeze,
   fuse,
   hatchNow,
@@ -127,6 +142,8 @@ import {
   usePower,
   missionProgress,
   penIsFull,
+  prizeWait,
+  rollDice,
   savedRate,
   sell,
   setBuddy,
@@ -142,8 +159,11 @@ import {
   wish,
   type Game,
   type GameEvent,
+  type MiniReward,
   type SavedGame,
 } from "~/games/eggs/engine";
+import { createMini, stepMini, type Hider, type MiniState } from "~/games/eggs/minigames";
+import { renderMini } from "~/games/eggs/minigamesRender";
 import {
   computeView,
   render,
@@ -213,6 +233,37 @@ const DEFAULT_SAVE: Save = {
   lastSeen: 0,
 };
 
+/** Where the player is with a mini game: reading about it, playing it, or looking at the medal. */
+interface MiniUi {
+  id: MiniId;
+  stage: "intro" | "play" | "result";
+  reward?: MiniReward;
+  summary?: string;
+}
+
+/** Who peeks out of each tent, for the dialogs. */
+const MINI_MASCOT: Record<MiniId, { look: Look; mood: "happy" | "sleep" | "normal" }> = {
+  tag: { look: ZIP_LOOK, mood: "happy" },
+  steps: { look: BIOMES[1].guard, mood: "sleep" },
+  seek: { look: PETS[0].look, mood: "happy" },
+};
+
+const MEDAL_TITLES = ["Nice try!", "Bronze medal!", "Silver medal!", "Gold medal!"];
+
+/** "3:05" for the buff chips. */
+const fmtClock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+
+/** The player's own pets take part in Hide and Seek: one of each kind, the fanciest first. */
+function hidersOf(g: Game): Hider[] {
+  const best = new Map<string, number>();
+  for (const pet of g.pets) best.set(pet.id, Math.max(best.get(pet.id) ?? 0, pet.v));
+  return [...best.entries()]
+    .map(([id, variant]) => ({ def: petById(id), variant }))
+    .filter((h): h is { def: PetDef; variant: number } => Boolean(h.def))
+    .sort((a, b) => b.variant - a.variant || b.def.rarity - a.def.rarity || b.def.biome - a.def.biome)
+    .map((h) => ({ look: h.def.look, name: h.def.name, variant: h.variant }));
+}
+
 interface Hud {
   coins: number;
   rate: number;
@@ -227,6 +278,10 @@ interface Hud {
   frost: boolean;
   /** True while there's an egg worth skipping the wait for. */
   hatching: boolean;
+  /** Mini-game prizes: seconds of Zoomies and happy pets left, and Lucky Dice held. */
+  zoom: number;
+  happy: number;
+  dice: number;
   feathers: number;
   pets: number;
   cap: number;
@@ -253,6 +308,9 @@ const EMPTY_HUD: Hud = {
   held: "",
   frost: false,
   hatching: false,
+  zoom: 0,
+  happy: 0,
+  dice: 0,
   feathers: 0,
   pets: 0,
   cap: penSize(0),
@@ -273,6 +331,8 @@ interface Reveal {
   s: number;
   fused: boolean;
   isNew: boolean;
+  /** It came from a Lucky Dice roll, not a hatch. */
+  dice?: boolean;
 }
 
 interface Toast {
@@ -302,6 +362,9 @@ function hudOf(g: Game): Hud {
     held: g.held ?? "",
     frost: g.equipped.includes("frost"),
     hatching: !g.cozy && hatchWait(g) > 4,
+    zoom: Math.ceil(g.zoomT),
+    happy: Math.ceil(g.happyT),
+    dice: g.dice,
     feathers: g.feathers,
     pets: g.pets.length,
     cap: penSize(g.up.pen),
@@ -347,6 +410,10 @@ export default function SneakyEggs() {
   const [adOpen, setAdOpen] = useState(false);
   const [adLeft, setAdLeft] = useState(HOUSE_AD.seconds);
   const [freezeKey, setFreezeKey] = useState(0);
+  const [mini, setMini] = useState<MiniUi | null>(null);
+  const miniRef = useRef<MiniState | null>(null);
+  const miniPlayRef = useRef(false);
+  const miniTickRef = useRef<(m: MiniState) => void>(() => {});
   const lastAdRef = useRef(-Infinity);
   const [seenTrophies, setSeenTrophies] = useState(0);
   const [dashKey, setDashKey] = useState(0);
@@ -378,7 +445,9 @@ export default function SneakyEggs() {
 
   const reveal = reveals[0] ?? null;
   const cheer = cheers[0] ?? null;
-  pausedRef.current = panel !== null || reveal !== null || adOpen || confirmRebirth;
+  // The main game stands still while a mini game is on screen.
+  pausedRef.current = panel !== null || reveal !== null || adOpen || confirmRebirth || mini !== null;
+  miniPlayRef.current = mini?.stage === "play";
 
   /* ── Saving ── */
 
@@ -565,6 +634,28 @@ export default function SneakyEggs() {
         case "courier":
           sfx.tap();
           break;
+        case "door":
+          sfx.knock();
+          joyRef.current.active = false;
+          keysRef.current.clear();
+          setMini({ id: e.id, stage: "intro" });
+          break;
+        case "dice": {
+          const def = petById(e.petId);
+          if (!def) break;
+          sfx.dice();
+          if (e.better) {
+            if (isJackpot(e.v, e.s)) sfx.jackpot();
+            else sfx.hatch(2);
+            setReveals((list) => [...list, { def, v: e.v, s: e.s, fused: false, isNew: false, dice: true }]);
+          } else {
+            say(`No luck this time, so the dice paid out ${fmtCoins(e.coins)} coins instead.`);
+          }
+          break;
+        }
+        case "buffEnd":
+          say(e.kind === "zoom" ? "Your Zoomies wore off. Zip will race you again!" : "Your pets have calmed down. Play Hide and Seek to cheer them up again!");
+          break;
         case "rebirth":
           sfx.win();
           say(`Reborn with ${e.feathers} new Golden ${e.feathers === 1 ? "Feather" : "Feathers"}!`, "good");
@@ -626,6 +717,8 @@ export default function SneakyEggs() {
             say(`The gift chest fills up again in ${fmtWait(e.seconds)}.`);
           } else if (e.reason === "travel") {
             say("Carry your eggs home on foot first!");
+          } else if (e.reason === "door") {
+            say("Take your eggs home first, then come back and play!");
           } else {
             say("Your pen is full! Open Pets to fuse or sell.", "bad");
           }
@@ -770,6 +863,8 @@ export default function SneakyEggs() {
     setReveals([]);
     setCheers([]);
     setPanel(null);
+    miniRef.current = null;
+    setMini(null);
     setDashKey(0);
     setMusicMood(-1, false);
     persist();
@@ -783,6 +878,8 @@ export default function SneakyEggs() {
   const quit = () => {
     persist();
     gameRef.current = null;
+    miniRef.current = null;
+    setMini(null);
     setPanel(null);
     setPhase("START");
   };
@@ -940,6 +1037,104 @@ export default function SneakyEggs() {
     if (freeze(g)) eventsRef.current(g);
   };
 
+  /* Mini games: the tent asks, the arena takes over the canvas, then the medal card. */
+  const startMini = (id: MiniId) => {
+    const g = gameRef.current;
+    const stage = stageRef.current;
+    if (!g || !stage) return;
+    unlockAudio();
+    miniRef.current = createMini(id, {
+      viewW: stage.clientWidth,
+      viewH: stage.clientHeight,
+      cozy: g.cozy,
+      hiders: hidersOf(g),
+    });
+    // Dev builds only, like `__eggs`: the running mini game, for poking at.
+    if (import.meta.env.DEV) (window as unknown as { __eggsMini?: MiniState }).__eggsMini = miniRef.current;
+    joyRef.current.active = false;
+    keysRef.current.clear();
+    setToast(null);
+    setMini({ id, stage: "play" });
+  };
+
+  const leaveMini = () => {
+    const g = gameRef.current;
+    miniRef.current = null;
+    joyRef.current.active = false;
+    keysRef.current.clear();
+    setMini(null);
+    // The player is still standing at the tent: don't ask again straight away.
+    if (g) g.doorCd = 2;
+  };
+
+  // Re-made every render, like the main game's event handler.
+  miniTickRef.current = (m: MiniState) => {
+    for (const e of m.events.splice(0)) {
+      switch (e.type) {
+        case "count":
+        case "tick":
+          sfx.count();
+          break;
+        case "go":
+          sfx.go();
+          break;
+        case "score":
+          sfx.pickup(2);
+          if (m.id !== "steps") sfx.giggle();
+          break;
+        case "ouch":
+          sfx.caught();
+          break;
+        case "tell":
+          sfx.warn();
+          break;
+        case "whoosh":
+          sfx.dash();
+          break;
+        case "round":
+          sfx.gate();
+          break;
+        case "awake":
+          sfx.wake();
+          break;
+        case "asleep":
+          sfx.zzz();
+          break;
+        case "peek":
+          sfx.giggle();
+          break;
+        case "miss":
+          sfx.rustle();
+          sfx.nope();
+          break;
+        case "done":
+          if (e.medal > 0) sfx.medal(e.medal);
+          else sfx.nope();
+          break;
+      }
+    }
+    // Let the cheer play for a moment, then hand over the prize and show the medal.
+    const g = gameRef.current;
+    if (g && m.phase === "done" && m.doneT >= 1.5 && miniPlayRef.current) {
+      miniPlayRef.current = false;
+      const reward = finishMini(g, m.id, m.medal);
+      setMini({ id: m.id, stage: "result", reward, summary: m.summary });
+      eventsRef.current(g);
+      refreshHud();
+      persist(undefined, true);
+    }
+  };
+
+  const onRoll = (id: string) => {
+    const g = gameRef.current;
+    if (!g) return;
+    if (!rollDice(g, id)) {
+      sfx.nope();
+      return;
+    }
+    afterAction(g);
+  };
+
   const onPower = () => {
     const g = gameRef.current;
     if (!g || pausedRef.current) return;
@@ -1054,11 +1249,12 @@ export default function SneakyEggs() {
     if ((e.target as HTMLElement).closest("[data-ui]")) return;
     const g = gameRef.current;
     const stage = stageRef.current;
-    if (!g || !stage || pausedRef.current) return;
+    const inMini = miniPlayRef.current;
+    if (!g || !stage || (pausedRef.current && !inMini)) return;
     unlockAudio();
     const at = stagePoint(e);
     const v = viewRef.current;
-    if (v) {
+    if (v && !inMini) {
       // Hatching eggs react the instant a finger lands, so fast tapping feels good.
       const w = screenToWorld(v, at.x, at.y);
       if (tapAt(g, w.x, w.y)) return;
@@ -1104,7 +1300,8 @@ export default function SneakyEggs() {
     tapRef.current = null;
     const g = gameRef.current;
     const v = viewRef.current;
-    if (!g || !v || !stageRef.current || e.type === "pointercancel") return;
+    // Inside a mini game a finger only ever steers.
+    if (!g || !v || !stageRef.current || e.type === "pointercancel" || miniRef.current) return;
     const at = stagePoint(e);
     // A quick touch that didn't travel is a tap, not a steer.
     if (Math.hypot(at.x - tap.x, at.y - tap.y) > 14 || performance.now() - tap.at > 400) return;
@@ -1125,10 +1322,11 @@ export default function SneakyEggs() {
     const MOVE = new Set(["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d"]);
     const down = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
-      if (pausedRef.current) return;
+      const inMini = miniPlayRef.current;
+      if (pausedRef.current && !inMini) return;
       if (k === " " || k === "shift") {
         const g = gameRef.current;
-        if (!e.repeat && g && dash(g)) eventsRef.current(g);
+        if (!inMini && !e.repeat && g && dash(g)) eventsRef.current(g);
         if (k === " ") e.preventDefault();
         return;
       }
@@ -1239,6 +1437,20 @@ export default function SneakyEggs() {
       } else {
         slowFrames = 0;
       }
+      // A mini game takes over the whole canvas until it's closed.
+      const m = miniRef.current;
+      if (m) {
+        const input = miniPlayRef.current ? readInput() : { x: 0, y: 0 };
+        while (dt > 0) {
+          const slice = Math.min(STEP, dt);
+          stepMini(m, slice, input);
+          dt -= slice;
+        }
+        miniTickRef.current(m);
+        renderMini(ctx, m, w, h, dpr, now / 1000, joyRef.current, dressed(skinById(saveRef.current.skin).look, g.hat));
+        return;
+      }
+
       if (!pausedRef.current) {
         const input = readInput();
         while (dt > 0) {
@@ -1346,6 +1558,7 @@ export default function SneakyEggs() {
               <li>Tap your egg to hatch a pet. Pets earn coins.</li>
               <li>Buy faster sneakers to open new lands.</li>
               <li>Explore the side groves for better eggs, power-ups and Power Eggs.</li>
+              <li>Pop into a striped tent for a mini game and a prize.</li>
             </ol>
           </Panel>
 
@@ -1442,15 +1655,20 @@ export default function SneakyEggs() {
     );
   }
 
-  const petsAlert = hud.penFull || hud.canFuse;
+  const petsAlert = hud.penFull || hud.canFuse || hud.dice > 0;
   const newTrophies = Math.max(0, hud.trophies - seenTrophies);
   const mapOpen = hud.speed >= BIOMES[1].speedReq;
+  // The arena has the screen to itself while a mini game is being played or just ended.
+  const inMini = mini !== null && mini.stage !== "intro";
+  const miniDef = mini ? miniById(mini.id) : undefined;
+  const miniWait = mini ? prizeWait(g, mini.id) : 0;
+  const reward = mini?.reward;
 
   return (
     <GameShell game={game}>
       <div
         ref={stageRef}
-        className="se-stage"
+        className={cx("se-stage", inMini && "is-mini")}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -1460,7 +1678,11 @@ export default function SneakyEggs() {
           ref={canvasRef}
           className="se-canvas"
           role="img"
-          aria-label="Sneaky Eggs play field. Use the arrow keys or drag to move."
+          aria-label={
+            inMini && miniDef
+              ? `${miniDef.name}. Use the arrow keys or drag to move.`
+              : "Sneaky Eggs play field. Use the arrow keys or drag to move."
+          }
         />
 
         <div className="se-top">
@@ -1501,6 +1723,26 @@ export default function SneakyEggs() {
                 <FontAwesomeIcon icon={hud.heavy > 0 ? faWeightHanging : faBolt} />{" "}
                 {hud.heavy > 0 ? `Heavy −${hud.heavy}%` : `Speed ${hud.speed}`}
               </span>
+              {hud.zoom > 0 && (
+                <span className="se-speed se-buff is-zoom" data-ui aria-label={`Zoomies: running faster for ${fmtWait(hud.zoom)}`}>
+                  <FontAwesomeIcon icon={faPersonRunning} /> {fmtClock(hud.zoom)}
+                </span>
+              )}
+              {hud.happy > 0 && (
+                <span className="se-speed se-buff is-happy" data-ui aria-label={`Happy pets: double coins for ${fmtWait(hud.happy)}`}>
+                  <FontAwesomeIcon icon={faHeart} /> x2 {fmtClock(hud.happy)}
+                </span>
+              )}
+              {hud.dice > 0 && (
+                <button
+                  type="button"
+                  className="se-speed se-buff is-dice"
+                  data-ui
+                  onClick={() => openPanel("pets")}
+                  aria-label={`${hud.dice} Lucky Dice. Open Pets to roll them.`}>
+                  <FontAwesomeIcon icon={faDice} /> {hud.dice}
+                </button>
+              )}
             </div>
             {hud.mission && (
               <button
@@ -1527,7 +1769,7 @@ export default function SneakyEggs() {
               aria-label={save.muted ? "Turn sound on" : "Turn sound off"}
               onClick={toggleSound}
             />
-            {mapOpen && (
+            {mapOpen && !inMini && (
               <KitButton
                 round
                 variant="neutral"
@@ -1537,7 +1779,11 @@ export default function SneakyEggs() {
                 onClick={() => openPanel("map")}
               />
             )}
-            <KitButton round variant="neutral" size="sm" icon={faHouse} aria-label="Back to the menu" onClick={quit} />
+            {inMini ? (
+              <KitButton round variant="neutral" size="sm" icon={faXmark} aria-label="Leave the mini game" onClick={leaveMini} />
+            ) : (
+              <KitButton round variant="neutral" size="sm" icon={faHouse} aria-label="Back to the menu" onClick={quit} />
+            )}
           </div>
         </div>
 
@@ -1686,7 +1932,7 @@ export default function SneakyEggs() {
         <StatPill label="Coins every second">
           <Coin /> {fmtCoins(totalRate(g))} every second
         </StatPill>
-        <PetsBody g={g} onFuse={onFuse} onSell={onSell} onBuddy={onBuddy} />
+        <PetsBody g={g} onFuse={onFuse} onSell={onSell} onBuddy={onBuddy} onRoll={onRoll} />
         <KitButton variant="neutral" onClick={() => setPanel(null)}>
           Back to the eggs
         </KitButton>
@@ -1750,6 +1996,115 @@ export default function SneakyEggs() {
         </div>
       </KitDialog>
 
+      <KitDialog
+        game={game}
+        open={mini?.stage === "intro"}
+        onClose={leaveMini}
+        icon={faGift}
+        title={miniDef?.name ?? "Mini game"}>
+        {mini && miniDef && (
+          <>
+            <div className="se-mini-hero">
+              <PetIcon look={MINI_MASCOT[mini.id].look} size={92} mood={MINI_MASCOT[mini.id].mood} />
+            </div>
+            <p className="dg-subtitle" style={{ margin: 0 }}>
+              {miniDef.blurb}
+            </p>
+            <ol className="se-how se-mini-how">
+              {miniDef.how.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ol>
+            <div className={cx("se-mini-prize", miniWait <= 0 && "is-ready")}>
+              <FontAwesomeIcon icon={faGift} />
+              <span>
+                <strong>{miniWait <= 0 ? "Prize ready!" : `Next prize in ${fmtWait(miniWait)}`}</strong>
+                <small>
+                  {miniDef.prize}
+                  {mini.id === "steps"
+                    ? `: up to ${MINI_DICE[3]} for a gold medal.`
+                    : ` for up to ${MINI_BUFF_TIME[3] / 60} minutes.`}
+                  {miniWait > 0 && " You can still play for fun and a few coins."}
+                </small>
+              </span>
+            </div>
+            {g.medals[mini.id] > 0 && (
+              <div className="se-mini-best">
+                <small>Your best: {MEDAL_NAMES[g.medals[mini.id]]}</small>
+                <Stars count={g.medals[mini.id]} />
+              </div>
+            )}
+            <div className="dg-row">
+              <KitButton variant="neutral" onClick={leaveMini}>
+                Not now
+              </KitButton>
+              <KitButton size="lg" icon={faPlay} onClick={() => startMini(mini.id)}>
+                Play
+              </KitButton>
+            </div>
+          </>
+        )}
+      </KitDialog>
+
+      <KitDialog
+        game={game}
+        open={mini?.stage === "result"}
+        onClose={leaveMini}
+        icon={faMedal}
+        title={MEDAL_TITLES[reward?.medal ?? 0]}>
+        {mini && reward && (
+          <>
+            <Stars count={reward.medal} />
+            <p className="dg-subtitle" style={{ margin: 0 }}>
+              {mini.summary}
+            </p>
+            {reward.newBest && reward.medal > 0 && (
+              <Banner tone="gold" icon={faStar}>
+                New best!
+              </Banner>
+            )}
+            <ul className="se-mini-rewards">
+              {reward.zoom > 0 && (
+                <li>
+                  <FontAwesomeIcon icon={faPersonRunning} /> Zoomies! You run faster for {reward.zoom / 60} minutes.
+                </li>
+              )}
+              {reward.happy > 0 && (
+                <li>
+                  <FontAwesomeIcon icon={faHeart} /> Happy pets! Double coins for {reward.happy / 60} minutes.
+                </li>
+              )}
+              {reward.dice > 0 && (
+                <li>
+                  <FontAwesomeIcon icon={faDice} /> {reward.dice} Lucky Dice! Roll {reward.dice === 1 ? "it" : "them"} on a
+                  pet in My Pets.
+                </li>
+              )}
+              {reward.trail && (
+                <li>
+                  <FontAwesomeIcon icon={faStar} /> You beat Zip! His Zoom trail is yours.
+                </li>
+              )}
+              {reward.coins > 0 && (
+                <li>
+                  <Coin /> +{fmtCoins(reward.coins)} coins for playing.
+                  {miniWait > 0 && ` The big prize is back in ${fmtWait(miniWait)}.`}
+                </li>
+              )}
+              {reward.medal === 0 && <li>Win a medal to take the prize home. Have another go!</li>}
+            </ul>
+            <div className="dg-row">
+              <KitButton variant="neutral" onClick={leaveMini}>
+                Back to the eggs
+              </KitButton>
+              <KitButton icon={faPlay} onClick={() => startMini(mini.id)}>
+                Play again
+              </KitButton>
+            </div>
+          </>
+        )}
+      </KitDialog>
+
       <KitDialog game={game} open={adOpen} onClose={() => closeAd(false)} icon={faRectangleAd} title="A quick ad">
         <div className="se-ad">
           <small>Ad · from the maker of this game</small>
@@ -1781,11 +2136,13 @@ export default function SneakyEggs() {
         game={game}
         open={reveal !== null}
         onClose={closeReveal}
-        icon={reveal?.fused ? faWandMagicSparkles : faStar}
+        icon={reveal?.dice ? faDice : reveal?.fused ? faWandMagicSparkles : faStar}
         title={
           reveal && isJackpot(reveal.v, reveal.s)
             ? "Jackpot!"
-            : reveal?.def.rarity === 4
+            : reveal?.dice
+              ? "Lucky roll!"
+              : reveal?.def.rarity === 4
               ? "A Mythic pet!"
               : reveal?.fused
                 ? "Fusion!"

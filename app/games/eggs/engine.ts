@@ -119,9 +119,22 @@ import {
   travelPoint,
   treatsMult,
   upgradeCost,
+  DICE_CONSOLATION,
+  DICE_MAX,
+  HAPPY_COINS,
+  MINI_BUFF_TIME,
+  MINI_DICE,
+  MINI_DOOR_R,
+  MINI_TIP_SECONDS,
+  MINIS,
+  SIZES,
+  ZOOMIES_BOOST,
+  miniById,
   type DecorKind,
   type HatId,
   type HomeDecorId,
+  type Medal,
+  type MiniId,
   type MissionKind,
   type PetDef,
   type Point,
@@ -406,6 +419,10 @@ export interface Stats {
   rebirths: number;
   /** Eggs the courier has brought home. */
   couriered: number;
+  /** Mini games played, tent prizes won, and Lucky Dice rolled. */
+  minis: number;
+  prizes: number;
+  diceUsed: number;
   /** Every coin ever earned. */
   earned: number;
 }
@@ -417,6 +434,7 @@ const ZERO_STATS: Stats = {
   travels: 0, missions: 0, legendEggs: 0, earned: 0,
   powerups: 0, freezes: 0, sentHome: 0, farEggs: 0,
   adsOpened: 0, adsDone: 0, adsClicked: 0, shares: 0, rebirths: 0, couriered: 0,
+  minis: 0, prizes: 0, diceUsed: 0,
 };
 
 const ZERO_UPGRADES: Upgrades = {
@@ -425,7 +443,7 @@ const ZERO_UPGRADES: Upgrades = {
 };
 
 export type BlockReason =
-  | "gate" | "hands" | "pads" | "pen" | "chest" | "travel" | "ripening" | "ancient" | "holding";
+  | "gate" | "hands" | "pads" | "pen" | "chest" | "travel" | "ripening" | "ancient" | "holding" | "door";
 
 export type GameEvent =
   | { type: "pickup"; rarity: Rarity; mystery: boolean }
@@ -444,6 +462,9 @@ export type GameEvent =
   | { type: "ancientReady"; biome: number }
   | { type: "courier"; rarity: Rarity }
   | { type: "rebirth"; feathers: number }
+  | { type: "door"; id: MiniId }
+  | { type: "dice"; petId: string; v: number; s: number; better: boolean; coins: number }
+  | { type: "buffEnd"; kind: "zoom" | "happy" }
   | { type: "escape"; close: boolean }
   | { type: "deliver"; coins: number }
   | { type: "hatch"; petId: string; isNew: boolean; v: number; s: number; fused: boolean }
@@ -549,6 +570,16 @@ export interface Game {
   freezeCd: number;
   confuseT: number;
   featherCd: number;
+  /** Mini games: best medal per tent, and when each tent's prize was last won (ms since 1970). */
+  medals: Record<MiniId, Medal>;
+  prizeAt: Record<MiniId, number>;
+  /** Lucky Dice in your pocket. */
+  dice: number;
+  /** Seconds of Zoomies (faster running) and happy pets (double coins) left. */
+  zoomT: number;
+  happyT: number;
+  /** A moment's peace after knocking on a tent, so the question doesn't pop straight back up. */
+  doorCd: number;
   /** When the gift chest was last opened (ms since 1970). */
   lastChest: number;
   chestAnim: number;
@@ -593,6 +624,11 @@ export interface SavedGame {
   /** Seconds left on each land's ancient nest. */
   ancients?: number[];
   lastChest?: number;
+  medals?: Record<string, number>;
+  prizeAt?: Record<string, number>;
+  dice?: number;
+  zoomT?: number;
+  happyT?: number;
 }
 
 /* ---------- Helpers ---------- */
@@ -634,8 +670,8 @@ function hint(g: Game, reason: BlockReason, biome = -1, seconds = 0) {
   emit(g, { type: "blocked", reason, biome, seconds });
 }
 
-function burst(
-  g: Game,
+export function burst(
+  g: { particles: Particle[] },
   x: number,
   y: number,
   color: string,
@@ -660,7 +696,7 @@ function burst(
 }
 
 /** Slow floaty bits that rise from a point (hearts, sparkles). */
-function puff(g: Game, x: number, y: number, color: string, n: number, kind: ParticleKind) {
+export function puff(g: { particles: Particle[] }, x: number, y: number, color: string, n: number, kind: ParticleKind) {
   for (let i = 0; i < n; i++) {
     const max = 0.7 + Math.random() * 0.5;
     g.particles.push({
@@ -676,7 +712,7 @@ function puff(g: Game, x: number, y: number, color: string, n: number, kind: Par
   }
 }
 
-function popup(g: Game, x: number, y: number, text: string, color: string, big = false) {
+export function popup(g: { popups: Popup[] }, x: number, y: number, text: string, color: string, big = false) {
   const max = big ? 1.5 : 1.1;
   g.popups.push({ x, y, text, color, life: max, max, big });
 }
@@ -752,7 +788,11 @@ function buildWorld(): World {
       if (mine.some((s) => Math.hypot(s.x - x, s.y - y) < s.r + r + 44)) continue;
       mine.push({ x, y, r, kind, seed: rng() });
     }
-    solids.push(...mine);
+    // The mini-game tents were added later: rather than reshuffle a world players
+    // already know, anything that would stand on one is simply left out.
+    solids.push(
+      ...mine.filter((s) => !MINIS.some((d) => Math.hypot(d.x - s.x, d.y - s.y) < s.r + MINI_DOOR_R + 44)),
+    );
 
     for (let k = 0; k < 76; k++) {
       const kind = BIOMES[i].decor[Math.floor(rng() * BIOMES[i].decor.length)];
@@ -813,6 +853,7 @@ function openSpot(g: Game, biome: number, lowerHalf: boolean): Point {
     if (Math.abs(x - CENTER_X) < 110) continue;
     if (g.solids.some((s) => Math.abs(s.y - y) < 90 && Math.hypot(s.x - x, s.y - y) < s.r + 40)) continue;
     if (g.nests.some((n) => n.biome === biome && Math.hypot(n.x - x, n.y - y) < 90)) continue;
+    if (MINIS.some((d) => Math.hypot(d.x - x, d.y - y) < MINI_DOOR_R + 70)) continue;
     return { x, y };
   }
   return { x: CENTER_X + (Math.random() < 0.5 ? -200 : 200), y: top + BIOME_H - 150 };
@@ -935,6 +976,12 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
     freezeCd: 0,
     confuseT: 0,
     featherCd: 0,
+    medals: { tag: 0, steps: 0, seek: 0 },
+    prizeAt: { tag: 0, steps: 0, seek: 0 },
+    dice: 0,
+    zoomT: 0,
+    happyT: 0,
+    doorCd: 0,
     lastChest: 0,
     chestAnim: 0,
     ufoCd: 0,
@@ -991,6 +1038,13 @@ export function createGame(saved?: SavedGame | null, opts: CreateOptions = {}): 
       .slice(0, equipSlots(g.level));
     g.held = POWERUP_IDS.includes(saved.held as PowerupId) ? (saved.held as PowerupId) : null;
     g.lastChest = Number(saved.lastChest) || 0;
+    for (const m of MINIS) {
+      g.medals[m.id] = clamp(Math.floor(Number(saved.medals?.[m.id]) || 0), 0, 3) as Medal;
+      g.prizeAt[m.id] = Number(saved.prizeAt?.[m.id]) || 0;
+    }
+    g.dice = clamp(Math.floor(Number(saved.dice) || 0), 0, DICE_MAX);
+    g.zoomT = Math.max(0, Number(saved.zoomT) || 0);
+    g.happyT = Math.max(0, Number(saved.happyT) || 0);
     const buddy = saved.buddy ?? -1;
     if (buddy >= 0 && buddy < g.pets.length) g.buddy = g.pets[buddy].uid;
     g.completeSent = PETS.every((p) => p.rarity === 4 || g.book[p.id]);
@@ -1106,12 +1160,17 @@ export function toSave(g: Game): SavedGame {
     held: g.held,
     ancients: g.ancients.map((a) => Math.ceil(a.left)),
     lastChest: g.lastChest,
+    medals: { ...g.medals },
+    prizeAt: { ...g.prizeAt },
+    dice: g.dice,
+    zoomT: Math.ceil(g.zoomT),
+    happyT: Math.ceil(g.happyT),
   };
 }
 
 /* ---------- Queries ---------- */
 
-/** Everything that multiplies coins: treats, home decorations, and a lucky-star frenzy. */
+/** Everything that multiplies coins: treats, home decorations, happy pets, and a lucky-star frenzy. */
 export function coinMult(g: Game): number {
   return (
     treatsMult(g.up.treats) *
@@ -1119,6 +1178,7 @@ export function coinMult(g: Game): number {
     (1 + LEVEL_COIN_BONUS * (g.level - 1)) *
     (1 + FEATHER_BONUS * g.feathers) *
     (hasPower(g, "star") ? STAR_EGG_COINS : 1) *
+    (g.happyT > 0 ? HAPPY_COINS : 1) *
     (g.frenzy > 0 ? 2 : 1)
   );
 }
@@ -1481,7 +1541,7 @@ export function checkAchievements(g: Game) {
 
 /* ---------- Step ---------- */
 
-function pushOut(p: Point, cx: number, cy: number, r: number): boolean {
+export function pushOut(p: Point, cx: number, cy: number, r: number): boolean {
   const dx = p.x - cx;
   const dy = p.y - cy;
   const d = Math.hypot(dx, dy);
@@ -1617,6 +1677,7 @@ function movePlayer(g: Game, dt: number, input: Input) {
   let sp = playerSpeed(g.up.speed) * (1 - carryWeight(g));
   if (p.dashT > 0) sp *= DASH_BOOST;
   if (p.rushT > 0) sp *= SUGAR_RUSH_BOOST;
+  if (g.zoomT > 0) sp *= ZOOMIES_BOOST;
   let vx = 0;
   let vy = 0;
   const steering = p.stun <= 0 && mag > 0.08;
@@ -1667,6 +1728,10 @@ function movePlayer(g: Game, dt: number, input: Input) {
   for (const gd of g.guards) {
     if (gd.state === "sleep") pushOut(next, gd.x, gd.y, GUARD_R + PLAYER_R);
   }
+  for (const d of MINIS) {
+    if (Math.abs(d.y - next.y) > 110) continue;
+    if (pushOut(next, d.x, d.y, MINI_DOOR_R + PLAYER_R) && p.moving) knock(g, d.id);
+  }
 
   // Fences between areas, each with one gate in the middle.
   const half = GATE_W / 2 - PLAYER_R;
@@ -1695,6 +1760,12 @@ function movePlayer(g: Game, dt: number, input: Input) {
     if (p.trailT <= 0) {
       p.trailT = p.dashT > 0 ? 0.025 : 0.07;
       const trail = TRAILS.find((t) => t.id === g.trail);
+      if (g.zoomT > 0 && p.dashT <= 0) {
+        g.particles.push({
+          x: p.x + rand(-8, 8), y: p.y - rand(4, 24), vx: -vx * 0.08, vy: -vy * 0.08,
+          life: 0.3, max: 0.3, color: "#99f6e4", size: rand(2.5, 5), kind: "dot", grav: 0,
+        });
+      }
       if (p.dashT > 0 || p.rushT > 0) {
         g.particles.push({
           x: p.x + rand(-8, 8), y: p.y - rand(6, 30), vx: -vx * 0.1, vy: -vy * 0.1,
@@ -2262,6 +2333,11 @@ function updatePets(g: Game, dt: number) {
       }
     }
     if (pet.joy > 0) pet.hop += dt * 14;
+    else if (g.happyT > 0 && nearHome && Math.random() < dt * 0.25) {
+      // Happy pets (from Hide and Seek) can't keep still.
+      pet.joy = 0.8;
+      puff(g, pet.x, pet.y - 30, "#fb7185", 1, "heart");
+    }
 
     pet.payT -= dt;
     if (pet.payT <= 0) {
@@ -2453,7 +2529,7 @@ function updateWorldEvents(g: Game, dt: number) {
   }
 }
 
-function updateFx(g: Game, dt: number) {
+export function updateFx(g: { particles: Particle[]; popups: Popup[] }, dt: number) {
   for (let i = g.particles.length - 1; i >= 0; i--) {
     const p = g.particles[i];
     p.life -= dt;
@@ -2578,6 +2654,132 @@ export function hatchWait(g: Game): number {
   return wait;
 }
 
+/* ---------- Mini games: tents, prizes and Lucky Dice ---------- */
+
+/** The player walked into a tent. The route asks whether they want to play. */
+function knock(g: Game, id: MiniId) {
+  if (g.doorCd > 0) return;
+  if (g.player.carry.length) {
+    hint(g, "door");
+    return;
+  }
+  g.doorCd = 1.5;
+  g.flags.miniSeen = 1;
+  emit(g, { type: "door", id });
+}
+
+/** Seconds until a tent's prize is back (0 = ready). */
+export function prizeWait(g: Game, id: MiniId, now = Date.now()): number {
+  const def = miniById(id);
+  if (!def) return 0;
+  return Math.max(0, Math.ceil((g.prizeAt[id] + def.prizeMs - now) / 1000));
+}
+
+export interface MiniReward {
+  id: MiniId;
+  medal: Medal;
+  /** True when this beat the best medal so far. */
+  newBest: boolean;
+  /** True when the tent's prize was ready and has just been won. */
+  prize: boolean;
+  /** Seconds of Zoomies or happy pets, Lucky Dice, or tip coins handed over. */
+  zoom: number;
+  happy: number;
+  dice: number;
+  coins: number;
+  /** Zip's trail, for the first gold in Tag. */
+  trail: boolean;
+}
+
+/**
+ * A mini game just ended with this medal. If the tent's prize was ready it is
+ * handed over and the timer starts again; otherwise the player gets a small tip.
+ */
+export function finishMini(g: Game, id: MiniId, medal: Medal, now = Date.now()): MiniReward {
+  const r: MiniReward = {
+    id, medal,
+    newBest: medal > g.medals[id],
+    prize: false, zoom: 0, happy: 0, dice: 0, coins: 0, trail: false,
+  };
+  g.stats.minis++;
+  if (r.newBest) g.medals[id] = medal;
+  if (medal > 0 && prizeWait(g, id, now) <= 0) {
+    if (id === "tag") {
+      r.zoom = MINI_BUFF_TIME[medal];
+      g.zoomT = Math.max(g.zoomT, r.zoom);
+    } else if (id === "seek") {
+      r.happy = MINI_BUFF_TIME[medal];
+      g.happyT = Math.max(g.happyT, r.happy);
+    } else {
+      r.dice = Math.min(MINI_DICE[medal], DICE_MAX - g.dice);
+      g.dice += r.dice;
+    }
+    // With a pocket already full of dice the prize waits for next time.
+    if (r.zoom || r.happy || r.dice) {
+      r.prize = true;
+      g.prizeAt[id] = now;
+      g.stats.prizes++;
+      addXp(g, 15 * medal);
+    }
+  }
+  if (medal > 0 && !r.prize) {
+    r.coins = Math.max(5 * medal, Math.round(totalRate(g) * MINI_TIP_SECONDS * medal));
+    earn(g, r.coins);
+  }
+  if (id === "tag" && medal >= 3 && !g.trails.includes("zip")) {
+    g.trails.push("zip");
+    g.trail = "zip";
+    r.trail = true;
+  }
+  checkAchievements(g);
+  return r;
+}
+
+const rollWorth = (p: Pet) => VARIANTS[p.v].mult * SIZES[p.s].mult;
+
+/** True when there's a pet of this kind a Lucky Dice could still improve. */
+export function canRoll(g: Game, petId: string): boolean {
+  return g.dice > 0 && g.pets.some((p) => p.id === petId && (p.v < VARIANTS.length - 1 || p.s < SIZES.length - 1));
+}
+
+/**
+ * Roll a Lucky Dice on the best pet of a kind: its variant and size are each
+ * rolled twice more and the pet keeps whatever is better. It never gets worse.
+ * A roll that changes nothing grows a small pet one size, or pays coins.
+ */
+export function rollDice(g: Game, petId: string): boolean {
+  const def = petById(petId);
+  if (!def || !canRoll(g, petId)) return false;
+  const pet = g.pets
+    .filter((p) => p.id === petId && (p.v < VARIANTS.length - 1 || p.s < SIZES.length - 1))
+    .sort((a, b) => rollWorth(b) - rollWorth(a))[0];
+  g.dice--;
+  g.stats.diceUsed++;
+  const v = Math.max(pet.v, rollVariant(g.up.sparkle), rollVariant(g.up.sparkle));
+  let size = Math.max(pet.s, rollSize(), rollSize());
+  if (v === pet.v && size === pet.s && pet.s < 2) size = pet.s + 1;
+  const better = v > pet.v || size > pet.s;
+  let coins = 0;
+  if (better) {
+    if (pet.v === 0 && v >= 1) g.stats.shinies++;
+    pet.v = v;
+    pet.s = size;
+    pet.joy = 2;
+    g.book[def.id] = Math.max(g.book[def.id] ?? 0, 1 + v);
+    if (v >= 2) g.flags.golden = 1;
+    if (v >= 3) g.flags.rainbow = 1;
+    if (size >= 2) g.flags.huge = 1;
+    if (size >= 3) g.flags.titanic = 1;
+    burst(g, pet.x, pet.y - 20, VARIANTS[Math.max(1, v)].color, 20, "star", 220);
+  } else {
+    coins = Math.max(10, Math.round(petRate(def, pet.v, pet.s) * coinMult(g) * DICE_CONSOLATION));
+    earn(g, coins);
+  }
+  emit(g, { type: "dice", petId, v: pet.v, s: pet.s, better, coins });
+  checkAchievements(g);
+  return true;
+}
+
 /* ---------- Idle: the courier and rebirth ---------- */
 
 /** The courier bird drops an egg on a spare pad every so often, no sneaking needed. */
@@ -2655,6 +2857,15 @@ export function rebirth(g: Game): number {
 }
 
 function updatePowers(g: Game, dt: number) {
+  g.doorCd = Math.max(0, g.doorCd - dt);
+  if (g.zoomT > 0) {
+    g.zoomT = Math.max(0, g.zoomT - dt);
+    if (g.zoomT <= 0) emit(g, { type: "buffEnd", kind: "zoom" });
+  }
+  if (g.happyT > 0) {
+    g.happyT = Math.max(0, g.happyT - dt);
+    if (g.happyT <= 0) emit(g, { type: "buffEnd", kind: "happy" });
+  }
   g.freezeT = Math.max(0, g.freezeT - dt);
   g.freezeCd = Math.max(0, g.freezeCd - dt);
   g.confuseT = Math.max(0, g.confuseT - dt);

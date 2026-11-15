@@ -24,11 +24,16 @@ import {
   nightAmount,
   padX,
   petById,
+  MEDAL_COLORS,
+  MINI_DOOR_R,
   MINI_R,
+  MINIS,
   POWERUPS,
   SIZES,
   WING_X,
+  ZIP_LOOK,
   powerEggById,
+  type MiniDef,
   type DecorKind,
   type PowerupId,
   type Look,
@@ -36,7 +41,7 @@ import {
   type Rarity,
   type SolidKind,
 } from "./config";
-import type { Ancient, Bug, Decor, Game, Guard, Mini, Mystery, Pickup, ShootingStar, Solid } from "./engine";
+import type { Ancient, Bug, Decor, Game, Guard, Mini, Mystery, Particle, Pickup, Popup, ShootingStar, Solid } from "./engine";
 
 /* ---------- Hatch variants ---------- */
 
@@ -74,7 +79,7 @@ export function variantLook(look: Look, variant: number, t = 0, seed = 0): Look 
 }
 
 /** A ring that fills clockwise from the top. */
-function progressRing(ctx: Ctx, x: number, y: number, r: number, k: number, color: string, width = 5) {
+export function progressRing(ctx: Ctx, x: number, y: number, r: number, k: number, color: string, width = 5) {
   ctx.lineCap = "round";
   ctx.lineWidth = width + 3;
   ctx.strokeStyle = "rgba(15, 23, 42, 0.45)";
@@ -89,13 +94,13 @@ function progressRing(ctx: Ctx, x: number, y: number, r: number, k: number, colo
   ctx.lineCap = "butt";
 }
 
-const TAU = Math.PI * 2;
-const FONT = '"Fredoka", "Inter", system-ui, sans-serif';
-const HOME_GROUND = "#a8e083";
-const HOME_GROUND_2 = "#97d472";
-const HOME_PATH = "#f3e2ad";
+export const TAU = Math.PI * 2;
+export const FONT = '"Fredoka", "Inter", system-ui, sans-serif';
+export const HOME_GROUND = "#a8e083";
+export const HOME_GROUND_2 = "#97d472";
+export const HOME_PATH = "#f3e2ad";
 
-type Ctx = CanvasRenderingContext2D;
+export type Ctx = CanvasRenderingContext2D;
 
 /* ---------- Colour helpers ---------- */
 
@@ -117,12 +122,12 @@ export function shade(hex: string, amt: number): string {
   return out;
 }
 
-function ellipse(ctx: Ctx, x: number, y: number, rx: number, ry: number, rot = 0) {
+export function ellipse(ctx: Ctx, x: number, y: number, rx: number, ry: number, rot = 0) {
   ctx.beginPath();
   ctx.ellipse(x, y, Math.max(0.01, rx), Math.max(0.01, ry), rot, 0, TAU);
 }
 
-function starPath(ctx: Ctx, x: number, y: number, r: number, points = 5, inner = 0.45, rot = -Math.PI / 2) {
+export function starPath(ctx: Ctx, x: number, y: number, r: number, points = 5, inner = 0.45, rot = -Math.PI / 2) {
   ctx.beginPath();
   for (let i = 0; i < points * 2; i++) {
     const rr = i % 2 === 0 ? r : r * inner;
@@ -135,7 +140,7 @@ function starPath(ctx: Ctx, x: number, y: number, r: number, points = 5, inner =
   ctx.closePath();
 }
 
-function roundRect(ctx: Ctx, x: number, y: number, w: number, h: number, r: number) {
+export function roundRect(ctx: Ctx, x: number, y: number, w: number, h: number, r: number) {
   const rr = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
   ctx.moveTo(x + rr, y);
@@ -146,7 +151,7 @@ function roundRect(ctx: Ctx, x: number, y: number, w: number, h: number, r: numb
   ctx.closePath();
 }
 
-function label(ctx: Ctx, text: string, x: number, y: number, size: number, fill: string, stroke?: string, weight = 700) {
+export function label(ctx: Ctx, text: string, x: number, y: number, size: number, fill: string, stroke?: string, weight = 700) {
   ctx.font = `${weight} ${size}px ${FONT}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -160,7 +165,7 @@ function label(ctx: Ctx, text: string, x: number, y: number, size: number, fill:
   ctx.fillText(text, x, y);
 }
 
-function shadow(ctx: Ctx, x: number, y: number, rx: number, alpha = 0.18) {
+export function shadow(ctx: Ctx, x: number, y: number, rx: number, alpha = 0.18) {
   ctx.fillStyle = `rgba(20, 16, 50, ${alpha})`;
   ellipse(ctx, x, y, rx, rx * 0.36);
   ctx.fill();
@@ -1020,7 +1025,7 @@ function drawDecor(ctx: Ctx, d: Decor, t: number) {
   ctx.restore();
 }
 
-function drawSolid(ctx: Ctx, s: Solid, wob = 0) {
+export function drawSolid(ctx: Ctx, s: Solid, wob = 0) {
   const r = s.r;
   shadow(ctx, s.x, s.y + r * 0.3, r * 1.1, 0.2);
   ctx.save();
@@ -1520,7 +1525,7 @@ function drawStatue(ctx: Ctx, x: number, y: number, t: number) {
   ctx.globalAlpha = 1;
 }
 
-function heartPath(ctx: Ctx, x: number, y: number, r: number) {
+export function heartPath(ctx: Ctx, x: number, y: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x, y + r * 0.9);
   ctx.bezierCurveTo(x - r * 1.5, y - r * 0.1, x - r * 0.7, y - r * 1.2, x, y - r * 0.35);
@@ -1909,6 +1914,150 @@ function drawHome(ctx: Ctx, g: Game, t: number) {
   ctx.globalAlpha = 1;
 }
 
+/* ---------- Mini-game tents ---------- */
+
+/** The little critter that peeks out of each tent, so you can tell them apart at a glance. */
+function tentMascot(id: MiniDef["id"]): { look: Look; mood: Mood } {
+  if (id === "tag") return { look: ZIP_LOOK, mood: "happy" };
+  if (id === "steps") return { look: BIOMES[1].guard, mood: "sleep" };
+  return { look: petById("clover-bun")?.look ?? ZIP_LOOK, mood: "normal" };
+}
+
+/**
+ * A striped tent standing at (x, y). `wait` is the seconds until its prize is
+ * back (0 = ready) and `medal` the best medal won there so far.
+ */
+export function drawTent(ctx: Ctx, def: MiniDef, x: number, y: number, t: number, wait: number, medal: number, ink = "#27500f") {
+  const r = MINI_DOOR_R;
+  const ready = wait <= 0;
+  const hop = ready ? Math.abs(Math.sin(t * 3.2)) * 3 : 0;
+  shadow(ctx, x, y + r * 0.42, r * 1.35, 0.22);
+  ctx.save();
+  ctx.translate(x, y - hop);
+
+  if (ready) {
+    const glow = ctx.createRadialGradient(0, -r, 8, 0, -r, r * 2.6);
+    glow.addColorStop(0, "rgba(253, 224, 71, 0.55)");
+    glow.addColorStop(1, "rgba(253, 224, 71, 0)");
+    ctx.fillStyle = glow;
+    ellipse(ctx, 0, -r, r * 2.6, r * 2.6);
+    ctx.fill();
+  }
+
+  // Walls: stripes of the tent's colour and cream.
+  const wallW = r * 1.9;
+  const wallTop = -r * 1.05;
+  const wallH = r * 1.45;
+  ctx.save();
+  roundRect(ctx, -wallW / 2, wallTop, wallW, wallH, 7);
+  ctx.clip();
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = i % 2 === 0 ? def.color : "#fff7e6";
+    ctx.fillRect(-wallW / 2 + (i * wallW) / 6, wallTop, wallW / 6 + 1, wallH);
+  }
+  ctx.fillStyle = "rgba(20, 16, 50, 0.1)";
+  ctx.fillRect(-wallW / 2, wallTop, wallW, 7);
+  ctx.restore();
+
+  // The doorway, with whoever runs the tent peeking out.
+  ctx.fillStyle = "#3b2a4a";
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.42, wallTop + wallH);
+  ctx.lineTo(-r * 0.42, -r * 0.2);
+  ctx.quadraticCurveTo(0, -r * 0.95, r * 0.42, -r * 0.2);
+  ctx.lineTo(r * 0.42, wallTop + wallH);
+  ctx.closePath();
+  ctx.fill();
+  const mascot = tentMascot(def.id);
+  drawPet(ctx, mascot.look, 0, wallTop + wallH + 2, r * 0.82, { t, mood: mascot.mood, seed: def.x });
+
+  // Roof: a striped cone with a scalloped edge.
+  const roofY = wallTop + 2;
+  const tipY = -r * 2.35;
+  const half = r * 1.28;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(-half, roofY);
+  ctx.quadraticCurveTo(-half * 0.35, roofY - r * 0.75, 0, tipY);
+  ctx.quadraticCurveTo(half * 0.35, roofY - r * 0.75, half, roofY);
+  ctx.closePath();
+  ctx.clip();
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = i % 2 === 0 ? "#fff7e6" : def.color;
+    ctx.beginPath();
+    ctx.moveTo(0, tipY - 4);
+    ctx.lineTo(-half + (i * half * 2) / 6, roofY + 2);
+    ctx.lineTo(-half + ((i + 1) * half * 2) / 6, roofY + 2);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.fillStyle = "rgba(255,255,255,0.22)";
+  ellipse(ctx, -half * 0.3, roofY - r * 0.6, r * 0.2, r * 0.42, 0.5);
+  ctx.fill();
+  ctx.restore();
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = i % 2 === 0 ? "#fff7e6" : shade(def.color, -0.12);
+    ellipse(ctx, -half + ((i + 0.5) * half * 2) / 6, roofY + 1, half / 6, 5);
+    ctx.fill();
+  }
+
+  // A pennant on top.
+  ctx.strokeStyle = "#8a5a33";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(0, tipY + 2);
+  ctx.lineTo(0, tipY - 20);
+  ctx.stroke();
+  const wave = Math.sin(t * 5 + def.x) * 3;
+  ctx.fillStyle = "#f43f5e";
+  ctx.beginPath();
+  ctx.moveTo(0, tipY - 20);
+  ctx.quadraticCurveTo(9, tipY - 18 + wave, 18, tipY - 14 + wave * 0.6);
+  ctx.quadraticCurveTo(9, tipY - 11 + wave, 0, tipY - 9);
+  ctx.closePath();
+  ctx.fill();
+
+  // The best medal won here hangs on the roof.
+  if (medal > 0) {
+    const mx = r * 0.78;
+    const my = roofY - r * 0.42;
+    ctx.fillStyle = "#3b82f6";
+    ctx.beginPath();
+    ctx.moveTo(mx - 6, my - 2);
+    ctx.lineTo(mx - 9, my + 15);
+    ctx.lineTo(mx, my + 10);
+    ctx.lineTo(mx + 9, my + 15);
+    ctx.lineTo(mx + 6, my - 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = MEDAL_COLORS[medal];
+    ellipse(ctx, mx, my, 10, 10);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    starPath(ctx, mx, my, 5.5, 5, 0.5);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  label(ctx, def.name, x, y + r * 0.86, 13, ink, "rgba(255,255,255,0.75)", 600);
+  const top = y - r * 2.35 - 36 - hop;
+  if (ready) {
+    for (let i = 0; i < 3; i++) {
+      ctx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(t * 3 + i * 2));
+      ctx.fillStyle = "#fef9c3";
+      starPath(ctx, x + [-40, 38, 8][i], top + [22, 14, -16][i], 6, 4, 0.35);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    label(ctx, "Prize!", x, top, 17, "#ffffff", def.color);
+  } else {
+    label(ctx, `${Math.floor(wait / 60)}:${String(wait % 60).padStart(2, "0")}`, x, top + 4, 15, "#ffffff", "#7c6a55");
+  }
+}
+
 /* ---------- View ---------- */
 
 export interface View {
@@ -2221,6 +2370,14 @@ export function render(
     else items.push({ y: s.y, draw: () => drawSolid(ctx, s, g.wob[i]) });
   });
 
+  const now = Date.now();
+  for (const d of MINIS) {
+    if (!seen(d.y, 200)) continue;
+    const wait = Math.max(0, Math.ceil((g.prizeAt[d.id] + d.prizeMs - now) / 1000));
+    const ink = d.biome < 0 ? "#27500f" : BIOMES[d.biome].ink;
+    items.push({ y: d.y, draw: () => drawTent(ctx, d, d.x, d.y, t, wait, g.medals[d.id], ink) });
+  }
+
   if (seen(UFO.y, 160)) items.push({ y: UFO.y, draw: () => drawUfo(ctx, t, g.ufoCd > 0) });
   for (let b = 0; b < BIOME_COUNT; b++) {
     const spot = g.secretSpots[b];
@@ -2368,7 +2525,7 @@ export function render(
           t,
           flip: pet.flip,
           seed: pet.uid,
-          mood: born < 1 || pet.joy > 0 ? "happy" : "normal",
+          mood: born < 1 || pet.joy > 0 || g.happyT > 0 ? "happy" : "normal",
         });
         if (pet.v > 0) sparkles(ctx, pet.x, pet.y - hopY, size, t, pet.uid);
       },
@@ -2458,34 +2615,8 @@ export function render(
     drawEgg(ctx, f.egg.biome, f.egg.rarity, x, y + 14, 34, t, k * TAU);
   }
 
-  for (const pt of g.particles) {
-    ctx.globalAlpha = Math.min(1, (pt.life / pt.max) * 1.6);
-    ctx.fillStyle = pt.color;
-    if (pt.kind === "star") {
-      starPath(ctx, pt.x, pt.y, pt.size, 4, 0.4, pt.life * 6);
-      ctx.fill();
-    } else if (pt.kind === "heart") {
-      heartPath(ctx, pt.x, pt.y, pt.size);
-      ctx.fill();
-    } else if (pt.kind === "ring") {
-      ctx.strokeStyle = pt.color;
-      ctx.lineWidth = 1.6;
-      ellipse(ctx, pt.x, pt.y, pt.size, pt.size);
-      ctx.stroke();
-    } else {
-      ellipse(ctx, pt.x, pt.y, pt.size, pt.size);
-      ctx.fill();
-    }
-  }
-  ctx.globalAlpha = 1;
-
-  for (const pop of g.popups) {
-    const k = pop.life / pop.max;
-    ctx.globalAlpha = Math.min(1, k * 2.5);
-    const grow = pop.big ? 1 + Math.sin(Math.min(1, (1 - k) * 5) * Math.PI) * 0.25 : 1;
-    label(ctx, pop.text, pop.x, pop.y, (pop.big ? 22 : 14) * grow, pop.big ? "#ffffff" : "#fff7d6", pop.color);
-  }
-  ctx.globalAlpha = 1;
+  drawParticles(ctx, g.particles);
+  drawPopups(ctx, g.popups);
 
   ctx.restore();
 
@@ -2530,6 +2661,20 @@ export function render(
     arrow(ctx, w / 2, h * 0.36 - bounce, -Math.PI / 2, "Find an egg", ui);
   }
 
+  // Until they've knocked on one, point players at the tent in the land they're in.
+  const tent = MINIS.find((d) => d.biome === g.biome);
+  if (tent && !g.flags.miniSeen && !p.carry.length && !showHints) {
+    const tx = (tent.x - v.camX) * scale + w / 2;
+    const ty = (tent.y - 50 - v.camY) * scale + h / 2;
+    if (tx < 30 || tx > w - 30 || ty < 90 || ty > h - 110) {
+      const ang = Math.atan2(ty - h / 2, tx - w / 2);
+      const rad = Math.min(w, h) * 0.3;
+      ctx.globalAlpha = 0.65 + 0.35 * Math.abs(Math.sin(t * 4));
+      arrow(ctx, w / 2 + Math.cos(ang) * rad, h / 2 + Math.sin(ang) * rad, ang, "New game!", ui, tent.color);
+      ctx.globalAlpha = 1;
+    }
+  }
+
   const m = g.mystery;
   if (m) {
     const mx = (m.x - v.camX) * scale + w / 2;
@@ -2544,20 +2689,59 @@ export function render(
     }
   }
 
-  if (joy?.active) {
-    ctx.fillStyle = "rgba(255,255,255,0.22)";
-    ellipse(ctx, joy.ox, joy.oy, joy.r + 2, joy.r + 2);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.7)";
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.fillStyle = "rgba(255,255,255,0.9)";
-    ellipse(ctx, joy.ox + joy.dx, joy.oy + joy.dy, joy.r * 0.45, joy.r * 0.45);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(30, 20, 60, 0.2)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
+  if (joy) drawJoystick(ctx, joy);
+}
+
+/** Sparkles, hearts and dust. Shared with the mini games. */
+export function drawParticles(ctx: Ctx, particles: Particle[]) {
+  for (const pt of particles) {
+    ctx.globalAlpha = Math.min(1, (pt.life / pt.max) * 1.6);
+    ctx.fillStyle = pt.color;
+    if (pt.kind === "star") {
+      starPath(ctx, pt.x, pt.y, pt.size, 4, 0.4, pt.life * 6);
+      ctx.fill();
+    } else if (pt.kind === "heart") {
+      heartPath(ctx, pt.x, pt.y, pt.size);
+      ctx.fill();
+    } else if (pt.kind === "ring") {
+      ctx.strokeStyle = pt.color;
+      ctx.lineWidth = 1.6;
+      ellipse(ctx, pt.x, pt.y, pt.size, pt.size);
+      ctx.stroke();
+    } else {
+      ellipse(ctx, pt.x, pt.y, pt.size, pt.size);
+      ctx.fill();
+    }
   }
+  ctx.globalAlpha = 1;
+}
+
+/** The little "+12" and "Oops!" labels that float up and fade. */
+export function drawPopups(ctx: Ctx, popups: Popup[]) {
+  for (const pop of popups) {
+    const k = pop.life / pop.max;
+    ctx.globalAlpha = Math.min(1, k * 2.5);
+    const grow = pop.big ? 1 + Math.sin(Math.min(1, (1 - k) * 5) * Math.PI) * 0.25 : 1;
+    label(ctx, pop.text, pop.x, pop.y, (pop.big ? 22 : 14) * grow, pop.big ? "#ffffff" : "#fff7d6", pop.color);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** The on-screen thumb stick, in screen pixels. */
+export function drawJoystick(ctx: Ctx, joy: Joystick) {
+  if (!joy.active) return;
+  ctx.fillStyle = "rgba(255,255,255,0.22)";
+  ellipse(ctx, joy.ox, joy.oy, joy.r + 2, joy.r + 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.7)";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  ellipse(ctx, joy.ox + joy.dx, joy.oy + joy.dy, joy.r * 0.45, joy.r * 0.45);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(30, 20, 60, 0.2)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
 }
 
 function arrow(ctx: Ctx, x: number, y: number, angle: number, text: string, size = 1, color = "#f97316") {

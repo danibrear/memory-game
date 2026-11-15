@@ -8,6 +8,7 @@ import {
   BIOMES,
   HATS,
   HOME_DECOR,
+  MINIS,
   PETS,
   UPGRADE_IDS,
   maxLevel,
@@ -150,6 +151,16 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: "up-speed", name: "Fastest Feet", desc: "Max out your Speedy Sneakers.", kind: "upgrade", stars: 5, target: maxLevel("speed"), progress: (g) => g.up.speed },
   { id: "up-3", name: "Fully Loaded", desc: "Max out 3 different upgrades.", kind: "upgrade", stars: 4, target: 3, progress: maxedUpgrades },
   { id: "up-all", name: "Maxed Out", desc: "Max out every upgrade.", kind: "upgrade", stars: 10, target: UPGRADE_IDS.length, progress: maxedUpgrades },
+
+  // Mini games
+  { id: "mini-1", name: "Game On", desc: "Play a mini game in one of the striped tents.", kind: "skill", stars: 1, target: 1, progress: (g) => g.stats.minis },
+  { id: "mini-all", name: "Playground Pro", desc: "Win a medal in all three mini games.", kind: "skill", stars: 3, target: 3, progress: (g) => MINIS.filter((m) => g.medals[m.id] >= 1).length },
+  { id: "mini-tag", name: "Faster Than Zip", desc: "Win a gold medal in Tag with Zip.", kind: "skill", stars: 3, target: 3, progress: (g) => g.medals.tag },
+  { id: "mini-steps", name: "Quiet as a Mouse", desc: "Win a gold medal in Sleepy Steps.", kind: "skill", stars: 3, target: 3, progress: (g) => g.medals.steps },
+  { id: "mini-seek", name: "Super Seeker", desc: "Win a gold medal in Hide and Seek.", kind: "skill", stars: 3, target: 3, progress: (g) => g.medals.seek },
+  { id: "mini-gold", name: "Golden Trio", desc: "Win gold in all three mini games.", kind: "skill", stars: 6, target: 3, progress: (g) => MINIS.filter((m) => g.medals[m.id] >= 3).length },
+  { id: "mini-prizes", name: "Prize Hunter", desc: "Win 10 tent prizes.", kind: "skill", stars: 3, target: 10, progress: (g) => g.stats.prizes },
+  { id: "dice-5", name: "Lucky Roller", desc: "Roll 5 Lucky Dice on your pets.", kind: "pet", stars: 2, target: 5, progress: (g) => g.stats.diceUsed },
 
   // Secrets
   { id: "secret-stars", name: "Explorer", desc: "Find the hidden star in every land.", kind: "secret", stars: 5, target: 5, progress: (g) => g.secrets.length },

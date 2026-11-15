@@ -527,7 +527,7 @@ export const HATS: HatDef[] = [
 ];
 
 export type TrailId =
-  | "none" | "sparkle" | "leaf" | "snow" | "heart" | "bubble" | "star" | "fire" | "rainbow";
+  | "none" | "sparkle" | "leaf" | "snow" | "heart" | "bubble" | "star" | "fire" | "rainbow" | "zip";
 
 export interface TrailDef {
   id: TrailId;
@@ -535,6 +535,8 @@ export interface TrailDef {
   cost: number;
   shape: "dot" | "star" | "heart" | "ring";
   colors: string[];
+  /** Can't be bought: this says how it is won instead. */
+  prize?: string;
 }
 
 export const TRAILS: TrailDef[] = [
@@ -547,6 +549,7 @@ export const TRAILS: TrailDef[] = [
   { id: "star", name: "Stardust", cost: 12, shape: "star", colors: ["#fde047", "#f0abfc", "#a5b4fc"] },
   { id: "fire", name: "Flames", cost: 15, shape: "dot", colors: ["#fb923c", "#f97316", "#fde047"] },
   { id: "rainbow", name: "Rainbow", cost: 20, shape: "dot", colors: ["#f87171", "#fb923c", "#facc15", "#4ade80", "#38bdf8", "#a78bfa"] },
+  { id: "zip", name: "Zip's Zoom", cost: Infinity, shape: "star", colors: ["#2dd4bf", "#99f6e4", "#ffffff"], prize: "Gold in Tag" },
 ];
 
 /* ---------- Home decorations (bought with coins) ---------- */
@@ -740,6 +743,153 @@ export const xpNeed = (level: number) => Math.round(30 * Math.pow(level, 1.5));
 export const LEVEL_COIN_BONUS = 0.02;
 const LEVEL_TITLES = ["Egg Rookie", "Nest Ninja", "Grumble Dodger", "Grove Explorer", "Egg Master", "Shadow Sneak", "Legend of the Lands"];
 export const levelTitle = (level: number) => LEVEL_TITLES[Math.min(LEVEL_TITLES.length - 1, Math.floor(level / 5))];
+
+/* ---------- Mini games ---------- */
+// Three little games behind striped tents. Anyone can play any time; each
+// tent's prize comes back on a timer (real time, like the gift chest).
+
+export type MiniId = "tag" | "steps" | "seek";
+/** 0 none, 1 bronze, 2 silver, 3 gold. */
+export type Medal = 0 | 1 | 2 | 3;
+export const MEDAL_NAMES = ["No medal", "Bronze", "Silver", "Gold"];
+export const MEDAL_COLORS = ["#94a3b8", "#cd7f32", "#cbd5e1", "#fbbf24"];
+
+export interface MiniDef {
+  id: MiniId;
+  name: string;
+  /** The land its tent stands in; -1 is Home. */
+  biome: number;
+  x: number;
+  y: number;
+  color: string;
+  blurb: string;
+  how: string[];
+  /** The prize, in a few words. */
+  prize: string;
+  /** How long the prize takes to come back, in ms. */
+  prizeMs: number;
+}
+
+export const MINI_DOOR_R = 34;
+export const MINIS: MiniDef[] = [
+  {
+    id: "seek", name: "Hide and Seek", biome: -1,
+    x: CENTER_X + 300, y: HOME_TOP + 278, color: "#22c55e",
+    blurb: "Your pets are hiding. Can you find them all?",
+    how: ["Watch for ears peeking out.", "Push into a hiding spot to look inside.", "Find everyone before time runs out!"],
+    prize: "Happy pets: double coins",
+    prizeMs: 15 * 60 * 1000,
+  },
+  {
+    id: "tag", name: "Tag with Zip", biome: 0,
+    x: CENTER_X + 215, y: biomeBottom(0) - 108, color: "#14b8a6",
+    blurb: "Zip is the fastest critter in the meadow. Catch him if you can!",
+    how: ["First you're it: tag Zip as many times as you can.", "Then Zip is it: run and keep your hearts!"],
+    prize: "Zoomies: run faster",
+    prizeMs: 15 * 60 * 1000,
+  },
+  {
+    id: "steps", name: "Sleepy Steps", biome: 1,
+    x: CENTER_X - 215, y: biomeBottom(1) - 108, color: "#f97316",
+    blurb: "Tiptoe up to the giant egg while the Grumble naps.",
+    how: ["Sneak forward while its eye is shut.", "Freeze when the eye opens!", "Touch the giant egg to win."],
+    prize: "Lucky Dice",
+    prizeMs: 10 * 60 * 1000,
+  },
+];
+export const miniById = (id: string) => MINIS.find((m) => m.id === id);
+
+/** Seconds of Zoomies (Tag) and happy pets (Hide and Seek) for bronze, silver and gold. */
+export const MINI_BUFF_TIME = [0, 180, 360, 600];
+/** Zoomies: how much faster you run. */
+export const ZOOMIES_BOOST = 1.2;
+/** Happy pets: every coin counts this many times. */
+export const HAPPY_COINS = 2;
+/** Lucky Dice from Sleepy Steps for bronze, silver and gold, and the most you can hold. */
+export const MINI_DICE = [0, 1, 2, 3];
+export const DICE_MAX = 9;
+/** A roll that changes nothing pays this many seconds of the pet's income instead. */
+export const DICE_CONSOLATION = 90;
+/** Playing while the prize is still refilling pays a small tip: seconds of income per medal step. */
+export const MINI_TIP_SECONDS = 8;
+
+/** How fast you run inside a mini game (the same for everyone, whatever sneakers you own). */
+export const MINI_SPEED = 190;
+
+/** Zip, who runs the tag tent. */
+export const ZIP_LOOK: Look = {
+  body: "#2dd4bf", belly: "#ccfbf1", accent: "#0f766e", ears: "long", tail: "puff",
+  pattern: "stripes", hat: "scarf", hatColor: "#f43f5e", cheeks: "#fda4af",
+};
+
+export const TAG_TUNING = {
+  /** Seconds for each half: you chase, then Zip chases. */
+  catchTime: 25,
+  runTime: 20,
+  hearts: 3,
+  /** Zip's speed next to yours while he runs away; he speeds up with every catch. */
+  flee: [0.62, 0.7, 0.78, 0.85, 0.9, 0.94, 0.97, 1],
+  /** He only starts sidestepping once you've tagged him this many times. */
+  jukeAfter: 2,
+  /** ...and while he chases, from the start of the round to the end. */
+  chase: [0.66, 0.98],
+  /** Seconds between Zip's dashes. */
+  dashEvery: [3.2, 4.6],
+  /** No dashes for the first few seconds of his turn. */
+  dashAfter: 5,
+  /** Cozy style: Zip is this much slower and never dashes or jukes. */
+  cozy: 0.72,
+  /** Catches plus hearts left needed for bronze, silver and gold. */
+  medals: [2, 6, 9],
+};
+
+export const STEPS_TUNING = {
+  /** Tiptoe speed and how far it is to the giant egg. */
+  speed: 70,
+  track: 480,
+  /** Seconds on the clock (Cozy has no clock). */
+  time: 45,
+  /** How long the Grumble sleeps, at the start of the track and right next to it. */
+  sleepFar: [1.0, 2.0],
+  sleepNear: [0.7, 1.4],
+  /** The warning wiggle before the eye opens, far and near. */
+  stir: [0.75, 0.5],
+  awake: [1.2, 2.4],
+  /** How often a wiggle is a false alarm. */
+  fake: 0.22,
+  /** Seconds you have to stop after the eye opens. */
+  grace: 0.16,
+  cozyGrace: 0.4,
+  /** Cozy style: being seen only sends you back this far. */
+  cozyBack: 90,
+  /** Finish in this many seconds for silver and gold. Just finishing is bronze. */
+  medals: [22, 13],
+};
+
+export const SEEK_TUNING = {
+  /** Places to hide. */
+  spots: 12,
+  /** Pets hiding in the first round and the second. */
+  rounds: [4, 6],
+  /** Cozy style: fewer places to look and fewer pets to find. */
+  cozySpots: 9,
+  cozyRounds: [3, 5],
+  /** Seconds on the clock for both rounds together (Cozy has no clock). */
+  time: 45,
+  /** Seconds of pushing into a hiding spot it takes to look inside (so brushing past doesn't count). */
+  lookTime: 0.32,
+  /** Looking in an empty spot costs this many seconds (not in Cozy). */
+  missCost: 3,
+  /** Seconds between peeks, and how long each one lasts. */
+  peekEvery: [2.6, 5.2],
+  peekTime: 1.0,
+  cozyPeekEvery: [1.2, 2.6],
+  cozyPeekTime: 1.7,
+  /** Finish round one for bronze, both for silver, both with this many seconds left for gold. */
+  goldLeft: 12,
+  /** Cozy has no clock: finish in this many seconds for silver and gold. */
+  cozyMedals: [80, 50],
+};
 
 /* ---------- A house ad, and sharing ---------- */
 

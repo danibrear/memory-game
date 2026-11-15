@@ -7,6 +7,7 @@ import {
   faCheck,
   faClover,
   faCoins,
+  faDice,
   faDove,
   faDroplet,
   faDumbbell,
@@ -46,6 +47,9 @@ import {
   FUSE_COUNT,
   HATS,
   HOME_DECOR,
+  MEDAL_COLORS,
+  MEDAL_NAMES,
+  MINIS,
   MISSION_STREAK,
   MISSION_STREAK_STARS,
   PETS,
@@ -89,9 +93,11 @@ import {
 import {
   canFuse,
   canRebirth,
+  canRoll,
   coinMult,
   countOf,
   missionProgress,
+  prizeWait,
   rebirthGain,
   sellPrice,
   type Game,
@@ -571,7 +577,7 @@ export function ShopBody({
                   type="button"
                   className={cx("se-cell", using && "is-on", !owned && g.stars < t.cost && "is-locked")}
                   aria-pressed={using}
-                  aria-label={owned ? `Use ${t.name}` : `Buy ${t.name} for ${t.cost} stars`}
+                  aria-label={owned ? `Use ${t.name}` : t.prize ? `${t.name}: win ${t.prize}` : `Buy ${t.name} for ${t.cost} stars`}
                   onClick={() => onTrail(t.id)}>
                   <span className={cx("se-trail", `is-${t.shape}`)} aria-hidden>
                     {(t.colors.length ? t.colors : ["transparent"]).slice(0, 4).map((c, i) => (
@@ -586,6 +592,10 @@ export function ShopBody({
                       </>
                     ) : owned ? (
                       "Use"
+                    ) : t.prize ? (
+                      <>
+                        <FontAwesomeIcon icon={faMedal} /> {t.prize}
+                      </>
                     ) : (
                       <>
                         <StarIcon /> {t.cost}
@@ -609,11 +619,13 @@ export function PetsBody({
   onFuse,
   onSell,
   onBuddy,
+  onRoll,
 }: {
   g: Game;
   onFuse: (id: string) => void;
   onSell: (id: string) => void;
   onBuddy: (id: string | null) => void;
+  onRoll: (id: string) => void;
 }) {
   const kinds = PETS.filter((p) => countOf(g, p.id) > 0).sort(
     (a, b) => b.biome - a.biome || b.rarity - a.rarity,
@@ -633,6 +645,12 @@ export function PetsBody({
         <FontAwesomeIcon icon={faWandMagicSparkles} /> Fuse {FUSE_COUNT} of the same pet to make a
         rarer one. Tap <FontAwesomeIcon icon={faHeart} /> to pick a buddy.
       </p>
+      {g.dice > 0 && (
+        <p className="se-tip se-dice-tip">
+          <FontAwesomeIcon icon={faDice} /> You have {g.dice} Lucky Dice! Roll one on a pet for a
+          chance at a bigger size or a shinier colour. It never gets worse.
+        </p>
+      )}
       <div className="se-list">
         {kinds.map((def) => {
           const n = countOf(g, def.id);
@@ -678,6 +696,17 @@ export function PetsBody({
                 </small>
               </div>
               <div className="se-row-actions">
+                {g.dice > 0 && (
+                  <KitButton
+                    size="sm"
+                    icon={faDice}
+                    className="se-roll"
+                    disabled={!canRoll(g, def.id)}
+                    onClick={() => onRoll(def.id)}
+                    aria-label={`Roll a Lucky Dice on ${def.name}`}>
+                    Roll
+                  </KitButton>
+                )}
                 {def.rarity < 4 && (
                   <KitButton
                     size="sm"
@@ -942,6 +971,18 @@ export function MapBody({
                 <small>
                   {here ? "You are here" : open ? (s.i < 0 ? "Your nests and pen" : `Pets earn ${BIOMES[s.i].mult}x here`) : `Needs Speed ${s.req}`}
                 </small>
+                {open &&
+                  MINIS.filter((m) => m.biome === s.i).map((m) => {
+                    const wait = prizeWait(g, m.id);
+                    const medal = g.medals[m.id];
+                    return (
+                      <small className="se-map-mini" key={m.id}>
+                        <FontAwesomeIcon icon={faMedal} style={{ color: MEDAL_COLORS[medal] }} />{" "}
+                        {m.name}: {wait > 0 ? `prize in ${fmtTime(wait)}` : "prize ready!"}
+                        {medal > 0 ? ` (${MEDAL_NAMES[medal]})` : ""}
+                      </small>
+                    );
+                  })}
                 {open && s.i >= 0 && g.ancients[s.i] && (
                   <small>
                     {POWER_EGGS[s.i].name}:{" "}

@@ -231,6 +231,33 @@ export const sfx = {
     noise(0.2, { vol: 0.12, from: 1500, to: 500 });
     tone(NOTE(12), 0.14, { type: "sine", vol: 0.12, delay: 0.05 });
   },
+  /** Mini games: the 3-2-1 beeps, and the higher one for "Go!". */
+  count() {
+    tone(NOTE(0), 0.12, { type: "square", vol: 0.1 });
+  },
+  go() {
+    tone(NOTE(12), 0.3, { type: "square", vol: 0.12 });
+  },
+  /** A pet peeking out of its hiding place, or Zip having a laugh. */
+  giggle() {
+    tone(1200, 0.06, { type: "sine", vol: 0.1, to: 1500 });
+    tone(1400, 0.06, { type: "sine", vol: 0.1, to: 1700, delay: 0.08 });
+    tone(1250, 0.07, { type: "sine", vol: 0.1, to: 1550, delay: 0.16 });
+  },
+  /** Something is about to happen: Zip winding up, the Grumble stirring. */
+  warn() {
+    tone(440, 0.1, { type: "triangle", vol: 0.14 });
+    tone(587, 0.14, { type: "triangle", vol: 0.14, delay: 0.1 });
+  },
+  /** A medal: one note for bronze, a little fanfare for gold. */
+  medal(n: number) {
+    [0, 4, 7, 12, 16, 19, 24].slice(0, 2 + n * 2).forEach((semis, i) =>
+      tone(NOTE(semis), 0.26, { type: "triangle", vol: 0.2, delay: i * 0.1 }),
+    );
+  },
+  dice() {
+    for (let i = 0; i < 5; i++) tone(500 + Math.random() * 700, 0.04, { type: "square", vol: 0.08, delay: i * 0.06 });
+  },
 };
 
 /* ---------- Music: a soft looping tune that changes with the land ---------- */
