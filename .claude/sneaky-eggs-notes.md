@@ -244,8 +244,9 @@ worth more than a hatch; and show FanScout to players as much as we can.
   adRewards` in this device's save only. The game still sends nothing anywhere;
   the only signal that leaves is the `utm_` tag on the link when someone taps
   through. Two trophies: Fan Favorite (5 boosts), Superfan (50).
-- Worth knowing: the site's welcome note says the games are "not affiliated
-  with any company". With FanScout this visible, that line may want a tweak.
+- The site's welcome note used to say the games are "not affiliated with any
+  company". With FanScout this visible that line was dropped (Nov 15); the
+  note now only says the games are free, saved in the browser and never tracked.
 
 ### Sharing
 - "Tell a friend" on the title screen and "Brag" on jackpot hatches use the

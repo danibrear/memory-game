@@ -97,9 +97,8 @@ export default function Welcome() {
       </ul>
 
       <p id="welcome-note" className="dg-welcome-note">
-        These games are provided for free and are not affiliated with any
-        company. Any game state is stored in your browser and nothing is ever
-        tracked.
+        These games are free to play. Your game is saved in your browser and
+        nothing is ever tracked.
       </p>
 
       {/* The wrapper carries the entrance animation, so the button's own
